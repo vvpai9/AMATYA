@@ -1566,6 +1566,26 @@ class AmatyaLive:
                 )
             )
 
+    def _push_out_audio(self, item: dict) -> None:
+        """Enqueue outgoing PCM audio chunks for the Live session.
+        If the queue is full (e.g. temporary network stall or server pause),
+        drop the oldest frame so fresh realtime audio is prioritized and
+        QueueFull is never thrown into the asyncio callback loop.
+        """
+        if self.out_queue is None:
+            return
+        try:
+            self.out_queue.put_nowait(item)
+        except asyncio.QueueFull:
+            try:
+                self.out_queue.get_nowait()
+            except Exception:
+                pass
+            try:
+                self.out_queue.put_nowait(item)
+            except Exception:
+                pass
+
     async def _listen_audio(self):
         print("[AMATYA] 🎤 Mic started")
         loop = asyncio.get_event_loop()
@@ -1633,7 +1653,7 @@ class AmatyaLive:
             if not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
+                    self._push_out_audio,
                     {"data": data, "mime_type": "audio/pcm"}
                 )
                 # Feed the live mic level to the HUD so the waveform reacts to
@@ -2317,10 +2337,7 @@ class AmatyaLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
-                try:
-                    self.out_queue.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    pass
+                self._push_out_audio(chunk)
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")

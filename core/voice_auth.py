@@ -445,9 +445,51 @@ class VoiceAuthenticator:
             return None
 
     def delete_profile(self, user_name: str) -> tuple[bool, str]:
-        path = self._profile_path(user_name)
+        _ensure_dirs()
+        clean = (user_name or "").strip()
+        if clean.lower() in ("all", "everyone", "*"):
+            deleted = []
+            for p in PROFILES_DIR.glob("*.json"):
+                if p.name.startswith("_"):
+                    continue
+                try:
+                    deleted.append(p.stem)
+                    p.unlink()
+                except Exception:
+                    pass
+            clear_session_auth()
+            if deleted:
+                log_audit_event(
+                    "voice_profile_deleted",
+                    "delete_profile",
+                    PermissionTier.SENSITIVE_SYSTEM,
+                    True,
+                    f"Deleted all voice profiles: {', '.join(deleted)}.",
+                    user="all",
+                )
+                return True, f"Deleted all voice profiles ({', '.join(deleted)})."
+            return False, "No voice profiles were found to delete."
+
+        path = self._profile_path(clean)
+        matched_user = clean
         if not path.exists():
-            return False, f"Voice profile '{user_name}' does not exist."
+            # Match case-insensitively across profiles
+            for p in PROFILES_DIR.glob("*.json"):
+                if p.name.startswith("_"):
+                    continue
+                try:
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                    cand_user = data.get("user_name", p.stem)
+                    if p.stem.lower() == clean.lower() or cand_user.lower() == clean.lower():
+                        path = p
+                        matched_user = cand_user
+                        break
+                except Exception:
+                    continue
+
+        if not path.exists():
+            return False, f"Voice profile '{clean}' does not exist."
+
         try:
             path.unlink()
             clear_session_auth()
@@ -456,12 +498,12 @@ class VoiceAuthenticator:
                 "delete_profile",
                 PermissionTier.SENSITIVE_SYSTEM,
                 True,
-                f"Deleted voice profile '{user_name}'.",
-                user=user_name,
+                f"Deleted voice profile '{matched_user}'.",
+                user=matched_user,
             )
-            return True, f"Voice profile '{user_name}' removed."
+            return True, f"Voice profile '{matched_user}' removed."
         except Exception as exc:
-            return False, f"Failed to remove profile '{user_name}': {exc}"
+            return False, f"Failed to remove profile '{clean}': {exc}"
 
     # ── Enrollment ───────────────────────────────────────────────────────────
 

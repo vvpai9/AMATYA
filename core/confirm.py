@@ -51,8 +51,10 @@ class _Pending:
     key:     str
     title:   str
     detail:  str
-    run:     Callable[[], str]
-    at:      float
+    run:     Optional[Callable[[], str]] = None
+    event:   Optional[threading.Event] = None
+    result:  Optional[bool] = None
+    at:      float = 0.0
 
 
 _pending: Optional[_Pending] = None
@@ -112,6 +114,62 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
     )
 
 
+def request_confirmation(
+    operation: str,
+    description: str = "",
+    timeout: float = 30.0,
+) -> bool:
+    """Request interactive confirmation from the user on the HUD.
+    Blocks the calling worker thread until the user clicks CONFIRM or CANCEL,
+    or until timeout expires. Returns True if confirmed, False otherwise.
+    """
+    global _pending
+
+    if _show_cb is None:
+        # Headless or UI not bound
+        _log(f"SYS: Confirmation requested for '{operation}' but HUD interface is not bound.")
+        return False
+
+    evt = threading.Event()
+    item = _Pending(
+        key=operation,
+        title=f"Confirm: {operation}",
+        detail=description or f"Do you confirm: {operation}?",
+        run=None,
+        event=evt,
+        result=None,
+        at=time.monotonic(),
+    )
+    with _lock:
+        _pending = item
+
+    try:
+        _show_cb(f"Confirm: {operation}", description or f"Do you confirm: {operation}?")
+    except Exception as e:
+        with _lock:
+            if _pending is item:
+                _pending = None
+        _log(f"ERR: Failed to display confirmation dialog: {e}")
+        return False
+
+    _log(f"SYS: Awaiting interactive confirmation for {operation} (timeout {timeout}s)...")
+    completed = evt.wait(timeout=timeout)
+
+    if not completed:
+        with _lock:
+            if _pending is item:
+                _pending = None
+        if _hide_cb:
+            try:
+                _hide_cb()
+            except Exception:
+                pass
+        _log(f"SYS: Confirmation timed out for {operation}")
+        return False
+
+    return bool(item.result)
+
+
 def resolve(accepted: bool) -> None:
     """Called by the UI when the user presses CONFIRM or CANCEL.
 
@@ -134,21 +192,32 @@ def resolve(accepted: bool) -> None:
 
     if time.monotonic() - p.at > TIMEOUT_SECONDS:
         _log(f"SYS: Confirmation expired — {p.title}")
+        if p.event:
+            p.result = False
+            p.event.set()
+        return
+
+    # If this was a synchronous interactive confirmation (request_confirmation)
+    if p.event:
+        p.result = bool(accepted)
+        p.event.set()
+        _log(f"SYS: Interactive confirmation {'accepted' if accepted else 'declined'} — {p.title}")
         return
 
     if not accepted:
         _log(f"SYS: Cancelled — {p.title}")
         return
 
-    def _worker():
-        try:
-            result = p.run() or "Done."
-            _log(f"SYS: Confirmed — {p.title}. {result}")
-        except Exception as e:
-            _log(f"ERR: {p.title} failed — {e}")
+    if p.run:
+        def _worker():
+            try:
+                result = p.run() or "Done."
+                _log(f"SYS: Confirmed — {p.title}. {result}")
+            except Exception as e:
+                _log(f"ERR: {p.title} failed — {e}")
 
-    threading.Thread(target=_worker, daemon=True,
-                     name=f"confirm-{p.key}").start()
+        threading.Thread(target=_worker, daemon=True,
+                         name=f"confirm-{p.key}").start()
 
 
 def pending_title() -> str:

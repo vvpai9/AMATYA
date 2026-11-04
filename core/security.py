@@ -349,6 +349,7 @@ def check_permission(
     description: str = "",
     pin: str | None = None,
     interactive_confirm: bool = True,
+    confirmed: bool = False,
 ) -> dict[str, Any]:
     """Evaluate whether `operation` at `tier` is permitted under the current
     autonomy level, voice authentication status, PIN, and confirmation gate.
@@ -461,7 +462,7 @@ def check_permission(
             (ptier == PermissionTier.PRIVATE_FILES and autonomy in ("autonomous_low_risk", "autonomous_workflows"))
             or (ptier == PermissionTier.REMOTE_DEVICE_CONTROL and autonomy == "autonomous_workflows")
         )
-        if voice_auth_on and not (voice_ok or pin_ok):
+        if voice_auth_on and not (voice_ok or pin_ok or confirmed):
             if not interactive_confirm:
                 reason = f"Voice verification or confirmation required for '{operation}'."
                 log_audit_event("permission_denied", operation, ptier, False, reason)
@@ -475,7 +476,7 @@ def check_permission(
                     "requires_voice_auth": True,
                     "requires_pin": False,
                 }
-        if not auto_allowed and not (voice_ok or pin_ok):
+        if not auto_allowed and not (voice_ok or pin_ok or confirmed):
             if interactive_confirm:
                 try:
                     from core.confirm import request_confirmation
@@ -513,9 +514,9 @@ def check_permission(
     # 5. Tier 4: Sensitive System Changes
     # Verified user voice PLUS explicit confirmation or PIN
     if ptier == PermissionTier.SENSITIVE_SYSTEM:
-        if voice_auth_on and not (voice_ok or pin_ok):
+        if voice_auth_on and not (voice_ok or pin_ok or confirmed):
             reason = (
-                f"Sensitive system operation '{operation}' requires verified voice or PIN."
+                f"Sensitive system operation '{operation}' requires verified voice, PIN, or confirmation."
             )
             log_audit_event("permission_denied", operation, ptier, False, reason)
             return {
@@ -528,7 +529,7 @@ def check_permission(
                 "requires_voice_auth": True,
                 "requires_pin": has_pin(),
             }
-        if not pin_ok:
+        if not (pin_ok or confirmed):
             if interactive_confirm:
                 try:
                     from core.confirm import request_confirmation
@@ -592,7 +593,7 @@ def check_permission(
             "requires_voice_auth": voice_auth_on,
             "requires_pin": True,
         }
-    if not pin_ok:
+    if not (pin_ok or confirmed):
         if interactive_confirm:
             try:
                 from core.confirm import request_confirmation
@@ -617,6 +618,17 @@ def check_permission(
                 }
         else:
             reason = f"Critical security operation '{operation}' requires explicit confirmation or PIN."
+            log_audit_event("permission_denied", operation, ptier, False, reason)
+            return {
+                "allowed": False,
+                "tier": int(ptier),
+                "tier_label": TIER_LABELS[ptier],
+                "autonomy_level": autonomy,
+                "reason": reason,
+                "requires_confirmation": True,
+                "requires_voice_auth": voice_auth_on,
+                "requires_pin": has_pin(),
+            }
             log_audit_event("permission_denied", operation, ptier, False, reason)
             return {
                 "allowed": False,

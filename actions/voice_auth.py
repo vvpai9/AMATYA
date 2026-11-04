@@ -153,6 +153,10 @@ TOOL = {
                 "type": "NUMBER",
                 "description": "Speech speed multiplier (0.5 to 2.0).",
             },
+            "confirmed": {
+                "type": "BOOLEAN",
+                "description": "Set True if user explicitly confirmed deleting a profile, disabling voice auth, or sensitive action.",
+            },
             "speech_verbosity": {
                 "type": "STRING",
                 "description": "Verbosity level: 'concise', 'normal', or 'detailed'.",
@@ -182,6 +186,11 @@ def execute(
     session_memory=None,
 ) -> Any:
     action = str(parameters.get("action", "status") or "status").strip().lower()
+    confirmed = bool(
+        parameters.get("confirmed", False)
+        or parameters.get("confirm", False)
+        or str(parameters.get("confirmed", "")).lower() in ("yes", "true", "1", "confirm")
+    )
     auth = get_voice_authenticator()
 
     if action == "status":
@@ -200,7 +209,8 @@ def execute(
             f"(model={wake_info['configured_model']}, threshold={wake_info['configured_threshold']:.2f})."
         )
         return outcome.done(
-            summary,
+            "voice_auth",
+            result=summary,
             data={
                 "auth_status": status,
                 "profiles": profiles,
@@ -218,9 +228,9 @@ def execute(
     if action == "list_profiles":
         profiles = auth.list_profiles()
         if not profiles:
-            return outcome.done("No voice profiles are currently enrolled.", data={"profiles": []})
+            return outcome.done("voice_auth", result="No voice profiles are currently enrolled.", data={"profiles": []})
         names = ", ".join(f"{p['user_name']} ({p['sample_count']} samples)" for p in profiles)
-        return outcome.done(f"Enrolled voice profiles: {names}.", data={"profiles": profiles})
+        return outcome.done("voice_auth", result=f"Enrolled voice profiles: {names}.", data={"profiles": profiles})
 
     if action in ("enroll", "re_enroll"):
         user_name = parameters.get("user_name")
@@ -267,17 +277,39 @@ def execute(
         return outcome.failed("voice_auth", res.reason, data=res.to_dict())
 
     if action == "delete_profile":
+        user_name = str(parameters.get("user_name", "") or "").strip()
+        profiles = auth.list_profiles()
+        if not user_name:
+            if len(profiles) == 1:
+                user_name = profiles[0]["user_name"]
+            elif len(profiles) == 0:
+                return outcome.failed("voice_auth", "No voice profiles are currently enrolled.")
+            else:
+                names = [p["user_name"] for p in profiles]
+                return outcome.ask(
+                    "voice_auth",
+                    f"Multiple voice profiles exist ({', '.join(names)}). Which profile should I delete?",
+                    profiles=names,
+                )
+
+        if not confirmed:
+            return outcome.ask(
+                "voice_auth",
+                f"Deleting voice profile '{user_name}' cannot be undone. Please confirm to delete.",
+                user_name=user_name,
+                requires_confirmation=True,
+            )
+
         perm = check_permission(
             "delete_voice_profile",
             PermissionTier.SENSITIVE_SYSTEM,
-            description=f"Delete enrolled voice profile '{parameters.get('user_name', '')}'",
+            description=f"Delete enrolled voice profile '{user_name}'",
             pin=parameters.get("pin"),
+            confirmed=True,
         )
         if not perm["allowed"]:
             return outcome.failed("voice_auth", perm["reason"], data=perm)
-        user_name = str(parameters.get("user_name", "") or "").strip()
-        if not user_name:
-            return outcome.failed("voice_auth", "Please specify 'user_name' to delete.")
+
         ok, msg = auth.delete_profile(user_name)
         return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
@@ -294,6 +326,7 @@ def execute(
             PermissionTier.SENSITIVE_SYSTEM,
             description="Disable speaker voice authentication requirement",
             pin=parameters.get("pin"),
+            confirmed=confirmed,
         )
         if not perm["allowed"]:
             return outcome.failed("voice_auth", perm["reason"], data=perm)
