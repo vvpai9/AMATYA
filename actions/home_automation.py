@@ -200,3 +200,4 @@ def execute(
         return outcome.done(f"Home Automation connection status: {res['mode_label']}", data=res)
 
     return outcome.failed(f"Unknown home_automation action '{action}'.")
+

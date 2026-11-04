@@ -689,3 +689,4 @@ def get_device_manager() -> ConnectedDeviceManager:
     if _DEVICE_MANAGER is None:
         _DEVICE_MANAGER = ConnectedDeviceManager()
     return _DEVICE_MANAGER
+

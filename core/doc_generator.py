@@ -334,3 +334,4 @@ def analyze_document(file_path: str | Path) -> dict[str, Any]:
         }
     except Exception as exc:
         return {"ok": False, "path": str(fp), "error": f"Document analysis failed: {exc}"}
+

@@ -2807,7 +2807,11 @@ class AmatyaLive:
                     continue
 
                 # Invalid API key — stop hammering the API, prompt re-configuration
-                if "API key not valid" in err_str or "1007" in err_str:
+                is_auth_err = any(
+                    s in err_str.lower()
+                    for s in ("api key not valid", "api_key_invalid", "invalid api key", "pass a valid api key")
+                )
+                if is_auth_err:
                     self.ui.write_log("ERR: API key invalid — please re-enter your key.")
                     self.ui.set_state("SLEEPING")
                     self.ui.prompt_reconfig()
@@ -2815,6 +2819,17 @@ class AmatyaLive:
                         await asyncio.sleep(1)
                     print("[AMATYA] New API key saved — reconnecting...")
                     _conn_backoff = 3
+                    continue
+
+                # 1007 indicates an invalid payload / tool schema / parameter rejection
+                if "1007" in err_str:
+                    self._conn_backoff = min(
+                        max(3, int(getattr(self, "_conn_backoff", 3) or 3)) * 2,
+                        60,
+                    )
+                    self.ui.write_log(
+                        f"ERR: Gemini Live rejected setup or payload ({err_str[:120]}); retrying in {self._conn_backoff}s."
+                    )
                     continue
 
                 # Network / timeout errors — log clearly and back off

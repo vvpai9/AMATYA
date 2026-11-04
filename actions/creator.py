@@ -93,7 +93,14 @@ TOOL = {
             },
             "edits": {
                 "type": "ARRAY",
-                "items": {"type": "OBJECT"},
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "path": {"type": "STRING"},
+                        "target": {"type": "STRING"},
+                        "replacement": {"type": "STRING"},
+                    },
+                },
                 "description": "List of file edit dicts [{'path': ..., 'target': ..., 'replacement': ...}].",
             },
             "output_path": {
@@ -106,8 +113,23 @@ TOOL = {
             },
             "title": {"type": "STRING"},
             "content": {"type": "STRING"},
-            "sections": {"type": "ARRAY", "items": {"type": "OBJECT"}},
-            "rows": {"type": "ARRAY", "items": {"type": "ARRAY"}},
+            "sections": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "heading": {"type": "STRING"},
+                        "text": {"type": "STRING"},
+                    },
+                },
+            },
+            "rows": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "ARRAY",
+                    "items": {"type": "STRING"},
+                },
+            },
             "source_paths": {"type": "ARRAY", "items": {"type": "STRING"}},
             "prompt": {"type": "STRING"},
         },
@@ -251,3 +273,4 @@ def execute(
         return outcome.done(ans)
 
     return outcome.failed(f"Unknown creator action '{action}'.")
+

@@ -68,7 +68,7 @@ TIER_LABELS: dict[PermissionTier, str] = {
 
 # Patterns that indicate credentials, tokens, API keys, or private keys
 _SECRET_PATTERNS = [
-    re.compile(r"\bAIza[0-9A-Za-z\-_]{30,}\b"),                     # Google / Gemini API key
+    re.compile(r"\b(?:AIza|AQ\.)[0-9A-Za-z\-_]{28,}\b"),            # Google / Gemini API key
     re.compile(r"\bsk-[A-Za-z0-9\-_]{20,}\b"),                      # OpenAI / Anthropic key
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{25,}\b"),                  # GitHub token
     re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{15,}\b"),               # Slack token

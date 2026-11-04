@@ -311,3 +311,4 @@ def get_knowledge_base() -> LocalKnowledgeBase:
     if _KB_INSTANCE is None:
         _KB_INSTANCE = LocalKnowledgeBase()
     return _KB_INSTANCE
+

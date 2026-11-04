@@ -210,3 +210,4 @@ def execute(
         return outcome.done(msg, data=res)
 
     return outcome.failed(f"Unknown device_control action '{action}'.")
+
