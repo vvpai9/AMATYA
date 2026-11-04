@@ -1,27 +1,18 @@
 """
-Action discovery, validation, and dispatch — the built-in twin of plugin_loader.
+Action discovery, validation, skill metadata registry, and dispatch.
 
 Every actions/*.py that exposes a module-level ``TOOL`` dict is auto-discovered
 here, exactly like a drop-in plugin, so main.py never has to hardcode a tool
-declaration or a dispatch branch for it. Adding a new bundled action is then the
-same one-file operation as writing a plugin: define ``TOOL`` and a handler.
+declaration or a dispatch branch for it.
 
-``TOOL`` shape (see actions/open_app.py for a live example):
-
-    TOOL = {
-        "name":        "open_app",              # unique, ^[a-zA-Z_][a-zA-Z0-9_]{0,63}$
-        "description":  "...",                   # what Gemini reads to route the call
-        "parameters":  {"type": "OBJECT", ...}, # Gemini function-declaration schema
-        "handler":      open_app,                # the callable to run
-    }
-
-The handler is invoked through signature introspection: it receives ``parameters``
-plus whichever of ``player`` / ``speak`` / ``response`` / ``session_memory`` it
-actually declares — so existing action signatures work unchanged.
-
-Discovery runs once at startup; import errors, validation errors, and name
-collisions are logged and the offending file is skipped — they NEVER raise out
-of discover_actions() and never abort the scan of the remaining files.
+Supports Section 11 (Skills and Plugin Architecture):
+Each action/skill module may also declare ``SKILL_METADATA`` (or embed metadata
+fields inside ``TOOL``) describing:
+  - capabilities: list[str]
+  - permissions: list[str]
+  - dependencies: list[str]
+  - supported_actions: list[str]
+  - security_level: "low" | "normal" | "high" | "critical"
 """
 from __future__ import annotations
 
@@ -32,36 +23,24 @@ import sys
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
 _CTX_KEYS = ("player", "speak", "response", "session_memory")
 
-
-# A tool may declare that the model should NOT be held up waiting for it.
-# `behavior` goes to the API with the declaration; `scheduling` decides when the
-# eventual result is allowed back into the conversation:
-#   WHEN_IDLE  — wait for a gap in the speech (the sane default)
-#   SILENT     — record it, do not prompt a reply (the tool already announced)
-#   INTERRUPT  — cut in immediately (only when the answer cannot wait)
 _BEHAVIORS = ("BLOCKING", "NON_BLOCKING")
 _SCHEDULING = ("WHEN_IDLE", "SILENT", "INTERRUPT")
 
-
-# Keys this project puts on a declaration for its own bookkeeping. They live
-# here because this file documents what a TOOL dict may contain, and both
-# loaders produce them.
-#
-# THEY MUST NEVER REACH A VENDOR. Gemini validates function declarations
-# against a fixed schema and an unknown field is an error, not something it
-# ignores — so main.py calls strip_meta() before building the Live config.
-#
-# The definition is here rather than in providers/schema.py, which is the only
-# other place that cares, because main.py must be able to strip them WITHOUT
-# importing providers: a default install never loads that package, and the
-# measured cost of deciding not to is the release's headline number.
-META_KEYS = ("tier", "brief")
+META_KEYS = (
+    "tier",
+    "brief",
+    "capabilities",
+    "permissions",
+    "dependencies",
+    "supported_actions",
+    "security_level",
+)
 
 
 def strip_meta(decls):
@@ -81,12 +60,8 @@ def _opt_upper(value, allowed: tuple[str, ...]) -> Optional[str]:
     v = str(value or "").strip().upper()
     return v if v in allowed else None
 
-def _opt_tier(value) -> Optional[str]:
-    """"core" or "extra" from a declaration, or None when it did not say.
 
-    Anything else is treated as "did not say" rather than as an error: a typo
-    should fall back to the default ranking, not stop a working tool loading.
-    """
+def _opt_tier(value) -> Optional[str]:
     text = str(value or "").strip().lower()
     return text if text in ("core", "extra") else None
 
@@ -105,36 +80,34 @@ class ActionRecord:
     file: str = ""
     valid: bool = False
     error: str = ""
-    behavior: Optional[str] = None     # None = the API's default (blocking)
-    scheduling: Optional[str] = None   # None = the API's default (WHEN_IDLE)
-    # Read by providers/schema.py when a small model gets a tool budget; never
-    # sent to any API — main.py strips both before the Gemini config is built.
-    #   tier   "core" | "extra" — this file's own opinion of whether it should
-    #          survive a tight budget, instead of that being decided by the
-    #          order files happen to be discovered in.
-    #   brief  a short description used in place of the long one when a budget
-    #          is in force. Nothing is deleted: Gemini still gets the full text.
+    behavior: Optional[str] = None
+    scheduling: Optional[str] = None
     tier: Optional[str] = None
     brief: Optional[str] = None
+    # Section 11: Declarative Skill Metadata
+    capabilities: list[str] = field(default_factory=list)
+    permissions: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    supported_actions: list[str] = field(default_factory=list)
+    security_level: str = "normal"
 
 
 class ActionRegistry:
     def __init__(self, actions: dict[str, ActionRecord], logger: Callable[[str], None]):
-        self._actions = actions          # name -> ActionRecord, VALID entries only
+        self._actions = actions
         self._all_records: list[ActionRecord] = []
         self._logger = logger
 
-    # -- called by main.py at LiveConnectConfig build time --
     def get_tool_declarations(self) -> list[dict]:
         out = []
         for rec in self._actions.values():
-            decl = {"name": rec.name, "description": rec.description,
-                    "parameters": rec.parameters}
+            decl = {
+                "name": rec.name,
+                "description": rec.description,
+                "parameters": rec.parameters,
+            }
             if rec.behavior:
                 decl["behavior"] = rec.behavior
-            # Budget metadata. NOT part of any API's schema — main.py calls
-            # providers.schema.strip_meta() before the Gemini config is built,
-            # and budget() consumes them on the local-engine path.
             if rec.tier:
                 decl["tier"] = rec.tier
             if rec.brief:
@@ -146,14 +119,29 @@ class ActionRegistry:
         return name in self._actions
 
     def scheduling(self, name: str) -> Optional[str]:
-        """How this action's result should re-enter the conversation, if it said."""
         rec = self._actions.get(name)
         return rec.scheduling if rec else None
 
     def names(self) -> set[str]:
         return set(self._actions.keys())
 
-    # -- called by main.py from _execute_tool --
+    def list_skills(self) -> list[dict[str, Any]]:
+        """Return declarative metadata for all loaded actions/skills (Section 11)."""
+        out = []
+        for rec in self._actions.values():
+            out.append({
+                "name": rec.name,
+                "file": rec.file,
+                "description": rec.brief or rec.description[:140],
+                "capabilities": rec.capabilities,
+                "permissions": rec.permissions,
+                "dependencies": rec.dependencies,
+                "supported_actions": rec.supported_actions,
+                "security_level": rec.security_level,
+                "valid": rec.valid,
+            })
+        return out
+
     def run(self, name: str, parameters: dict, ctx: dict | None = None) -> str:
         rec = self._actions.get(name)
         if rec is None or not rec.valid:
@@ -167,9 +155,6 @@ class ActionRegistry:
 
 
 def _call_handler(fn: Callable, parameters: dict, ctx: dict) -> str:
-    """Invoke the handler passing only the context kwargs it actually declares
-    (or all of them if it has **kwargs), so each action's existing signature
-    works unchanged."""
     sig = inspect.signature(fn)
     has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     kwargs = {}
@@ -177,6 +162,35 @@ def _call_handler(fn: Callable, parameters: dict, ctx: dict) -> str:
         if has_var_kw or key in sig.parameters:
             kwargs[key] = ctx.get(key)
     return fn(parameters=parameters, **kwargs)
+
+
+def _extract_skill_meta(module, tool: dict, parameters: dict) -> dict[str, Any]:
+    meta = getattr(module, "SKILL_METADATA", None)
+    if not isinstance(meta, dict):
+        meta = {}
+
+    def _list_field(key: str) -> list[str]:
+        val = meta.get(key) or tool.get(key) or []
+        return [str(x) for x in val] if isinstance(val, (list, tuple)) else []
+
+    supported = _list_field("supported_actions")
+    if not supported:
+        # Auto-infer supported_actions from parameters.properties.action if present
+        act_prop = (parameters.get("properties") or {}).get("action", {})
+        if isinstance(act_prop, dict) and isinstance(act_prop.get("enum"), list):
+            supported = [str(x) for x in act_prop["enum"]]
+
+    sec_lvl = str(meta.get("security_level") or tool.get("security_level") or "normal").lower()
+    if sec_lvl not in ("low", "normal", "high", "critical"):
+        sec_lvl = "normal"
+
+    return {
+        "capabilities": _list_field("capabilities"),
+        "permissions": _list_field("permissions"),
+        "dependencies": _list_field("dependencies"),
+        "supported_actions": supported,
+        "security_level": sec_lvl,
+    }
 
 
 def _validate(module, filename: str) -> ActionRecord:
@@ -201,41 +215,51 @@ def _validate(module, filename: str) -> ActionRecord:
         return ActionRecord(name=name, file=filename,
                             error="TOOL['parameters'] must be a dict with \"type\": \"OBJECT\".")
 
-    handler = tool.get("handler")
+    handler = (
+        tool.get("handler")
+        or getattr(module, "execute", None)
+        or getattr(module, "run", None)
+    )
     if not callable(handler):
         return ActionRecord(name=name, file=filename,
-                            error="TOOL['handler'] missing or not callable.")
+                            error="TOOL['handler'] (or module execute/run) missing or not callable.")
+    tool["handler"] = handler
 
-    return ActionRecord(name=name, description=description.strip(), parameters=parameters,
-                        handler=handler, file=filename, valid=True, error="",
-                        behavior=_opt_upper(tool.get("behavior"), _BEHAVIORS),
-                        scheduling=_opt_upper(tool.get("scheduling"), _SCHEDULING),
-                        tier=_opt_tier(tool.get("tier")),
-                        brief=_opt_text(tool.get("brief")))
+    smeta = _extract_skill_meta(module, tool, parameters)
+
+    return ActionRecord(
+        name=name,
+        description=description.strip(),
+        parameters=parameters,
+        handler=handler,
+        file=filename,
+        valid=True,
+        error="",
+        behavior=_opt_upper(tool.get("behavior"), _BEHAVIORS),
+        scheduling=_opt_upper(tool.get("scheduling"), _SCHEDULING),
+        tier=_opt_tier(tool.get("tier")),
+        brief=_opt_text(tool.get("brief")),
+        capabilities=smeta["capabilities"],
+        permissions=smeta["permissions"],
+        dependencies=smeta["dependencies"],
+        supported_actions=smeta["supported_actions"],
+        security_level=smeta["security_level"],
+    )
 
 
 def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
                      logger: Callable[[str], None] = print) -> ActionRegistry:
-    """
-    Scans actions_dir for *.py files (skips files starting with '_'). A file is
-    only treated as an action if it exposes a module-level TOOL dict; files
-    without one (shared helpers, capture-only modules) are silently ignored.
-    Import/validation errors and name collisions are logged and the file is
-    skipped — they NEVER raise out of this function.
-    """
     reserved = reserved_names or set()
     actions_dir.mkdir(parents=True, exist_ok=True)
     valid: dict[str, ActionRecord] = {}
     all_records: list[ActionRecord] = []
 
-    files = sorted(actions_dir.glob("*.py"), key=lambda p: p.name)  # deterministic order
+    files = sorted(actions_dir.glob("*.py"), key=lambda p: p.name)
     for path in files:
         if path.name.startswith("_"):
             continue
         try:
             module_name = f"actions.{path.stem}"
-            # Reuse the already-imported module when present so handlers are the
-            # same objects the rest of the app holds.
             module = sys.modules.get(module_name)
             if module is None:
                 spec = importlib.util.spec_from_file_location(module_name, path)
@@ -250,7 +274,7 @@ def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
                     raise
 
             if getattr(module, "TOOL", None) is None:
-                continue   # not an action file — a helper/capture-only module
+                continue
 
             rec = _validate(module, path.name)
 
@@ -272,7 +296,6 @@ def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
             valid[rec.name] = rec
             logger(f"Action loaded: {rec.name} ({path.name})")
         else:
-            # Only log a rejection if the file actually tried to be an action.
             logger(f"Action rejected: {path.name} — {rec.error}")
 
     registry = ActionRegistry(valid, logger)

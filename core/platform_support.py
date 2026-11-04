@@ -20,6 +20,12 @@ WHY THIS EXISTS
         possible failure and precisely why this reads as "the assistant is
         broken" rather than "the platform does not permit this".
 
+        kwin-mcp (https://github.com/isac322/kwin-mcp) changes this on KDE
+        Plasma 6 Wayland. It speaks KWin's private EIS (Emulated Input Server)
+        D-Bus interface and KWin ScreenShot2, so keyboard, mouse, screenshots,
+        window management and clipboard all work where nothing else can. When
+        the `kwin-mcp` binary is on PATH, Wayland is treated as capable.
+
     macOS / PERMISSIONS
         Driving the keyboard needs Accessibility, and capturing the screen
         needs Screen Recording. Both are off until the user grants them in
@@ -76,6 +82,21 @@ def _linux_session() -> str:
     return ""
 
 
+def _kwin_mcp_available() -> bool:
+    """True if the kwin-mcp binary is on PATH or in the active Python environment."""
+    if shutil.which("kwin-mcp") is not None:
+        return True
+    try:
+        import sys
+        from pathlib import Path
+        if (Path(sys.executable).resolve().parent / "kwin-mcp").exists():
+            return True
+        from core.lazyimport import installed
+        return bool(installed("kwin_mcp"))
+    except Exception:
+        return False
+
+
 def detect() -> Support:
     """Work out what this machine permits. Never raises, never blocks.
 
@@ -121,17 +142,29 @@ def detect() -> Support:
         # The whole point of Wayland is that one client cannot drive another.
         # XWayland covers apps that ask for X11, but synthetic input into
         # native Wayland windows is not available to us at all.
-        support.can_control_input = False
-        support.can_capture_screen = False
-        support.can_focus_windows = False
-        support.notes.append(
-            "This is a Wayland session, which does not let one program type, "
-            "click, capture the screen or raise another program's window — by "
-            "design, not by fault. Opening applications, files, the web, "
-            "memory and the whole voice pipeline are unaffected. Logging out "
-            "and choosing an Xorg session at the login screen restores the "
-            "rest."
-        )
+        #
+        # UNLESS kwin-mcp is installed: it speaks KWin's private EIS D-Bus
+        # interface and KWin ScreenShot2, restoring input, screenshot, window
+        # management and clipboard on KDE Plasma 6 Wayland.
+        if _kwin_mcp_available():
+            support.notes.append(
+                "Wayland session with kwin-mcp available — keyboard, mouse, "
+                "screenshots, window management and clipboard work through "
+                "kwin-mcp (KDE Plasma 6)."
+            )
+        else:
+            support.can_control_input = False
+            support.can_capture_screen = False
+            support.can_focus_windows = False
+            support.notes.append(
+                "This is a Wayland session, which does not let one program type, "
+                "click, capture the screen or raise another program's window — by "
+                "design, not by fault. Opening applications, files, the web, "
+                "memory and the whole voice pipeline are unaffected. Logging out "
+                "and choosing an Xorg session at the login screen restores the "
+                "rest. Install kwin-mcp (pip install kwin-mcp) to regain desktop "
+                "control on KDE Plasma 6 Wayland."
+            )
         return support
 
     # X11: everything is possible, but two small tools carry window focus.

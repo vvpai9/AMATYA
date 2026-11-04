@@ -52,8 +52,8 @@ def is_configured() -> bool:
 
 
 def get_assistant_name() -> str:
-    """Return the configured assistant name, or 'JARVIS' if not set."""
-    return load_api_keys().get("assistant_name", "JARVIS") or "JARVIS"
+    """Return the configured assistant name, or 'AMATYA' if not set."""
+    return load_api_keys().get("assistant_name", "AMATYA") or "AMATYA"
 
 
 def get_user_name() -> str:
@@ -70,7 +70,7 @@ def save_assistant_config(assistant_name: str, user_name: str) -> None:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             data = {}
-    data["assistant_name"] = assistant_name.strip() or "JARVIS"
+    data["assistant_name"] = assistant_name.strip() or "AMATYA"
     data["user_name"] = user_name.strip()
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
@@ -105,7 +105,7 @@ def save_voice(voice_name: str) -> None:
 
 
 def get_wake_word_enabled() -> bool:
-    """Whether local wake-word gating is on (assistant sleeps until 'Hey Jarvis')."""
+    """Whether local wake-word gating is on (assistant sleeps until 'Hey Amatya')."""
     return load_api_keys().get("wake_word_enabled", False)
 
 
@@ -119,6 +119,120 @@ def save_wake_word_enabled(enabled: bool) -> None:
             data = {}
     data["wake_word_enabled"] = bool(enabled)
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
+def get_wake_word_model() -> str:
+    """Return configured wake word model name or path (defaults to 'hey_jarvis')."""
+    val = str(load_api_keys().get("wake_word_model", "hey_jarvis") or "hey_jarvis").strip()
+    return val or "hey_jarvis"
+
+
+def save_wake_word_model(model_name: str) -> None:
+    _patch_config(wake_word_model=(model_name or "hey_jarvis").strip() or "hey_jarvis")
+
+
+def get_wake_word_threshold() -> float:
+    """Return configured wake word detection threshold in [0.1, 0.95]."""
+    try:
+        val = float(load_api_keys().get("wake_word_threshold", 0.5))
+        return max(0.1, min(0.95, val))
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def save_wake_word_threshold(threshold: float) -> None:
+    try:
+        val = max(0.1, min(0.95, float(threshold)))
+    except (TypeError, ValueError):
+        val = 0.5
+    _patch_config(wake_word_threshold=val)
+
+
+SPEECH_VERBOSITIES = ("concise", "normal", "detailed")
+SPEECH_STYLES = ("natural", "formal", "technical", "tactical")
+AUTONOMY_LEVELS = (
+    "observe_only",
+    "recommend",
+    "confirm",
+    "autonomous_low_risk",
+    "autonomous_workflows",
+)
+
+
+def get_speech_speed() -> float:
+    """Return speech speed multiplier in [0.5, 2.0] (default 1.0)."""
+    try:
+        val = float(load_api_keys().get("speech_speed", 1.0))
+        return max(0.5, min(2.0, val))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def save_speech_speed(speed: float) -> None:
+    try:
+        val = max(0.5, min(2.0, float(speed)))
+    except (TypeError, ValueError):
+        val = 1.0
+    _patch_config(speech_speed=val)
+
+
+def get_speech_verbosity() -> str:
+    """Return speech verbosity level: 'concise', 'normal', or 'detailed'."""
+    v = str(load_api_keys().get("speech_verbosity", "normal") or "normal").strip().lower()
+    return v if v in SPEECH_VERBOSITIES else "normal"
+
+
+def save_speech_verbosity(verbosity: str) -> None:
+    v = str(verbosity or "normal").strip().lower()
+    _patch_config(speech_verbosity=v if v in SPEECH_VERBOSITIES else "normal")
+
+
+def get_speech_style() -> str:
+    """Return speech style: 'natural', 'formal', 'technical', or 'tactical'."""
+    s = str(load_api_keys().get("speech_style", "natural") or "natural").strip().lower()
+    return s if s in SPEECH_STYLES else "natural"
+
+
+def save_speech_style(style: str) -> None:
+    s = str(style or "natural").strip().lower()
+    _patch_config(speech_style=s if s in SPEECH_STYLES else "natural")
+
+
+def get_autonomy_level() -> str:
+    """Return configured autonomy level (Levels 1-5)."""
+    lvl = str(load_api_keys().get("autonomy_level", "confirm") or "confirm").strip().lower()
+    return lvl if lvl in AUTONOMY_LEVELS else "confirm"
+
+
+def save_autonomy_level(level: str) -> None:
+    lvl = str(level or "confirm").strip().lower()
+    _patch_config(autonomy_level=lvl if lvl in AUTONOMY_LEVELS else "confirm")
+
+
+def get_voice_auth_enabled() -> bool:
+    """Whether speaker verification is enforced for sensitive commands."""
+    return bool(load_api_keys().get("voice_auth_enabled", False))
+
+
+def save_voice_auth_enabled(enabled: bool) -> None:
+    _patch_config(voice_auth_enabled=bool(enabled))
+
+
+def get_voice_auth_threshold() -> float:
+    """Speaker verification cosine similarity threshold in [0.5, 0.95]."""
+    try:
+        val = float(load_api_keys().get("voice_auth_threshold", 0.78))
+        return max(0.5, min(0.95, val))
+    except (TypeError, ValueError):
+        return 0.78
+
+
+def save_voice_auth_threshold(threshold: float) -> None:
+    try:
+        val = max(0.5, min(0.95, float(threshold)))
+    except (TypeError, ValueError):
+        val = 0.78
+    _patch_config(voice_auth_threshold=val)
 
 
 def get_push_to_talk_enabled() -> bool:

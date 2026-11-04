@@ -1,5 +1,5 @@
 """
-Screen & webcam capture for JARVIS vision.
+Screen & webcam capture for AMATYA vision.
 
 Provides the two capture entry points main.py uses — `_capture_screen()` and
 `_capture_camera()` — plus their helpers (compression, camera auto-detection,
@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import platform
 import sys
 from pathlib import Path
 
 import numpy as np
+
+_SYSTEM = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 from core.lazyimport import LazyModule, installed
 
@@ -91,6 +95,37 @@ def _compress(img_bytes: bytes, source_format: str = "PNG") -> tuple[bytes, str]
 
 def _capture_screen() -> tuple[bytes, str]:
 
+    # On Wayland, use kwin-mcp for screenshot (mss returns black/blank on Wayland).
+    if _SYSTEM == "Linux" and (
+        (os.environ.get("XDG_SESSION_TYPE") or "").strip().lower() == "wayland"
+        or bool(os.environ.get("WAYLAND_DISPLAY"))
+    ):
+        try:
+            from core.kwin_mcp_client import get_client, available as kwin_available
+            if kwin_available():
+                client = get_client()
+                if not client.running:
+                    client.start()
+                    client.connect_session()
+                result = client.screenshot()
+                # kwin-mcp v0.12.0 returns image data as MCP image content blocks
+                # with base64-encoded PNG data.
+                content = result.get("content", []) if isinstance(result, dict) else []
+                image_bytes = b""
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "image":
+                            b64_data = block.get("data", "")
+                            if b64_data:
+                                import base64
+                                image_bytes = base64.b64decode(b64_data)
+                                break
+                if image_bytes:
+                    return _compress(image_bytes, "PNG")
+        except Exception as e:
+            print(f"[Vision] kwin-mcp screenshot failed: {e}, falling back to mss")
+
+    # Fallback to mss (works on X11).
     if not _MSS:
         raise RuntimeError("mss is not installed. Run: pip install mss")
 

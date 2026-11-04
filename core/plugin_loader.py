@@ -1,7 +1,7 @@
 """
 Plugin discovery, validation, collision detection, and dispatch.
 
-Discovery runs once (JarvisLive.__init__ calls discover_plugins()); the resulting
+Discovery runs once (AmatyaLive.__init__ calls discover_plugins()); the resulting
 PluginRegistry is cached for the process lifetime. Enable/disable state is re-read
 from config on every call to get_tool_declarations() / run() / list_for_ui(), so
 toggling a plugin does not require restarting the app or re-importing anything.
@@ -69,6 +69,11 @@ class PluginRecord:
     #          is in force. Nothing is deleted: Gemini still gets the full text.
     tier: Optional[str] = None
     brief: Optional[str] = None
+    capabilities: list[str] = field(default_factory=list)
+    permissions: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    supported_actions: list[str] = field(default_factory=list)
+    security_level: str = "normal"
 
 
 class PluginRegistry:
@@ -165,6 +170,11 @@ class PluginRegistry:
                 "valid": rec.valid,
                 "error": rec.error,
                 "enabled": get_plugin_enabled(rec.name) if rec.valid else False,
+                "capabilities": rec.capabilities,
+                "permissions": rec.permissions,
+                "dependencies": rec.dependencies,
+                "supported_actions": rec.supported_actions,
+                "security_level": rec.security_level,
             })
         return out
 

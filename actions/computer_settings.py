@@ -25,8 +25,34 @@ pyperclip = LazyModule("pyperclip")
 
 from core import confirm, outcome
 from core.undo import push_undo
+import os as _os_env
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
+
+
+def _is_wayland() -> bool:
+    return _OS == "Linux" and (
+        (_os_env.environ.get("XDG_SESSION_TYPE") or "").strip().lower() == "wayland"
+        or bool(_os_env.environ.get("WAYLAND_DISPLAY"))
+    )
+
+
+def _kwin_send_key(chord: str) -> bool:
+    """Send a key or chord via kwin-mcp on Wayland. Returns True if handled."""
+    if not _is_wayland():
+        return False
+    try:
+        from core.kwin_mcp_client import get_client, available as kwin_avail
+        from core.desktop_agent import _normalize_key
+        if not kwin_avail():
+            return False
+        client = get_client()
+        client.ensure_started()
+        client.keyboard_key(_normalize_key(chord))
+        return True
+    except Exception:
+        return False
+
 
 if _OS == "Windows":
     _WIN_HIDE: dict = {"creationflags": subprocess.CREATE_NO_WINDOW}
@@ -301,15 +327,15 @@ def close_app():
 
 def close_window():
     if _OS == "Darwin": pyautogui.hotkey("command", "w")
-    else:               pyautogui.hotkey("ctrl", "w")
+    elif not _kwin_send_key("ctrl+w"): pyautogui.hotkey("ctrl", "w")
 
 def full_screen():
     if _OS == "Darwin": pyautogui.hotkey("ctrl", "command", "f")
-    else:               pyautogui.press("f11")
+    elif not _kwin_send_key("F11"): pyautogui.press("f11")
 
 def minimize_window():
     if _OS == "Darwin": pyautogui.hotkey("command", "m")
-    else:               pyautogui.hotkey("win", "down")
+    elif not _kwin_send_key("Meta+PageDown"): pyautogui.hotkey("win", "down")
 
 def maximize_window():
     if _OS == "Darwin":
@@ -320,6 +346,8 @@ def maximize_window():
     elif _OS == "Windows":
         pyautogui.hotkey("win", "up")
     else:
+        if _kwin_send_key("Meta+PageUp"):
+            return
         try:
             subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"],
                 capture_output=True)
@@ -337,6 +365,21 @@ def snap_left():
             pass
         pyautogui.hotkey("ctrl", "option", "left")
     else:  # Linux
+        if _is_wayland():
+            try:
+                from core.kwin_mcp_client import get_client, available as kwin_avail
+                if kwin_avail():
+                    client = get_client()
+                    client.ensure_started()
+                    wins = client.get_kwin_windows()
+                    active = next((w for w in wins if w.get("active")), None)
+                    if active and active.get("id"):
+                        client.window_set_geometry(active["id"], x=0, y=0, width=960, height=1080)
+                        return
+            except Exception:
+                pass
+            if _kwin_send_key("Meta+Left"):
+                return
         try:
             subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,0,0,960,1080"],
                 capture_output=True)
@@ -353,6 +396,21 @@ def snap_right():
             pass
         pyautogui.hotkey("ctrl", "option", "right")
     else:  # Linux
+        if _is_wayland():
+            try:
+                from core.kwin_mcp_client import get_client, available as kwin_avail
+                if kwin_avail():
+                    client = get_client()
+                    client.ensure_started()
+                    wins = client.get_kwin_windows()
+                    active = next((w for w in wins if w.get("active")), None)
+                    if active and active.get("id"):
+                        client.window_set_geometry(active["id"], x=960, y=0, width=960, height=1080)
+                        return
+            except Exception:
+                pass
+            if _kwin_send_key("Meta+Right"):
+                return
         try:
             subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,960,0,960,1080"],
                 capture_output=True)
@@ -361,12 +419,12 @@ def snap_right():
 
 def switch_window():
     if _OS == "Darwin": pyautogui.hotkey("command", "tab")
-    else:               pyautogui.hotkey("alt", "tab")
+    elif not _kwin_send_key("alt+Tab"): pyautogui.hotkey("alt", "tab")
 
 def show_desktop():
     if _OS == "Darwin":   pyautogui.hotkey("fn", "f11")
     elif _OS == "Windows": pyautogui.hotkey("win", "d")
-    else:                  pyautogui.hotkey("super", "d")
+    elif not _kwin_send_key("Meta+d"): pyautogui.hotkey("super", "d")
 
 def open_task_manager():
     if _OS == "Windows":
@@ -374,7 +432,7 @@ def open_task_manager():
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "Activity Monitor"])
     else:
-        for cmd in [["gnome-system-monitor"], ["xfce4-taskmanager"], ["htop"]]:
+        for cmd in [["plasma-systemmonitor"], ["ksysguard"], ["gnome-system-monitor"], ["xfce4-taskmanager"], ["htop"]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
                 subprocess.Popen(cmd)
                 break
@@ -382,53 +440,54 @@ def open_task_manager():
 
 def focus_search():
     if _OS == "Darwin": pyautogui.hotkey("command", "l")
-    else:               pyautogui.hotkey("ctrl", "l")
+    elif not _kwin_send_key("ctrl+l"): pyautogui.hotkey("ctrl", "l")
 
-def pause_video():      pyautogui.press("space")
+def pause_video():
+    if not _kwin_send_key("Space"): pyautogui.press("space")
 
 def refresh_page():
     if _OS == "Darwin": pyautogui.hotkey("command", "r")
-    else:               pyautogui.press("f5")
+    elif not _kwin_send_key("F5"): pyautogui.press("f5")
 
 def close_tab():
     if _OS == "Darwin": pyautogui.hotkey("command", "w")
-    else:               pyautogui.hotkey("ctrl", "w")
+    elif not _kwin_send_key("ctrl+w"): pyautogui.hotkey("ctrl", "w")
 
 def new_tab():
     if _OS == "Darwin": pyautogui.hotkey("command", "t")
-    else:               pyautogui.hotkey("ctrl", "t")
+    elif not _kwin_send_key("ctrl+t"): pyautogui.hotkey("ctrl", "t")
 
 def next_tab():
     if _OS == "Darwin": pyautogui.hotkey("command", "shift", "bracketright")
-    else:               pyautogui.hotkey("ctrl", "tab")
+    elif not _kwin_send_key("ctrl+Tab"): pyautogui.hotkey("ctrl", "tab")
 
 def prev_tab():
     if _OS == "Darwin": pyautogui.hotkey("command", "shift", "bracketleft")
-    else:               pyautogui.hotkey("ctrl", "shift", "tab")
+    elif not _kwin_send_key("ctrl+shift+Tab"): pyautogui.hotkey("ctrl", "shift", "tab")
 
 def go_back():
     if _OS == "Darwin": pyautogui.hotkey("command", "left")
-    else:               pyautogui.hotkey("alt", "left")
+    elif not _kwin_send_key("alt+Left"): pyautogui.hotkey("alt", "left")
 
 def go_forward():
     if _OS == "Darwin": pyautogui.hotkey("command", "right")
-    else:               pyautogui.hotkey("alt", "right")
+    elif not _kwin_send_key("alt+Right"): pyautogui.hotkey("alt", "right")
 
 def zoom_in():
     if _OS == "Darwin": pyautogui.hotkey("command", "equal")
-    else:               pyautogui.hotkey("ctrl", "equal")
+    elif not _kwin_send_key("ctrl+equal"): pyautogui.hotkey("ctrl", "equal")
 
 def zoom_out():
     if _OS == "Darwin": pyautogui.hotkey("command", "minus")
-    else:               pyautogui.hotkey("ctrl", "minus")
+    elif not _kwin_send_key("ctrl+minus"): pyautogui.hotkey("ctrl", "minus")
 
 def zoom_reset():
     if _OS == "Darwin": pyautogui.hotkey("command", "0")
-    else:               pyautogui.hotkey("ctrl", "0")
+    elif not _kwin_send_key("ctrl+0"): pyautogui.hotkey("ctrl", "0")
 
 def find_on_page():
     if _OS == "Darwin": pyautogui.hotkey("command", "f")
-    else:               pyautogui.hotkey("ctrl", "f")
+    elif not _kwin_send_key("ctrl+f"): pyautogui.hotkey("ctrl", "f")
 
 def reload_page_n(n: int):
     for _ in range(max(1, n)):
@@ -436,56 +495,100 @@ def reload_page_n(n: int):
         time.sleep(0.8)
 
 
-def scroll_up(amount: int = 500):    pyautogui.scroll(amount)
-def scroll_down(amount: int = 500):  pyautogui.scroll(-amount)
+def scroll_up(amount: int = 500):
+    if _is_wayland():
+        try:
+            from core.kwin_mcp_client import get_client, available as kwin_avail
+            if kwin_avail():
+                client = get_client()
+                client.ensure_started()
+                client.mouse_scroll(960, 540, delta=max(1, amount // 100))
+                return
+        except Exception:
+            pass
+    pyautogui.scroll(amount)
+
+def scroll_down(amount: int = 500):
+    if _is_wayland():
+        try:
+            from core.kwin_mcp_client import get_client, available as kwin_avail
+            if kwin_avail():
+                client = get_client()
+                client.ensure_started()
+                client.mouse_scroll(960, 540, delta=-max(1, amount // 100))
+                return
+        except Exception:
+            pass
+    pyautogui.scroll(-amount)
 
 def scroll_top():
     if _OS == "Darwin": pyautogui.hotkey("command", "up")
-    else:               pyautogui.hotkey("ctrl", "home")
+    elif not _kwin_send_key("ctrl+Home"): pyautogui.hotkey("ctrl", "home")
 
 def scroll_bottom():
     if _OS == "Darwin": pyautogui.hotkey("command", "down")
-    else:               pyautogui.hotkey("ctrl", "end")
+    elif not _kwin_send_key("ctrl+End"): pyautogui.hotkey("ctrl", "end")
 
-def page_up():   pyautogui.press("pageup")
-def page_down(): pyautogui.press("pagedown")
+def page_up():
+    if not _kwin_send_key("PageUp"): pyautogui.press("pageup")
+
+def page_down():
+    if not _kwin_send_key("PageDown"): pyautogui.press("pagedown")
 
 
 def copy():
     if _OS == "Darwin": pyautogui.hotkey("command", "c")
-    else:               pyautogui.hotkey("ctrl", "c")
+    elif not _kwin_send_key("ctrl+c"): pyautogui.hotkey("ctrl", "c")
 
 def paste():
     if _OS == "Darwin": pyautogui.hotkey("command", "v")
-    else:               pyautogui.hotkey("ctrl", "v")
+    elif not _kwin_send_key("ctrl+v"): pyautogui.hotkey("ctrl", "v")
 
 def cut():
     if _OS == "Darwin": pyautogui.hotkey("command", "x")
-    else:               pyautogui.hotkey("ctrl", "x")
+    elif not _kwin_send_key("ctrl+x"): pyautogui.hotkey("ctrl", "x")
 
 def undo():
     if _OS == "Darwin": pyautogui.hotkey("command", "z")
-    else:               pyautogui.hotkey("ctrl", "z")
+    elif not _kwin_send_key("ctrl+z"): pyautogui.hotkey("ctrl", "z")
 
 def redo():
     if _OS == "Darwin": pyautogui.hotkey("command", "shift", "z")
-    else:               pyautogui.hotkey("ctrl", "y")
+    elif not _kwin_send_key("ctrl+y"): pyautogui.hotkey("ctrl", "y")
 
 def select_all():
     if _OS == "Darwin": pyautogui.hotkey("command", "a")
-    else:               pyautogui.hotkey("ctrl", "a")
+    elif not _kwin_send_key("ctrl+a"): pyautogui.hotkey("ctrl", "a")
 
 def save_file():
     if _OS == "Darwin": pyautogui.hotkey("command", "s")
-    else:               pyautogui.hotkey("ctrl", "s")
+    elif not _kwin_send_key("ctrl+s"): pyautogui.hotkey("ctrl", "s")
 
-def press_enter():   pyautogui.press("enter")
-def press_escape():  pyautogui.press("escape")
-def press_key(key: str): pyautogui.press(key)
+def press_enter():
+    if not _kwin_send_key("Return"): pyautogui.press("enter")
+
+def press_escape():
+    if not _kwin_send_key("Escape"): pyautogui.press("escape")
+
+def press_key(key: str):
+    if not _kwin_send_key(key): pyautogui.press(key)
 
 def type_text(text: str, press_enter_after: bool = False):
     if not text:
         return
+    if _is_wayland():
+        try:
+            from core.kwin_mcp_client import get_client, available as kwin_avail
+            if kwin_avail():
+                client = get_client()
+                client.ensure_started()
+                client.keyboard_type(str(text), method="unicode")
+                if press_enter_after:
+                    time.sleep(0.05)
+                    client.keyboard_key("Return")
+                return
+        except Exception:
+            pass
     if _PYPERCLIP:
         pyperclip.copy(str(text))
         time.sleep(0.15)
@@ -494,7 +597,7 @@ def type_text(text: str, press_enter_after: bool = False):
         pyautogui.write(str(text), interval=0.03)
     if press_enter_after:
         time.sleep(0.1)
-        pyautogui.press("enter")
+        press_enter()
 
 def take_screenshot():
     if _OS == "Windows":
@@ -502,7 +605,15 @@ def take_screenshot():
     elif _OS == "Darwin":
         pyautogui.hotkey("command", "shift", "3")
     else:
-        for cmd in [["scrot"], ["gnome-screenshot"], ["import", "-window", "root", "screenshot.png"]]:
+        if _is_wayland():
+            try:
+                from core.vision import get_vision
+                cap = get_vision().capture_full()
+                if cap.ok:
+                    return
+            except Exception:
+                pass
+        for cmd in [["spectacle", "-b", "-n"], ["scrot"], ["gnome-screenshot"], ["import", "-window", "root", "screenshot.png"]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
                 subprocess.Popen(cmd)
                 return
@@ -515,9 +626,10 @@ def lock_screen():
         subprocess.run(["pmset", "displaysleepnow"], capture_output=True)
     else:
         for cmd in [
+            ["loginctl", "lock-session"],
+            ["qdbus6", "org.freedesktop.ScreenSaver", "/ScreenSaver", "Lock"],
             ["gnome-screensaver-command", "-l"],
             ["xdg-screensaver", "lock"],
-            ["loginctl", "lock-session"],
         ]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
                 subprocess.run(cmd, capture_output=True)
@@ -529,7 +641,7 @@ def open_system_settings():
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "System Preferences"])
     else:
-        for cmd in [["gnome-control-center"], ["xfce4-settings-manager"], ["kcmshell5"]]:
+        for cmd in [["systemsettings"], ["kcmshell6"], ["kcmshell5"], ["gnome-control-center"], ["xfce4-settings-manager"]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
                 subprocess.Popen(cmd)
                 return
@@ -540,7 +652,7 @@ def open_file_explorer():
     elif _OS == "Darwin":
         subprocess.Popen(["open", str(Path.home())])
     else:
-        for cmd in [["nautilus"], ["thunar"], ["dolphin"], ["nemo"]]:
+        for cmd in [["dolphin"], ["nautilus"], ["thunar"], ["nemo"]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
                 subprocess.Popen(cmd)
                 return
@@ -556,11 +668,17 @@ def sleep_display():
     elif _OS == "Darwin":
         subprocess.run(["pmset", "displaysleepnow"], capture_output=True)
     else:
+        if _is_wayland() and subprocess.run(["which", "kscreen-doctor"], capture_output=True).returncode == 0:
+            subprocess.run(["kscreen-doctor", "--dpms", "off"], capture_output=True)
+            return
         subprocess.run(["xset", "dpms", "force", "off"], capture_output=True)
 
 def open_run():
     if _OS == "Windows":
         pyautogui.hotkey("win", "r")
+    elif _OS == "Linux":
+        if not _kwin_send_key("alt+Space"):
+            subprocess.Popen(["krunner"])
 
 def dark_mode():
     if _OS == "Darwin":
@@ -581,6 +699,16 @@ def dark_mode():
             print(f"[Settings] dark_mode registry failed: {e}")
     else:
         try:
+            # KDE Plasma 6 native color scheme toggle
+            if subprocess.run(["which", "plasma-apply-colorscheme"], capture_output=True).returncode == 0:
+                kdeglobals = Path.home() / ".config" / "kdeglobals"
+                is_dark = False
+                if kdeglobals.exists():
+                    txt = kdeglobals.read_text(encoding="utf-8", errors="replace")
+                    is_dark = "BreezeDark" in txt or "breezedark" in txt.lower()
+                scheme = "BreezeLight" if is_dark else "BreezeDark"
+                subprocess.run(["plasma-apply-colorscheme", scheme], capture_output=True)
+                return
             result = subprocess.run(
                 ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace"
@@ -729,7 +857,7 @@ _IRREVERSIBLE = {
     # the WiFi off cuts the assistant's own connection to the Live API, so it
     # cannot be asked to turn it back on.
     "toggle_wifi": ("Switch WiFi off or on",
-                    "If this switches WiFi off, JARVIS loses its connection and "
+                    "If this switches WiFi off, AMATYA loses its connection and "
                     "cannot switch it back on by voice."),
 }
 

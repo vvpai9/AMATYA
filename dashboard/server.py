@@ -1,5 +1,5 @@
 """
-dashboard/server.py — JARVIS Local HTTP Dashboard
+dashboard/server.py — AMATYA Local HTTP Dashboard
 
 HTTPS on port 8000 with a self-signed certificate generated on first run, plus
 a second layer inside it: commands are encrypted with AES-256-GCM under a key
@@ -58,8 +58,8 @@ MAX_UPLOAD_MB = 500
 def _make_uploads_dir() -> Path:
     """Return (and create) the cross-platform uploads folder."""
     for candidate in [
-        Path.home() / "Downloads" / "JARVIS Uploads",
-        Path.home() / "Documents" / "JARVIS Uploads",
+        Path.home() / "Downloads" / "AMATYA Uploads",
+        Path.home() / "Documents" / "AMATYA Uploads",
         BASE_DIR / "uploads",
     ]:
         try:
@@ -84,7 +84,7 @@ _KEY_CHARS = [c for c in (string.ascii_uppercase + string.digits)
               if c not in ('O', 'I', 'L', '0', '1')]
 
 # ── AES-256-CBC ───────────────────────────────────────────────────────────────
-_AES_SALT = b'JARVIS-DASHBOARD-v1'
+_AES_SALT = b'AMATYA-DASHBOARD-v1'
 
 
 # Rounds for the pairing key -> AES key derivation.
@@ -219,8 +219,8 @@ def _ensure_network_access(*ports: int) -> None:
         # elevation once per port — two UAC dialogs for one dashboard, and two
         # racing .bat files whose output interleaved into contradictory
         # messages on the console.
-        port_rules = {pt: f"JARVIS Dashboard Port {pt}" for pt in ports}
-        prog_rule  = "JARVIS Dashboard Python"
+        port_rules = {pt: f"AMATYA Dashboard Port {pt}" for pt in ports}
+        prog_rule  = "AMATYA Dashboard Python"
 
         # BOTH interpreters, because the app runs under either one.
         #
@@ -321,12 +321,12 @@ def _ensure_network_access(*ports: int) -> None:
         # Say what will be attempted, so a UAC prompt nobody expected has a
         # reason attached to it in the terminal.
         if blocked:
-            print("[Dashboard] The Windows prompt about to appear is JARVIS "
+            print("[Dashboard] The Windows prompt about to appear is AMATYA "
                   "removing those block rules. Declining it leaves the phone "
                   "dashboard unreachable, and nothing else is affected.")
 
         bat_body = "\r\n".join(bat_lines) + "\r\n"
-        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="jarvis_fw_")
+        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="amatya_fw_")
         try:
             os.write(fd, bat_body.encode("mbcs"))   # Windows cmd.exe expects ANSI
             os.close(fd)
@@ -392,11 +392,11 @@ def _ensure_network_access(*ports: int) -> None:
                           "until this is done: Windows has block rules for "
                           + ", ".join(sorted({n for n, _ in blocked}))
                           + " which override every allow rule.")
-                    print("[Dashboard] Either restart JARVIS and accept the "
+                    print("[Dashboard] Either restart AMATYA and accept the "
                           "prompt, or delete those rules in Windows Defender "
                           "Firewall > Inbound Rules.")
                 else:
-                    print("[Dashboard] Phone connections may fail until JARVIS "
+                    print("[Dashboard] Phone connections may fail until AMATYA "
                           "is run as Administrator.")
         except Exception as e:
             print(f"[Dashboard] Firewall setup error: {e}")
@@ -450,41 +450,42 @@ def _ensure_network_access(*ports: int) -> None:
                 pass
         return False
 
-    try:  # ufw
-        r = subprocess.run(["ufw", "status"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
-        if "active" in r.stdout.lower():
-            if _privileged(["ufw", "allow", f"{port}/tcp"]):
-                print(f"[Dashboard] ufw: port {port} allowed.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo ufw allow {port}/tcp")
-            return
-    except FileNotFoundError:
-        pass
+    for port in ports:
+        try:  # ufw
+            r = subprocess.run(["ufw", "status"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+            if "active" in r.stdout.lower():
+                if _privileged(["ufw", "allow", f"{port}/tcp"]):
+                    print(f"[Dashboard] ufw: port {port} allowed.")
+                else:
+                    print(f"[Dashboard] Run manually:  sudo ufw allow {port}/tcp")
+                continue
+        except FileNotFoundError:
+            pass
 
-    try:  # firewalld
-        r = subprocess.run(
-            ["firewall-cmd", "--state"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
-        )
-        if "running" in r.stdout.lower():
-            ok = (_privileged(["firewall-cmd", "--add-port", f"{port}/tcp", "--permanent"])
-                  and _privileged(["firewall-cmd", "--reload"]))
-            if ok:
-                print(f"[Dashboard] firewalld: port {port} allowed.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo firewall-cmd --add-port={port}/tcp --permanent && sudo firewall-cmd --reload")
-            return
-    except FileNotFoundError:
-        pass
+        try:  # firewalld
+            r = subprocess.run(
+                ["firewall-cmd", "--state"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+            )
+            if "running" in r.stdout.lower():
+                ok = (_privileged(["firewall-cmd", "--add-port", f"{port}/tcp", "--permanent"])
+                      and _privileged(["firewall-cmd", "--reload"]))
+                if ok:
+                    print(f"[Dashboard] firewalld: port {port} allowed.")
+                else:
+                    print(f"[Dashboard] Run manually:  sudo firewall-cmd --add-port={port}/tcp --permanent && sudo firewall-cmd --reload")
+                continue
+        except FileNotFoundError:
+            pass
 
-    try:  # iptables (not persistent but works until reboot)
-        r = subprocess.run(["iptables", "-L", "INPUT", "-n"], capture_output=True, timeout=5)
-        if r.returncode == 0:
-            if _privileged(["iptables", "-A", "INPUT", "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"]):
-                print(f"[Dashboard] iptables: port {port} opened.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo iptables -A INPUT -p tcp --dport {port} -j ACCEPT")
-    except FileNotFoundError:
-        pass  # no iptables means firewall is probably off — nothing to do
+        try:  # iptables (not persistent but works until reboot)
+            r = subprocess.run(["iptables", "-L", "INPUT", "-n"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                if _privileged(["iptables", "-A", "INPUT", "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"]):
+                    print(f"[Dashboard] iptables: port {port} opened.")
+                else:
+                    print(f"[Dashboard] Run manually:  sudo iptables -A INPUT -p tcp --dport {port} -j ACCEPT")
+        except FileNotFoundError:
+            pass  # no iptables means firewall is probably off — nothing to do
 
 
 
@@ -540,8 +541,8 @@ def _ensure_certs() -> bool:
     plain HTTP, which still works — the QR code simply encodes http:// instead.
     """
     certs = BASE_DIR / "config" / "certs"
-    key_p = certs / "jarvis.key"
-    crt_p = certs / "jarvis.crt"
+    key_p = certs / "amatya.key"
+    crt_p = certs / "amatya.crt"
     if key_p.exists() and crt_p.exists():
         return True
 
@@ -562,8 +563,8 @@ def _ensure_certs() -> bool:
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         who = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, "JARVIS Dashboard"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "JARVIS"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "AMATYA Dashboard"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "AMATYA"),
         ])
 
         # The SAN has to cover every address the phone might use: the LAN IP the
@@ -615,6 +616,71 @@ def _ensure_certs() -> bool:
 
 def _read(name: str) -> str:
     return (STATIC_DIR / name).read_text(encoding="utf-8")
+
+
+def get_command_centre_snapshot() -> dict:
+    """Collect a real-time telemetry snapshot of all AMATYA subsystems for the
+    Command-Centre UI and web dashboard (Section 12)."""
+    snap: dict = {"timestamp": time.time()}
+    try:
+        from core.kwin_mcp_client import available as kwin_avail
+        from core.desktop_agent import get_desktop_agent
+        da = get_desktop_agent()
+        snap["desktop_automation"] = {
+            "kwin_mcp_available": kwin_avail(),
+            "agent_running": bool(da and da.is_running),
+            "autonomy_level": da.autonomy if da else "confirm",
+            "history_count": len(da.get_history()) if da else 0,
+        }
+    except Exception as exc:
+        snap["desktop_automation"] = {"error": str(exc)}
+
+    try:
+        from core.security import get_session_auth_status
+        from core.voice_auth import get_voice_authenticator
+        from core.wake_word import list_available_models
+        snap["voice_auth"] = {
+            **get_session_auth_status(),
+            "enrolled_profiles": len(get_voice_authenticator().list_profiles()),
+            "wake_word": list_available_models(),
+        }
+    except Exception as exc:
+        snap["voice_auth"] = {"error": str(exc)}
+
+    try:
+        from core.home_automation import get_home_controller
+        snap["home_automation"] = get_home_controller().get_environment_summary()
+    except Exception as exc:
+        snap["home_automation"] = {"error": str(exc)}
+
+    try:
+        from core.device_manager import get_device_manager
+        devs = get_device_manager().discover_devices()
+        snap["connected_devices"] = {
+            "registered": devs.get("registered_devices", []),
+            "lan_count": len(devs.get("discovered", {}).get("lan_neighbors", [])),
+            "kdeconnect_count": len(devs.get("discovered", {}).get("kdeconnect", [])),
+        }
+    except Exception as exc:
+        snap["connected_devices"] = {"error": str(exc)}
+
+    try:
+        from core.model_router import get_router
+        snap["model_router"] = get_router().summary()
+    except Exception as exc:
+        snap["model_router"] = {"error": str(exc)}
+
+    try:
+        from core.orchestrator import get_orchestrator
+        orch = get_orchestrator()
+        snap["orchestrator"] = {
+            "context": orch.context.get_state(),
+            "tasks": orch.list_tasks()[:10],
+        }
+    except Exception as exc:
+        snap["orchestrator"] = {"error": str(exc)}
+
+    return snap
 
 
 # ── DashboardServer ───────────────────────────────────────────────────────────
@@ -737,7 +803,7 @@ class DashboardServer:
         except Exception:
             return False
         certs = BASE_DIR / "config" / "certs"
-        return (certs / "jarvis.key").exists() and (certs / "jarvis.crt").exists()
+        return (certs / "amatya.key").exists() and (certs / "amatya.crt").exists()
 
     def get_url(self) -> str:
         """The full URL the QR code carries — always with its scheme, so a
@@ -881,7 +947,7 @@ class DashboardServer:
   h2{color:#f87171;margin-bottom:12px}p{color:#5e6a7e;font-size:14px}
 </style></head>
 <body><div><h2>Link Expired</h2>
-<p>Press <strong style="color:#dde3ed">Remote Control</strong> in JARVIS to get a new QR code.</p>
+<p>Press <strong style="color:#dde3ed">Remote Control</strong> in AMATYA to get a new QR code.</p>
 </div></body></html>""")
 
             del self._pending_keys[key]
@@ -907,12 +973,12 @@ class DashboardServer:
 </style></head>
 <body>
 <script>
-  sessionStorage.setItem('jarvis_token','{tok}');
-  sessionStorage.setItem('jarvis_key','{key}');
-  localStorage.setItem('jarvis_device_token','{dev_tok}');
+  sessionStorage.setItem('amatya_token','{tok}');
+  sessionStorage.setItem('amatya_key','{key}');
+  localStorage.setItem('amatya_device_token','{dev_tok}');
   setTimeout(function(){{location.replace('/')}},400);
 </script>
-<p>Connecting to JARVIS…</p>
+<p>Connecting to AMATYA…</p>
 </body></html>""")
 
         @app.post("/api/device-login")
@@ -988,6 +1054,32 @@ class DashboardServer:
             if self._wake_callback:
                 self._wake_callback()
             return JSONResponse({"ok": True})
+
+        @app.get("/api/command-centre")
+        async def command_centre_ep(req: Request):
+            return JSONResponse(get_command_centre_snapshot())
+
+        @app.post("/api/emergency-stop")
+        async def emergency_stop_ep(req: Request):
+            try:
+                from core.orchestrator import get_orchestrator
+                msg = get_orchestrator().cancel_all()
+                await self.broadcast({"type": "sys", "text": msg})
+                return JSONResponse({"ok": True, "message": msg})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+        @app.post("/api/autonomy")
+        async def set_autonomy_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            body = await req.json()
+            lvl = str(body.get("autonomy_level", "confirm") or "confirm").strip().lower()
+            from memory.config_manager import AUTONOMY_LEVELS, get_autonomy_level, save_autonomy_level
+            if lvl not in AUTONOMY_LEVELS:
+                return JSONResponse({"ok": False, "error": f"Invalid autonomy level '{lvl}'"}, status_code=400)
+            save_autonomy_level(lvl)
+            return JSONResponse({"ok": True, "autonomy_level": get_autonomy_level()})
 
         # ── Phone mic real-time audio → Gemini Live ──────────────────────────
 
@@ -1197,8 +1289,8 @@ class DashboardServer:
             pass
 
         use_ssl  = self._ssl_enabled()
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key  = BASE_DIR / "config" / "certs" / "amatya.key"
+        ssl_cert = BASE_DIR / "config" / "certs" / "amatya.crt"
 
         # TLS IS WANTED, BUT NOT AT THE COST OF NOT STARTING.
         #
@@ -1232,7 +1324,7 @@ class DashboardServer:
         # CAN THIS PORT ACTUALLY BE TAKEN?
         #
         # uvicorn raises when the port is busy, and under pythonw.exe there is
-        # no console for that to be seen in — so a second JARVIS, or anything
+        # no console for that to be seen in — so a second AMATYA, or anything
         # else already on 8000, produced a dashboard that was silently dead
         # while the HUD went on showing a QR code pointing at it. The phone
         # then reports ERR_CONNECTION_REFUSED, which is true and impossible to
@@ -1250,7 +1342,7 @@ class DashboardServer:
             _probe.close()
             self._bind_error = (
                 f"port {SECURE_PORT if use_ssl else PORT} is already in use — "
-                f"another copy of JARVIS is probably running. Close it and "
+                f"another copy of AMATYA is probably running. Close it and "
                 f"restart, or the phone dashboard will stay unreachable "
                 f"({exc.__class__.__name__})")
             print(f"[Dashboard] {self._bind_error}")
@@ -1258,5 +1350,5 @@ class DashboardServer:
         _probe.close()
 
         print(f"[Dashboard] {self.get_url()}")
-        print("[Dashboard] Press 'Remote Control' in JARVIS UI to get the QR code.")
+        print("[Dashboard] Press 'Remote Control' in AMATYA UI to get the QR code.")
         await uvicorn.Server(cfg).serve()

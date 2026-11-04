@@ -134,9 +134,17 @@ def _truncate_value(val: str) -> str:
 
 
 def _recursive_update(target: dict, updates: dict) -> bool:
+    from core.security import contains_secret, redact_secrets
+
     changed = False
+    _sensitive_key_re = re.compile(
+        r"(?i)(?:^|_)(api_?key|secret|password|passwd|token|private_?key|pin_?code)(?:$|_)"
+    )
     for key, value in updates.items():
         if value is None:
+            continue
+        if _sensitive_key_re.search(str(key)):
+            print(f"[Memory] 🛡️ Blocked storing sensitive key '{key}' in general memory.")
             continue
         if isinstance(value, str) and not value.strip():
             continue
@@ -147,7 +155,11 @@ def _recursive_update(target: dict, updates: dict) -> bool:
             if _recursive_update(target[key], value):
                 changed = True
         else:
-            new_val  = _truncate_value(str(value["value"] if isinstance(value, dict) else value))
+            raw_str = str(value["value"] if isinstance(value, dict) else value)
+            if contains_secret(raw_str):
+                print(f"[Memory] 🛡️ Redacted secret/credential from memory entry '{key}'.")
+                raw_str = redact_secrets(raw_str)
+            new_val  = _truncate_value(raw_str)
             entry    = {"value": new_val, "updated": datetime.now().strftime("%Y-%m-%d")}
             existing = target.get(key, {})
             if not isinstance(existing, dict) or existing.get("value") != new_val:
@@ -353,7 +365,7 @@ def search_memory(query: str, limit: int = 8) -> str:
     An empty query is treated as "show me everything you know", capped - the
     model asks that when the user says "what do you remember about me?"."""
     memory = load_memory()
-    words  = [w for w in re.split(r"[^\w]+", (query or "").lower()) if len(w) > 1]
+    words  = [w for w in re.split(r"[\W_]+", (query or "").lower()) if len(w) > 1]
 
     rows: list[tuple[int, str, str, str]] = []
     for cat, items in memory.items():
@@ -381,7 +393,7 @@ def search_memory(query: str, limit: int = 8) -> str:
 
 
 def all_entries_for_ui() -> list[dict]:
-    """Flat list for the memory panel: what JARVIS knows, and when it learned it.
+    """Flat list for the memory panel: what AMATYA knows, and when it learned it.
     Sorted newest first so the panel opens on what changed most recently."""
     memory = load_memory()
     rows = []
@@ -477,3 +489,28 @@ def pop_last_session() -> dict | None:
         except Exception as e:
             print(f"[Memory] ⚠️ pop_last_session error: {e}")
             return None
+
+
+def export_memory(export_path: str | Path | None = None) -> tuple[bool, str]:
+    """Export non-sensitive long-term memory to a JSON file."""
+    mem = load_memory()
+    target = Path(export_path).expanduser() if export_path else (BASE_DIR / "memory" / "memory_export.json")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(mem, indent=2, ensure_ascii=False), encoding="utf-8")
+        return True, str(target)
+    except Exception as exc:
+        return False, f"Failed to export memory: {exc}"
+
+
+def clear_category(category: str) -> str:
+    """Clear all entries in a single memory category."""
+    valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes"}
+    cat = (category or "").strip().lower()
+    if cat not in valid:
+        return f"Invalid category '{category}'. Valid: {', '.join(sorted(valid))}."
+    mem = load_memory()
+    count = len(mem.get(cat, {}) or {})
+    mem[cat] = {}
+    save_memory(mem)
+    return f"Cleared {count} entries from '{cat}'."

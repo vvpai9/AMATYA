@@ -1,22 +1,60 @@
-#computer_control.py
+from __future__ import annotations
+
 import io
 import json
+import os
 import platform
 import re
+import shutil
 import string
 import subprocess
 import sys
+import time
+import random
+from pathlib import Path
+from typing import Any
+
+from core import appidentity, outcome
+from core.kwin_mcp_client import get_client, available as kwin_available
+from core.lazyimport import LazyModule, installed
 
 if platform.system() == "Windows":
     _WIN_HIDE: dict = {"creationflags": subprocess.CREATE_NO_WINDOW}
 else:
     _WIN_HIDE: dict = {}
-import time
-import random
-from pathlib import Path
 
-from core import appidentity, outcome
-from core.lazyimport import LazyModule, installed
+_SYSTEM = platform.system()          # "Windows" | "Darwin" | "Linux"
+
+# Key name normalization — kwin-mcp expects standard key names like "Return",
+# "Escape", "Tab", "Space", "Backspace", "Delete", etc.
+_KEY_NAME_MAP = {
+    "enter": "Return",
+    "return": "Return",
+    "esc": "Escape",
+    "escape": "Escape",
+    "tab": "Tab",
+    "space": "Space",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "up": "Up",
+    "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "home": "Home",
+    "end": "End",
+    "pageup": "PageUp",
+    "pagedown": "PageDown",
+    "insert": "Insert",
+    "f1": "F1", "f2": "F2", "f3": "F3", "f4": "F4",
+    "f5": "F5", "f6": "F6", "f7": "F7", "f8": "F8",
+    "f9": "F9", "f10": "F10", "f11": "F11", "f12": "F12",
+}
+
+
+def _normalize_key(key: str) -> str:
+    """Normalize a key name to kwin-mcp's expected format."""
+    return _KEY_NAME_MAP.get(key.lower(), key)
+
 
 # pyautogui and pyperclip are imported on first USE, not at launch — see
 # core/lazyimport.py for why and for what stays the same. The flags still mean
@@ -67,7 +105,7 @@ _SAFE_SCREENSHOT_ROOTS = (
 )
 
 def _safe_screenshot_path(requested: str | None) -> Path:
-    fallback = Path.home() / "Desktop" / "jarvis_screenshot.png"
+    fallback = Path.home() / "Desktop" / "amatya_screenshot.png"
     if not requested:
         return fallback
     try:
@@ -97,6 +135,231 @@ def _require_pyperclip() -> bool:
     is not — turning that into an exception would break the path built to
     survive it."""
     return _PYPERCLIP
+
+
+def _on_wayland_with_kwin() -> bool:
+    """True if we are on a Wayland session and kwin-mcp is available.
+
+    On Wayland, pyautogui/mss/xdotool silently do nothing. kwin-mcp restores
+    desktop control on KDE Plasma 6 Wayland. When both conditions hold, route
+    computer_control through kwin-mcp so the model's existing commands keep
+    working.
+    """
+    if _SYSTEM != "Linux":
+        return False
+    if not kwin_available():
+        return False
+    session = (
+        (os.environ.get("XDG_SESSION_TYPE") or "").strip().lower()
+        or ("wayland" if os.environ.get("WAYLAND_DISPLAY") else "")
+    )
+    return session == "wayland"
+
+
+def _computer_control_via_kwin(action: str, params: dict) -> str:
+    """Route a computer_control action through kwin-mcp on Wayland.
+
+    Translates the familiar computer_control action names into kwin-mcp calls.
+    Returns a result string in the same voice as the pyautogui implementations.
+    """
+    client = get_client()
+    client.ensure_started()
+
+    if action == "type":
+        result = client.keyboard_type(params.get("text", ""), method="unicode")
+        return f"Typed: {str(params.get('text', ''))[:60]}"
+
+    if action == "smart_type":
+        text = params.get("text", "")
+        clear_first = params.get("clear_first", True)
+        if clear_first:
+            client.keyboard_key("ctrl+a")
+            client.keyboard_key("Delete")
+            time.sleep(0.1)
+        if len(text) > 20:
+            client.clipboard_set(text)
+            client.keyboard_key("ctrl+v")
+            return f"Smart-typed (clipboard): {text[:60]}"
+        result = client.keyboard_type(text, method="unicode")
+        return f"Smart-typed: {text[:60]}"
+
+    if action in ("click", "left_click"):
+        x, y = params.get("x"), params.get("y")
+        if x is None or y is None:
+            return outcome.failed("computer_control", "click requires x and y")
+        result = client.mouse_click(int(x), int(y), "left", 1)
+        return f"Clicked ({x}, {y}) [left]"
+
+    if action == "double_click":
+        x, y = params.get("x"), params.get("y")
+        if x is None or y is None:
+            return outcome.failed("computer_control", "double_click requires x and y")
+        result = client.mouse_click(int(x), int(y), "left", 2)
+        return f"Double-clicked ({x}, {y}) [left]"
+
+    if action == "right_click":
+        x, y = params.get("x"), params.get("y")
+        if x is None or y is None:
+            return outcome.failed("computer_control", "right_click requires x and y")
+        result = client.mouse_click(int(x), int(y), "right", 1)
+        return f"Right-clicked ({x}, {y}) [right]"
+
+    if action == "move":
+        result = client.mouse_move(int(params.get("x", 0)), int(params.get("y", 0)))
+        return f"Mouse → ({params.get('x', 0)}, {params.get('y', 0)})"
+
+    if action == "drag":
+        result = client.mouse_drag(
+            int(params.get("x1", 0)),
+            int(params.get("y1", 0)),
+            int(params.get("x2", 0)),
+            int(params.get("y2", 0)),
+        )
+        return f"Dragged ({params.get('x1', 0)},{params.get('y1', 0)}) → ({params.get('x2', 0)},{params.get('y2', 0)})"
+
+    if action == "hotkey":
+        raw = params.get("keys", "")
+        keys = [k.strip() for k in raw.split("+")] if isinstance(raw, str) else raw
+        # Normalize key names to kwin-mcp's expected format
+        keys = [_normalize_key(k) for k in keys]
+        chord = "+".join(keys)
+        result = client.keyboard_key(chord)
+        return f"Hotkey: {chord}"
+
+    if action == "press":
+        key = _normalize_key(params.get("key", "enter"))
+        result = client.keyboard_key(key)
+        return f"Pressed: {key}"
+
+    if action == "scroll":
+        direction = params.get("direction", "down")
+        amount = int(params.get("amount", 3))
+        x, y = params.get("x"), params.get("y")
+        if x is None or y is None:
+            return outcome.failed("computer_control", "scroll requires x and y")
+        delta = amount if direction in ("up", "right") else -amount
+        horizontal = direction in ("left", "right")
+        result = client.mouse_scroll(int(x), int(y), delta=delta, horizontal=horizontal)
+        return f"Scrolled {direction} ×{amount}"
+
+    if action == "screenshot":
+        result = client.screenshot()
+        path = _extract_screenshot_path(result)
+        return f"Screenshot saved: {path}"
+
+    if action == "focus_window":
+        title = params.get("title", "")
+        windows = client.get_kwin_windows()
+        matches = _match_windows_kwin(windows, title)
+        if not matches:
+            return f"focus_window: no window matches '{title}'"
+        window_id = matches[0].get("id")
+        client.focus_window(window_id=window_id)
+        return f"Focused window: {title}"
+
+    if action in ("close_app", "close_application", "quit_app"):
+        app_name = params.get("app_name") or params.get("text") or ""
+        windows = client.get_kwin_windows()
+        matches = _match_windows_kwin(windows, app_name)
+        if not matches:
+            return outcome.failed(
+                "computer_control", f"no running window matches '{app_name}'", app=app_name
+            )
+        window_id = matches[0].get("id")
+        client.window_close(window_id)
+        return outcome.done("computer_control", app=app_name, closed=app_name, verified=True)
+
+    if action == "screen_find":
+        desc = params.get("description", "")
+        result = client.find_ui_elements(
+            query=desc, app_name=None, states=None
+        )
+        elements = _extract_elements_kwin(result)
+        if not elements:
+            return "NOT_FOUND"
+        el = elements[0]
+        rect = el.get("rect") or el.get("rectangle") or {}
+        x = int(rect.get("x", 0)) + int(rect.get("width", 0)) // 2
+        y = int(rect.get("y", 0)) + int(rect.get("height", 0)) // 2
+        return f"{x},{y}"
+
+    if action == "screen_click":
+        desc = params.get("description", "")
+        from actions.kwin_desktop import _kwin_element_act
+        return _kwin_element_act(desc, action="Press")
+
+    if action == "clear_field":
+        client.keyboard_key("ctrl+a")
+        client.keyboard_key("Delete")
+        return "Field cleared"
+
+    if action == "copy":
+        result = client.clipboard_get()
+        return _extract_text_kwin(result) or "(copied — clipboard read via kwin-mcp)"
+
+    if action == "paste":
+        text = params.get("text", "")
+        client.clipboard_set(text)
+        client.keyboard_key("ctrl+v")
+        return f"Pasted: {text[:60]}"
+
+    return f"kwin-mcp does not support action '{action}' on Wayland"
+
+
+def _match_windows_kwin(windows: Any, name: str) -> list[dict[str, Any]]:
+    if not isinstance(windows, list):
+        return []
+    name_l = name.lower()
+    out = []
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        caption = str(w.get("caption", "")).lower()
+        app_id = str(w.get("app_id") or w.get("app") or "").lower()
+        if name_l in caption or name_l in app_id:
+            out.append(w)
+    return out
+
+
+def _extract_elements_kwin(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+    sc = result.get("structuredContent") or result.get("structured_content") or {}
+    if isinstance(sc, dict):
+        elements = sc.get("elements") or []
+        if isinstance(elements, list):
+            return elements
+    elements = result.get("elements") or []
+    if isinstance(elements, list):
+        return elements
+    return []
+
+
+def _extract_text_kwin(result: Any) -> str:
+    if not isinstance(result, dict):
+        return ""
+    content = result.get("content", [])
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    return str(text)
+    sc = result.get("structuredContent") or result.get("structured_content") or {}
+    if isinstance(sc, dict):
+        text = sc.get("text") or sc.get("content") or ""
+        if text:
+            return str(text)
+    return ""
+
+
+def _extract_screenshot_path(result: Any) -> str:
+    from actions.kwin_desktop import _extract_screenshot_path as _kwin_extract
+    return _kwin_extract(result)
+
+
+import os  # noqa: E402
+
 
 _FIRST_NAMES = [
     "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Drew", "Quinn",
@@ -162,6 +425,7 @@ def _random_data(data_type: str) -> str:
 
     return f"random_{data_type}_{random.randint(1000, 9999)}"
 
+
 def _user_profile() -> dict:
     """Read identity fields from long-term memory."""
     try:
@@ -172,6 +436,7 @@ def _user_profile() -> dict:
     except Exception:
         pass
     return {}
+
 
 def _type(text: str, interval: float = 0.03) -> str:
     _require_pyautogui()
@@ -274,6 +539,7 @@ def _clear_field() -> str:
     pyautogui.press("delete")
     return "Field cleared"
 
+
 def _focus_window(title: str) -> str:
     os_name = _get_os()
 
@@ -329,6 +595,7 @@ def _focus_window(title: str) -> str:
 
     return f"focus_window: unknown OS '{os_name}'"
 
+
 def _close_app(app_name: str, confirmed_index: int | None = None) -> str:
     """Close the application the user named — that one, and never this one.
 
@@ -341,7 +608,7 @@ def _close_app(app_name: str, confirmed_index: int | None = None) -> str:
         No target. It sent Alt+F4 to whatever window had focus, and while
         somebody is talking to the assistant the window with focus is very
         often the assistant — which is why people reported that asking it to
-        close an app closed JARVIS itself. It also returned nothing at all, so
+        close an app closed AMATYA itself. It also returned nothing at all, so
         the model announced a success it had no information about.
 
         The keystroke is not fixable by aiming it better. "The focused window"
@@ -501,6 +768,7 @@ def _screen_find(description: str) -> tuple[int, int] | None:
 
     return None
 
+
 def computer_control(
     parameters: dict,
     response=None,
@@ -564,6 +832,16 @@ def computer_control(
     print(f"[ComputerControl] ▶ {action}  {params}")
 
     try:
+        # ── Wayland fallback: route through kwin-mcp ──────────────────────
+        # On Wayland, pyautogui does nothing. If kwin-mcp is available,
+        # translate the action into kwin-mcp calls so the model's existing
+        # commands keep working. Actions that don't touch the desktop
+        # (wait, random_data, user_data) fall through to the pyautogui path
+        # unchanged.
+        if _on_wayland_with_kwin() and action not in (
+            "wait", "random_data", "user_data",
+        ):
+            return _computer_control_via_kwin(action, params)
 
         if action == "type":
             return _type(params.get("text", ""))
@@ -684,8 +962,6 @@ TOOL = {
         "so rather than claiming success - and 'ask' means nothing was done "
         "and the question must go to the user first."
     ),
-    # Used in place of `description` only when a small model is on a tool
-    # budget - Gemini still gets the full text. See providers/schema.py.
     "brief": (
         "Controls the computer: type, click, hotkeys, scroll, screenshots, and close_app to close a named application (put its name in 'app_name'). Use open_app to open one."
     ),

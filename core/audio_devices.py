@@ -1,12 +1,12 @@
 """
-core/audio_devices.py — pick which microphone and which speakers JARVIS uses.
+core/audio_devices.py — pick which microphone and which speakers AMATYA uses.
 
 WHY
     Both audio streams in main.py were opened without a `device=` argument, so
     they always took whatever the operating system called "default". On a laptop
     with a built-in mic, a webcam mic and a headset that is a coin toss — and on
     Windows the default *moves on its own* the moment you plug a headset in.
-    "JARVIS can't hear me" almost always means "JARVIS is listening to the
+    "AMATYA can't hear me" almost always means "AMATYA is listening to the
     monitor's microphone".
 
 WHY NAMES, NOT INDICES
@@ -41,6 +41,9 @@ _cache_lock = threading.Lock()
 # Which host API each direction settled on, so resolve() opens the same endpoint
 # the picker listed. Filled in by _query().
 _chosen_api: dict = {"input": None, "output": None}
+
+# Avoid repeating the same fallback notice on every session reconnect.
+_linux_fallback_notices: set[tuple[str, str]] = set()
 
 
 # ── Why the raw list is unusable, and what is filtered out ───────────────────
@@ -90,9 +93,10 @@ _PREFERRED_APIS = {
     "Windows": ("directsound", "mme", "wasapi"),
     # macOS has only Core Audio, so there is nothing to disambiguate.
     "Darwin":  ("core audio",),
-    # PulseAudio/PipeWire present one clean endpoint per device; raw ALSA
-    # presents dozens of routing permutations of the same card.
-    "Linux":   ("pulse", "pipewire", "jack", "alsa"),
+    # Prefer PortAudio's PipeWire virtual endpoint, then its PulseAudio
+    # compatibility endpoint. On Linux these appear as ALSA device names,
+    # not as separate PortAudio host APIs.
+    "Linux":   ("pipewire", "pulse", "jack", "alsa"),
 }
 
 # ── "It opens" is not "it works" ─────────────────────────────────────────────
@@ -263,8 +267,8 @@ def _query() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {"input": [], "output": []}
     try:
         import platform
-        import sounddevice as sd
 
+        import sounddevice as sd
         devices = list(sd.query_devices())
         try:
             apis = [a.get("name", "") for a in sd.query_hostapis()]
@@ -286,7 +290,14 @@ def _query() -> dict[str, list[str]]:
                     continue
                 if api_filter is not None:
                     api = apis[dev["hostapi"]].lower() if dev.get("hostapi", -1) < len(apis) else ""
-                    if api_filter not in api:
+                    # PortAudio exposes PipeWire/PulseAudio as named ALSA
+                    # plugin devices on Linux, so match the endpoint name too.
+                    endpoint_match = (
+                        platform.system() == "Linux"
+                        and api_filter in ("pipewire", "pulse")
+                        and name.lower() == api_filter
+                    )
+                    if api_filter not in api and not endpoint_match:
                         continue
                 if not _usable(idx, kind):
                     continue
@@ -328,8 +339,12 @@ def prefetch() -> None:
         result = _query()
         with _cache_lock:
             _cache = result
-        print(f"[Audio] {len(result['input'])} input / "
-              f"{len(result['output'])} output devices found")
+        if not result["input"] and not result["output"]:
+            print("[Audio] Using Linux system-default audio routing "
+                  "(PipeWire/PulseAudio); raw ALSA probing skipped.")
+        else:
+            print(f"[Audio] {len(result['input'])} input / "
+                  f"{len(result['output'])} output devices found")
     threading.Thread(target=_work, daemon=True, name="audio-devices").start()
 
 
@@ -359,12 +374,31 @@ def resolve(name: str, kind: str):
     same device — which happens to work, but means the setting quietly refers to
     a different endpoint than the one on screen."""
     wanted = (name or "").strip()
-    if not wanted or wanted == DEFAULT_LABEL:
-        return None
 
     try:
         import platform
         import sounddevice as sd
+
+        # Resolve "System default" to the tested PipeWire endpoint rather than
+        # PortAudio's default ALSA hardware device (hw:0,0). The latter bypasses
+        # PipeWire and rejects Gemini's 16 kHz / 24 kHz stream rates.
+        if platform.system() == "Linux" and (not wanted or wanted == DEFAULT_LABEL):
+            list_devices(kind)  # populate _chosen_api through real stream probes
+            chosen = _chosen_api.get(kind)
+            devices = list(sd.query_devices())
+            chan_key = "max_input_channels" if kind == "input" else "max_output_channels"
+            if chosen in ("pipewire", "pulse"):
+                for idx, dev in enumerate(devices):
+                    if (dev.get(chan_key, 0) > 0
+                            and (dev.get("name") or "").strip().lower() == chosen
+                            and _usable(idx, kind)):
+                        print(f"[Audio] {kind}: System default routed through {chosen} (device {idx})")
+                        return idx
+            print(f"[Audio] {kind}: no compatible PipeWire/PulseAudio endpoint found; using PortAudio default")
+            return None
+
+        if not wanted or wanted == DEFAULT_LABEL:
+            return None
 
         devices = list(sd.query_devices())
         try:
@@ -381,7 +415,13 @@ def resolve(name: str, kind: str):
                     continue
                 if api_filter is not None:
                     api = apis[dev["hostapi"]].lower() if dev.get("hostapi", -1) < len(apis) else ""
-                    if api_filter not in api:
+                    dev_name = (dev.get("name") or "").strip()
+                    endpoint_match = (
+                        platform.system() == "Linux"
+                        and api_filter in ("pipewire", "pulse")
+                        and dev_name.lower() == api_filter
+                    )
+                    if api_filter not in api and not endpoint_match:
                         continue
                 yield idx, (dev.get("name") or "").strip()
 
@@ -439,7 +479,7 @@ def resolve(name: str, kind: str):
 #
 # This began life as `ses_testi.py`, a loose script in the project root that
 # nobody would ever find. It is here because the moment somebody needs it is
-# the moment they have opened AUDIO DEVICES wondering why JARVIS cannot hear
+# the moment they have opened AUDIO DEVICES wondering why AMATYA cannot hear
 # them.
 
 # Below this peak, nothing usable arrived; below the second, speech is present

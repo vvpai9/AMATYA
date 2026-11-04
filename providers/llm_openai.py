@@ -337,6 +337,13 @@ class OpenAICompatLLM:
         self.model = (cfg.get("model") or "").strip()
         self.key = (cfg.get("api_key") or "").strip()
         self.timeout = float(cfg.get("timeout") or 60.0)
+        # A local model's first request may include model loading plus prompt
+        # prefill. The Gemini model ladder passes a 10-second default, which is
+        # appropriate for hosted Gemini but routinely too short for Ollama on a
+        # CPU-bound desktop. Keep local providers bounded, but give them at
+        # least two minutes unless the user configures a longer timeout.
+        if _is_own_hardware(self.base):
+            self.timeout = max(self.timeout, 120.0)
 
         # A budget on a model running on your own hardware, unless the user
         # chose one themselves.
@@ -406,7 +413,8 @@ class OpenAICompatLLM:
         """Text and any tool calls. Raises on failure so the ladder can read the
         error, classify it and rest this rung exactly as it rests a Gemini one."""
         try:
-            with self._httpx.Client(timeout=timeout or self.timeout,
+            request_timeout = max(float(timeout or 0.0), self.timeout)
+            with self._httpx.Client(timeout=request_timeout,
                                     trust_env=self._trust_env) as cl:
                 r = cl.post(f"{self.base}/chat/completions",
                             headers=self._headers(),

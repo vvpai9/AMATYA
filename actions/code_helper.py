@@ -60,7 +60,7 @@ def _resolve_save_path(output_path: str, language: str) -> Path:
         p = Path(output_path)
         return p if p.is_absolute() else DESKTOP / p
     ext = ext_map.get((language or "python").lower(), ".py")
-    return DESKTOP / f"jarvis_code{ext}"
+    return DESKTOP / f"amatya_code{ext}"
 
 
 def _read_file(file_path: str) -> tuple[str, str]:
@@ -99,8 +99,18 @@ def _has_error(output: str) -> bool:
 
 def _take_screenshot() -> Path | None:
     try:
+        screenshot_path = Path.home() / "Desktop" / f"amatya_debug_{int(time.time())}.png"
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from core.vision import get_vision
+            cap = get_vision().capture_full()
+            if cap.ok and cap.image_bytes:
+                screenshot_path.write_bytes(cap.image_bytes)
+                print(f"[Code] 📸 Screenshot (Vision): {screenshot_path}")
+                return screenshot_path
+        except Exception:
+            pass
         import pyautogui
-        screenshot_path = Path.home() / "Desktop" / f"jarvis_debug_{int(time.time())}.png"
         screenshot = pyautogui.screenshot()
         screenshot.save(str(screenshot_path))
         print(f"[Code] 📸 Screenshot: {screenshot_path}")
