@@ -156,12 +156,16 @@ def _on_wayland_with_kwin() -> bool:
     return session == "wayland"
 
 
+_LAST_MOUSE_POS = [960, 540]
+
+
 def _computer_control_via_kwin(action: str, params: dict) -> str:
     """Route a computer_control action through kwin-mcp on Wayland.
 
     Translates the familiar computer_control action names into kwin-mcp calls.
     Returns a result string in the same voice as the pyautogui implementations.
     """
+    global _LAST_MOUSE_POS
     client = get_client()
     client.ensure_started()
 
@@ -185,49 +189,62 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
 
     if action in ("click", "left_click"):
         x, y = params.get("x"), params.get("y")
+        label = str(params.get("text") or params.get("description") or params.get("label") or "").strip()
+        if (x is None or y is None) and label:
+            try:
+                elems = _extract_elements_kwin(client.find_ui_elements(query=label))
+                if elems:
+                    r = elems[0].get("rect") or elems[0].get("rectangle") or {}
+                    x = int(r.get("x", 0)) + int(r.get("width", 0)) // 2
+                    y = int(r.get("y", 0)) + int(r.get("height", 0)) // 2
+            except Exception:
+                pass
         if x is None or y is None:
-            return outcome.failed("computer_control", "click requires x and y")
+            x, y = _LAST_MOUSE_POS[0], _LAST_MOUSE_POS[1]
+        _LAST_MOUSE_POS = [int(x), int(y)]
         result = client.mouse_click(int(x), int(y), "left", 1)
         return f"Clicked ({x}, {y}) [left]"
 
     if action == "double_click":
         x, y = params.get("x"), params.get("y")
         if x is None or y is None:
-            return outcome.failed("computer_control", "double_click requires x and y")
+            x, y = _LAST_MOUSE_POS[0], _LAST_MOUSE_POS[1]
+        _LAST_MOUSE_POS = [int(x), int(y)]
         result = client.mouse_click(int(x), int(y), "left", 2)
         return f"Double-clicked ({x}, {y}) [left]"
 
     if action == "right_click":
         x, y = params.get("x"), params.get("y")
         if x is None or y is None:
-            return outcome.failed("computer_control", "right_click requires x and y")
+            x, y = _LAST_MOUSE_POS[0], _LAST_MOUSE_POS[1]
+        _LAST_MOUSE_POS = [int(x), int(y)]
         result = client.mouse_click(int(x), int(y), "right", 1)
         return f"Right-clicked ({x}, {y}) [right]"
 
     if action == "move":
-        result = client.mouse_move(int(params.get("x", 0)), int(params.get("y", 0)))
-        return f"Mouse → ({params.get('x', 0)}, {params.get('y', 0)})"
+        x = int(params.get("x", _LAST_MOUSE_POS[0]))
+        y = int(params.get("y", _LAST_MOUSE_POS[1]))
+        _LAST_MOUSE_POS = [x, y]
+        result = client.mouse_move(x, y)
+        return f"Mouse → ({x}, {y})"
 
     if action == "drag":
-        result = client.mouse_drag(
-            int(params.get("x1", 0)),
-            int(params.get("y1", 0)),
-            int(params.get("x2", 0)),
-            int(params.get("y2", 0)),
-        )
-        return f"Dragged ({params.get('x1', 0)},{params.get('y1', 0)}) → ({params.get('x2', 0)},{params.get('y2', 0)})"
+        x1, y1 = int(params.get("x1", _LAST_MOUSE_POS[0])), int(params.get("y1", _LAST_MOUSE_POS[1]))
+        x2, y2 = int(params.get("x2", 0)), int(params.get("y2", 0))
+        _LAST_MOUSE_POS = [x2, y2]
+        result = client.mouse_drag(x1, y1, x2, y2)
+        return f"Dragged ({x1},{y1}) → ({x2},{y2})"
 
     if action == "hotkey":
         raw = params.get("keys", "")
         keys = [k.strip() for k in raw.split("+")] if isinstance(raw, str) else raw
-        # Normalize key names to kwin-mcp's expected format
         keys = [_normalize_key(k) for k in keys]
         chord = "+".join(keys)
         result = client.keyboard_key(chord)
         return f"Hotkey: {chord}"
 
-    if action == "press":
-        key = _normalize_key(params.get("key", "enter"))
+    if action in ("press", "key"):
+        key = _normalize_key(params.get("key") or params.get("text") or "enter")
         result = client.keyboard_key(key)
         return f"Pressed: {key}"
 
@@ -236,7 +253,8 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
         amount = int(params.get("amount", 3))
         x, y = params.get("x"), params.get("y")
         if x is None or y is None:
-            return outcome.failed("computer_control", "scroll requires x and y")
+            x, y = _LAST_MOUSE_POS[0], _LAST_MOUSE_POS[1]
+        _LAST_MOUSE_POS = [int(x), int(y)]
         delta = amount if direction in ("up", "right") else -amount
         horizontal = direction in ("left", "right")
         result = client.mouse_scroll(int(x), int(y), delta=delta, horizontal=horizontal)
@@ -270,7 +288,7 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
         return outcome.done("computer_control", app=app_name, closed=app_name, verified=True)
 
     if action == "screen_find":
-        desc = params.get("description", "")
+        desc = params.get("description", "") or params.get("text", "")
         result = client.find_ui_elements(
             query=desc, app_name=None, states=None
         )
@@ -281,10 +299,22 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
         rect = el.get("rect") or el.get("rectangle") or {}
         x = int(rect.get("x", 0)) + int(rect.get("width", 0)) // 2
         y = int(rect.get("y", 0)) + int(rect.get("height", 0)) // 2
+        _LAST_MOUSE_POS = [x, y]
         return f"{x},{y}"
 
     if action == "screen_click":
-        desc = params.get("description", "")
+        desc = str(params.get("description", "") or params.get("text", "") or "").strip()
+        try:
+            elems = _extract_elements_kwin(client.find_ui_elements(query=desc))
+            if elems:
+                r = elems[0].get("rect") or elems[0].get("rectangle") or {}
+                x = int(r.get("x", 0)) + int(r.get("width", 0)) // 2
+                y = int(r.get("y", 0)) + int(r.get("height", 0)) // 2
+                _LAST_MOUSE_POS = [x, y]
+                client.mouse_click(x, y, "left", 1)
+                return f"Clicked UI element '{desc}' at ({x}, {y})"
+        except Exception:
+            pass
         from actions.kwin_desktop import _kwin_element_act
         return _kwin_element_act(desc, action="Press")
 

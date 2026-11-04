@@ -135,13 +135,13 @@ def execute(
             for d in res["devices"]
         ]
         summary = f"{res['mode_label']} {res['count']} device(s):\n" + "\n".join(lines)
-        return outcome.done(summary, data=res)
+        return outcome.done("home_automation", result=summary, data=res)
 
     if action == "control_device":
         target = str(parameters.get("target", "") or "").strip()
         cmd = str(parameters.get("command", "turn_on") or "turn_on").strip()
         if not target:
-            return outcome.failed("Please specify 'target' device to control.")
+            return outcome.failed("home_automation", "Please specify 'target' device to control.")
         extra_params: dict[str, Any] = {}
         for k in ("brightness_pct", "temperature_c", "speed_pct"):
             if parameters.get(k) is not None:
@@ -153,43 +153,44 @@ def execute(
             pin=parameters.get("pin"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", f"Failed to control '{target}'."), data=res)
+            return outcome.failed("home_automation", res.get("error", f"Failed to control '{target}'."), data=res)
         msg = (
             f"{res['mode_label']} {res['name']} ({res['entity_id']}) → state='{res['state']}' "
             f"(verified={res['verified']})."
         )
         if res.get("verified"):
-            return outcome.done(msg, data=res)
-        return outcome.unverified(msg, data=res)
+            return outcome.done("home_automation", result=msg, data=res)
+        return outcome.unverified("home_automation", msg, data=res)
 
     if action == "list_routines":
         routines = ctrl.list_routines()
         lines = [f"- {k}: {v.get('description', '')}" for k, v in routines.items()]
         return outcome.done(
-            f"Configured Home Routines ({len(routines)}):\n" + "\n".join(lines),
+            "home_automation",
+            result=f"Configured Home Routines ({len(routines)}):\n" + "\n".join(lines),
             data={"routines": routines},
         )
 
     if action == "run_routine":
         rname = str(parameters.get("routine_name") or parameters.get("target") or "").strip()
         if not rname:
-            return outcome.failed("Please provide 'routine_name' (e.g. 'morning', 'leaving_home', 'sleep').")
+            return outcome.failed("home_automation", "Please provide 'routine_name' (e.g. 'morning', 'leaving_home', 'sleep').")
         res = ctrl.execute_routine(
             routine_name=rname,
             confirmed=bool(parameters.get("confirmed", False)),
             pin=parameters.get("pin"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", f"Routine '{rname}' could not run."), data=res)
+            return outcome.failed("home_automation", res.get("error", f"Routine '{rname}' could not run."), data=res)
         msg = (
             f"{res['mode_label']} Executed routine '{res['name']}' "
             f"({len(res['results'])} device actions, all_verified={res['verified']})."
         )
-        return outcome.done(msg, data=res) if res.get("verified") else outcome.unverified(msg, data=res)
+        return outcome.done("home_automation", result=msg, data=res) if res.get("verified") else outcome.unverified("home_automation", msg, data=res)
 
     if action == "register_device":
         ok, msg = ctrl.register_device(parameters)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("home_automation", result=msg) if ok else outcome.failed("home_automation", msg)
 
     if action == "configure":
         res = ctrl.configure_connection(
@@ -197,7 +198,7 @@ def execute(
             ha_token=parameters.get("ha_token"),
             mqtt_host=parameters.get("mqtt_host"),
         )
-        return outcome.done(f"Home Automation connection status: {res['mode_label']}", data=res)
+        return outcome.done("home_automation", result=f"Home Automation connection status: {res['mode_label']}", data=res)
 
-    return outcome.failed(f"Unknown home_automation action '{action}'.")
+    return outcome.failed("home_automation", f"Unknown home_automation action '{action}'.")
 

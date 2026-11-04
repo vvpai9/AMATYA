@@ -98,31 +98,34 @@ def execute(
             if k in parameters and parameters[k] is not None
         }
         st = orch.context.update_entity(**updates)
-        return outcome.done("Updated operational context.", data=st)
+        return outcome.done("orchestrator", result="Updated operational context.", data=st)
 
     if action == "resolve_context":
         instr = str(parameters.get("instruction", "") or "").strip()
         if not instr:
-            return outcome.failed("Please provide 'instruction' to resolve.")
+            return outcome.failed("orchestrator", "Please provide 'instruction' to resolve.")
         res = orch.context.resolve_references(instr)
         return outcome.done(
-            f"Resolved '{res['original']}' → '{res['resolved']}'",
+            "orchestrator",
+            result=f"Resolved '{res['original']}' → '{res['resolved']}'",
             data=res,
         )
 
     if action == "plan_and_execute":
         instr = str(parameters.get("instruction", "") or "").strip()
         if not instr:
-            return outcome.failed("Please provide 'instruction' to plan and execute.")
+            return outcome.failed("orchestrator", "Please provide 'instruction' to plan and execute.")
         prio = int(parameters.get("priority", 5) or 5)
         task = orch.plan_workflow(instr, priority=prio)
         completed = orch.execute_task(task)
         if completed.status == "completed":
             return outcome.done(
-                f"Executed workflow '{completed.resolved_goal}': {completed.result_summary}",
+                "orchestrator",
+                result=f"Executed workflow '{completed.resolved_goal}': {completed.result_summary}",
                 data=completed.to_dict(),
             )
         return outcome.failed(
+            "orchestrator",
             f"Workflow '{completed.resolved_goal}' ended with status '{completed.status}': {completed.result_summary}",
             data=completed.to_dict(),
         )
@@ -131,7 +134,7 @@ def execute(
         st = orch.context.get_state()
         lt = st.get("last_task")
         if not isinstance(lt, dict) or not lt.get("goal"):
-            return outcome.failed("No previous task found in context to resume.")
+            return outcome.failed("orchestrator", "No previous task found in context to resume.")
         task = TaskRecord(
             task_id=str(lt.get("task_id", "resumed")),
             goal=str(lt.get("goal", "")),
@@ -147,20 +150,22 @@ def execute(
         )
         completed = orch.execute_task(task)
         return outcome.done(
-            f"Resumed task '{completed.resolved_goal}': {completed.result_summary}",
+            "orchestrator",
+            result=f"Resumed task '{completed.resolved_goal}': {completed.result_summary}",
             data=completed.to_dict(),
         )
 
     if action == "list_tasks":
         tasks = orch.list_tasks()
         return outcome.done(
-            f"Orchestrator has {len(tasks)} tracked task(s).",
+            "orchestrator",
+            result=f"Orchestrator has {len(tasks)} tracked task(s).",
             data={"tasks": tasks},
         )
 
     if action == "emergency_stop":
         msg = orch.cancel_all()
-        return outcome.done(msg)
+        return outcome.done("orchestrator", result=msg)
 
-    return outcome.failed(f"Unknown orchestrator action '{action}'.")
+    return outcome.failed("orchestrator", f"Unknown orchestrator action '{action}'.")
 

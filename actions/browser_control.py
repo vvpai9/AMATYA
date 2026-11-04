@@ -1192,6 +1192,33 @@ def browser_control(
         result = f"Browser action '{action}' timed out (60s)."
     except Exception as e:
         result = f"Browser error ({action}): {e}"
+        # Fallback to desktop shortcuts via kwin-mcp when automation session is closed/detached
+        if any(k in str(e).lower() for k in ("target page", "browser has been closed", "context or browser", "target closed")):
+            try:
+                from core.kwin_mcp_client import get_client
+                c = get_client()
+                if c.ensure_started():
+                    if action == "reload":
+                        c.keyboard_key("ctrl+r")
+                        result = "Reloaded active browser page via desktop shortcut (Ctrl+R)."
+                    elif action == "scroll":
+                        direction = str(params.get("direction", "down") or "down").lower()
+                        c.keyboard_key("Page_Down" if direction == "down" else "Page_Up")
+                        result = f"Scrolled active browser page ({direction})."
+                    elif action == "back":
+                        c.keyboard_key("alt+Left")
+                        result = "Navigated back."
+                    elif action == "forward":
+                        c.keyboard_key("alt+Right")
+                        result = "Navigated forward."
+                    elif action == "new_tab":
+                        c.keyboard_key("ctrl+t")
+                        result = "Opened new browser tab."
+                    elif action == "close_tab":
+                        c.keyboard_key("ctrl+w")
+                        result = "Closed browser tab."
+            except Exception:
+                pass
 
     _log(player, result)
     return result

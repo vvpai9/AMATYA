@@ -139,7 +139,7 @@ def execute(
             ip_address=str(parameters.get("ip_address", "")),
             authorized=bool(parameters.get("authorized", True)),
         )
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("device_control", result=msg) if ok else outcome.failed("device_control", msg)
 
     # Phone actions
     if action in ("send_file", "ring_phone", "share_clipboard", "phone_status", "phone_launch_app"):
@@ -158,11 +158,11 @@ def execute(
             app_name=parameters.get("app_name"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Phone action failed."), data=res)
+            return outcome.failed("device_control", res.get("error", "Phone action failed."), data=res)
         msg = res.get("message") or (
             f"{res['mode_label']} {res['device']}: battery={res['status'].get('battery_pct')}%"
         )
-        return outcome.done(msg, data=res)
+        return outcome.done("device_control", result=msg, data=res)
 
     # TV actions
     if action in ("tv_key", "tv_volume", "tv_launch_app", "tv_cast_url", "tv_status"):
@@ -182,13 +182,13 @@ def execute(
             volume_pct=parameters.get("volume_pct"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "TV action failed."), data=res)
+            return outcome.failed("device_control", res.get("error", "TV action failed."), data=res)
         st = res.get("status", {})
         msg = (
             f"{res['mode_label']} {res['device']}: power={st.get('power')}, "
             f"app={st.get('current_app')}, volume={st.get('volume_pct')}%."
         )
-        return outcome.done(msg, data=res)
+        return outcome.done("device_control", result=msg, data=res)
 
     # SSH actions
     if action in ("ssh_exec", "ssh_transfer", "ssh_status"):
@@ -205,9 +205,9 @@ def execute(
             remote_path=parameters.get("remote_path"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "SSH action failed."), data=res)
+            return outcome.failed("device_control", res.get("error", "SSH action failed."), data=res)
         msg = res.get("message") or res.get("stdout") or f"{res['mode_label']} {res.get('host')}: {res.get('status')}"
-        return outcome.done(msg, data=res)
+        return outcome.done("device_control", result=msg, data=res)
 
-    return outcome.failed(f"Unknown device_control action '{action}'.")
+    return outcome.failed("device_control", f"Unknown device_control action '{action}'.")
 

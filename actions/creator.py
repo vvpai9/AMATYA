@@ -151,7 +151,7 @@ def execute(
     if action == "check_project":
         info = engine.inspect_repository(proj)
         if not info.get("ok"):
-            return outcome.failed(info.get("error", "Repository check failed."), data=info)
+            return outcome.failed("creator", info.get("error", "Repository check failed."), data=info)
         tests = engine.run_tests(proj)
         summary = (
             f"Project '{info['project_path']}' (branch={info['git_branch']}, "
@@ -159,15 +159,16 @@ def execute(
             f"Tests/Verification ({tests.get('elapsed_sec', 0)}s): "
             f"{'PASSED' if tests.get('ok') else 'FAILED'} — {tests.get('output', '')[:300]}"
         )
-        return outcome.done(summary, data={"repo": info, "tests": tests})
+        return outcome.done("creator", result=summary, data={"repo": info, "tests": tests})
 
     if action == "inspect_repo":
         info = engine.inspect_repository(proj)
         if not info.get("ok"):
-            return outcome.failed(info.get("error", "Failed to inspect repo."), data=info)
+            return outcome.failed("creator", info.get("error", "Failed to inspect repo."), data=info)
         return outcome.done(
-            f"Inspected '{info['project_path']}': {info['total_files']} files, "
-            f"branch='{info['git_branch']}', types={info['file_types']}.",
+            "creator",
+            result=f"Inspected '{info['project_path']}': {info['total_files']} files, "
+                   f"branch='{info['git_branch']}', types={info['file_types']}.",
             data=info,
         )
 
@@ -175,10 +176,11 @@ def execute(
         pat = str(parameters.get("pattern", "") or "").strip()
         res = engine.search_code(pat, proj)
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Search failed."), data=res)
+            return outcome.failed("creator", res.get("error", "Search failed."), data=res)
         lines = [f"{m['file']}:{m['line']}: {m['text']}" for m in res["matches"][:15]]
         return outcome.done(
-            f"Found {res['count']} match(es) for '{pat}':\n" + "\n".join(lines),
+            "creator",
+            result=f"Found {res['count']} match(es) for '{pat}':\n" + "\n".join(lines),
             data=res,
         )
 
@@ -186,40 +188,42 @@ def execute(
         res = engine.run_tests(proj, test_target=parameters.get("file_path"))
         if res.get("ok"):
             return outcome.done(
-                f"Tests/checks passed in {res.get('elapsed_sec')}s: {res.get('output')}",
+                "creator",
+                result=f"Tests/checks passed in {res.get('elapsed_sec')}s: {res.get('output')}",
                 data=res,
             )
-        return outcome.failed(f"Tests/checks failed: {res.get('output') or res.get('error')}", data=res)
+        return outcome.failed("creator", f"Tests/checks failed: {res.get('output') or res.get('error')}", data=res)
 
     if action in ("git_status", "git_diff", "git_log", "git_commit"):
         op = action.replace("git_", "")
         res = engine.git_operation(proj, op=op, message=str(parameters.get("commit_message", "") or ""))
         if not res.get("ok"):
-            return outcome.failed(res.get("error") or res.get("stdout", "Git operation failed."), data=res)
-        return outcome.done(f"Git {op}: {res.get('stdout', '')}", data=res)
+            return outcome.failed("creator", res.get("error") or res.get("stdout", "Git operation failed."), data=res)
+        return outcome.done("creator", result=f"Git {op}: {res.get('stdout', '')}", data=res)
 
     if action == "apply_edits":
         edits = parameters.get("edits")
         if not isinstance(edits, list) or not edits:
-            return outcome.failed("Please provide a non-empty 'edits' list.")
+            return outcome.failed("creator", "Please provide a non-empty 'edits' list.")
         res = engine.apply_edits(edits)
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Edit failed."), data=res)
-        return outcome.done(f"Modified {len(res['modified_files'])} file(s).", data=res)
+            return outcome.failed("creator", res.get("error", "Edit failed."), data=res)
+        return outcome.done("creator", result=f"Modified {len(res['modified_files'])} file(s).", data=res)
 
     if action == "classify_command":
         cmd = str(parameters.get("command", "") or "")
         risk = classify_command_risk(cmd)
         return outcome.done(
-            f"Command '{cmd}' classified as {risk['risk_level']} "
-            f"(requires_confirmation={risk['requires_confirmation']}): {risk['reason']}",
+            "creator",
+            result=f"Command '{cmd}' classified as {risk['risk_level']} "
+                   f"(requires_confirmation={risk['requires_confirmation']}): {risk['reason']}",
             data=risk,
         )
 
     if action == "run_shell":
         cmd = str(parameters.get("command", "") or "").strip()
         if not cmd:
-            return outcome.failed("Please provide 'command' to run.")
+            return outcome.failed("creator", "Please provide 'command' to run.")
         res = engine.run_shell(
             command=cmd,
             cwd=proj,
@@ -227,16 +231,17 @@ def execute(
             pin=parameters.get("pin"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error") or res.get("stderr", "Command failed."), data=res)
+            return outcome.failed("creator", res.get("error") or res.get("stderr", "Command failed."), data=res)
         return outcome.done(
-            f"Command ({res['risk']['risk_level']}) succeeded:\n{res.get('stdout', '')}",
+            "creator",
+            result=f"Command ({res['risk']['risk_level']}) succeeded:\n{res.get('stdout', '')}",
             data=res,
         )
 
     if action == "generate_doc":
         out_path = str(parameters.get("output_path") or parameters.get("file_path") or "").strip()
         if not out_path:
-            return outcome.failed("Please specify 'output_path' (.pdf, .docx, .xlsx, .pptx, .csv, .md, .zip).")
+            return outcome.failed("creator", "Please specify 'output_path' (.pdf, .docx, .xlsx, .pptx, .csv, .md, .zip).")
         res = generate_document(
             output_path=out_path,
             title=str(parameters.get("title", "AMATYA Document")),
@@ -246,31 +251,33 @@ def execute(
             source_paths=parameters.get("source_paths"),
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Document generation failed."), data=res)
+            return outcome.failed("creator", res.get("error", "Document generation failed."), data=res)
         return outcome.done(
-            f"Generated {res['format'].upper()} document at '{res['path']}' ({res['size_bytes']} bytes).",
+            "creator",
+            result=f"Generated {res['format'].upper()} document at '{res['path']}' ({res['size_bytes']} bytes).",
             data=res,
         )
 
     if action == "analyze_doc":
         fpath = str(parameters.get("file_path") or parameters.get("output_path") or "").strip()
         if not fpath:
-            return outcome.failed("Please specify 'file_path' to analyze.")
+            return outcome.failed("creator", "Please specify 'file_path' to analyze.")
         res = analyze_document(fpath)
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Document analysis failed."), data=res)
+            return outcome.failed("creator", res.get("error", "Document analysis failed."), data=res)
         preview = str(res.get("text") or res.get("rows") or res.get("sheets") or res.get("entries") or "")[:600]
         return outcome.done(
-            f"Analyzed {res['format'].upper()} file '{res['path']}':\n{preview}",
+            "creator",
+            result=f"Analyzed {res['format'].upper()} file '{res['path']}':\n{preview}",
             data=res,
         )
 
     if action == "code_assist":
         prompt = str(parameters.get("prompt", "") or "").strip()
         if not prompt:
-            return outcome.failed("Please provide 'prompt' for code_assist.")
+            return outcome.failed("creator", "Please provide 'prompt' for code_assist.")
         ans = engine.analyze_or_generate_code(prompt, str(parameters.get("content", "") or ""))
-        return outcome.done(ans)
+        return outcome.done("creator", result=ans)
 
-    return outcome.failed(f"Unknown creator action '{action}'.")
+    return outcome.failed("creator", f"Unknown creator action '{action}'.")
 

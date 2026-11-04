@@ -237,10 +237,11 @@ def execute(
             overwrite=True,
         )
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Voice enrollment failed."), data=res)
+            return outcome.failed("voice_auth", res.get("error", "Voice enrollment failed."), data=res)
         return outcome.done(
-            f"Enrolled voice profile '{res['user_name']}' with {res['sample_count']} sample(s) "
-            f"(consistency={res['consistency_score']:.2f}, mean pitch={res['f0_mean_hz']} Hz).",
+            "voice_auth",
+            result=f"Enrolled voice profile '{res['user_name']}' with {res['sample_count']} sample(s) "
+                   f"(consistency={res['consistency_score']:.2f}, mean pitch={res['f0_mean_hz']} Hz).",
             data=res,
         )
 
@@ -262,8 +263,8 @@ def execute(
             duration_sec=duration,
         )
         if res.verified:
-            return outcome.done(res.reason, data=res.to_dict())
-        return outcome.failed(res.reason, data=res.to_dict())
+            return outcome.done("voice_auth", result=res.reason, data=res.to_dict())
+        return outcome.failed("voice_auth", res.reason, data=res.to_dict())
 
     if action == "delete_profile":
         perm = check_permission(
@@ -273,17 +274,18 @@ def execute(
             pin=parameters.get("pin"),
         )
         if not perm["allowed"]:
-            return outcome.failed(perm["reason"], data=perm)
+            return outcome.failed("voice_auth", perm["reason"], data=perm)
         user_name = str(parameters.get("user_name", "") or "").strip()
         if not user_name:
-            return outcome.failed("Please specify 'user_name' to delete.")
+            return outcome.failed("voice_auth", "Please specify 'user_name' to delete.")
         ok, msg = auth.delete_profile(user_name)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "enable":
         save_voice_auth_enabled(True)
         return outcome.done(
-            f"Voice authentication enabled (threshold={get_voice_auth_threshold():.2f})."
+            "voice_auth",
+            result=f"Voice authentication enabled (threshold={get_voice_auth_threshold():.2f})."
         )
 
     if action == "disable":
@@ -294,49 +296,51 @@ def execute(
             pin=parameters.get("pin"),
         )
         if not perm["allowed"]:
-            return outcome.failed(perm["reason"], data=perm)
+            return outcome.failed("voice_auth", perm["reason"], data=perm)
         save_voice_auth_enabled(False)
         clear_session_auth()
-        return outcome.done("Voice authentication disabled.")
+        return outcome.done("voice_auth", result="Voice authentication disabled.")
 
     if action == "set_threshold":
         t = parameters.get("threshold")
         if t is None:
-            return outcome.failed("Please provide 'threshold' between 0.50 and 0.95.")
+            return outcome.failed("voice_auth", "Please provide 'threshold' between 0.50 and 0.95.")
         save_voice_auth_threshold(float(t))
-        return outcome.done(f"Speaker verification threshold set to {get_voice_auth_threshold():.2f}.")
+        return outcome.done("voice_auth", result=f"Speaker verification threshold set to {get_voice_auth_threshold():.2f}.")
 
     if action == "generate_challenge":
         ch = auth.generate_challenge()
         return outcome.done(
-            f"Anti-spoofing liveness challenge phrase: '{ch['phrase']}'. Please speak this phrase aloud.",
+            "voice_auth",
+            result=f"Anti-spoofing liveness challenge phrase: '{ch['phrase']}'. Please speak this phrase aloud.",
             data=ch,
         )
 
     if action == "verify_challenge":
         spoken = str(parameters.get("challenge_transcript", "") or "")
         ok, msg = auth.verify_challenge_transcript(spoken)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "set_pin":
         pin = str(parameters.get("pin", "") or "")
         ok, msg = set_pin(pin)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "verify_pin":
         pin = str(parameters.get("pin", "") or "")
         ok, msg = verify_pin(pin)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "clear_pin":
         pin = str(parameters.get("pin", "") or "")
         ok, msg = clear_pin(pin)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "set_autonomy":
         lvl = str(parameters.get("autonomy_level", "") or "").strip().lower()
         if lvl not in AUTONOMY_LEVELS:
             return outcome.failed(
+                "voice_auth",
                 f"Invalid autonomy_level '{lvl}'. Valid levels: {', '.join(AUTONOMY_LEVELS)}."
             )
         save_autonomy_level(lvl)
@@ -347,7 +351,7 @@ def execute(
                 agent.set_autonomy(lvl)
         except Exception:
             pass
-        return outcome.done(f"AMATYA autonomy level set to '{get_autonomy_level()}'.")
+        return outcome.done("voice_auth", result=f"AMATYA autonomy level set to '{get_autonomy_level()}'.")
 
     if action == "configure_voice":
         changes = []
@@ -373,15 +377,16 @@ def execute(
             save_wake_word_enabled(bool(parameters["wake_word_enabled"]))
             changes.append(f"wake_enabled={get_wake_word_enabled()}")
         if not changes:
-            return outcome.failed("No voice configuration parameters provided.")
-        return outcome.done(f"Updated voice configuration: {', '.join(changes)}.")
+            return outcome.failed("voice_auth", "No voice configuration parameters provided.")
+        return outcome.done("voice_auth", result=f"Updated voice configuration: {', '.join(changes)}.")
 
     if action == "audit_log":
         entries = read_audit_log(limit=25)
         return outcome.done(
-            f"Retrieved {len(entries)} recent security audit log entries.",
+            "voice_auth",
+            result=f"Retrieved {len(entries)} recent security audit log entries.",
             data={"entries": entries},
         )
 
-    return outcome.failed(f"Unknown voice_auth action: '{action}'.")
+    return outcome.failed("voice_auth", f"Unknown voice_auth action: '{action}'.")
 

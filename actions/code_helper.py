@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 import json
@@ -563,30 +564,55 @@ def code_helper(
     timeout     = int(p.get("timeout", 30))
 
     if action == "auto":
-        action = _detect_intent(description, file_path, code)
+        action = _detect_intent(description or code, file_path, code)
         print(f"[Code] 🤖 Auto-detected: {action}")
 
     if action == "write":
-        return _write_action(description, language, output_path, player)
+        if code and output_path:
+            # Directly save provided code to output_path
+            p = Path(output_path)
+            _save_file(p, code)
+            return f"Code written. Saved to: {p}\n\nPreview:\n{_preview(code)}"
+        return _write_action(description or code, language, output_path, player)
 
     elif action == "edit":
         return _edit_action(
             file_path,
-            description or p.get("instruction", ""),
+            description or p.get("instruction", "") or code,
             player
         )
 
     elif action == "explain":
-        return _explain_action(file_path, code, player)
+        return _explain_action(file_path, code or description, player)
 
     elif action == "run":
+        if not file_path and (args or p.get("command") or code):
+            cmd = str(args if isinstance(args, str) else p.get("command") or code).strip()
+            import subprocess
+            try:
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+                out = (res.stdout + "\n" + res.stderr).strip()
+                return f"Executed command '{cmd}' (exit={res.returncode}):\n{out[:2000]}"
+            except Exception as e:
+                return f"Execution failed: {e}"
         return _run_action(file_path, args, timeout, player)
 
+    elif action in ("open_in_editor", "open", "view"):
+        target_path = file_path or output_path
+        if not target_path:
+            return "Please provide a file path to open in editor."
+        import subprocess, shutil
+        for ed in ("kate", "kwrite", "code", "xdg-open"):
+            if shutil.which(ed):
+                subprocess.Popen([ed, target_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return f"Opened '{target_path}' in {ed}."
+        return f"File '{target_path}' ready."
+
     elif action == "build":
-        return _build(description, language, output_path, args, timeout, speak, player)
+        return _build(description or code, language, output_path, args, timeout, speak, player)
 
     elif action == "optimize":
-        return _optimize_action(file_path, code, language, output_path, player)
+        return _optimize_action(file_path, code or description, language, output_path, player)
 
     elif action == "screen_debug":
         return _screen_debug_action(description, file_path, player, speak)

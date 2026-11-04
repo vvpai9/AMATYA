@@ -84,28 +84,29 @@ def execute(
             if ol.get("online")
             else f"Ollama offline at {ol.get('url')}"
         )
-        return outcome.done(f"Provider probe: {ol_msg}.", data=probed)
+        return outcome.done("model_router", result=f"Provider probe: {ol_msg}.", data=probed)
 
     if action == "set_route":
         role = str(parameters.get("role", "") or "").strip()
         spec = str(parameters.get("model_spec", "") or "").strip()
         ok, msg = router.set_route(role, spec)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("model_router", result=msg) if ok else outcome.failed("model_router", msg)
 
     if action == "set_provider_url":
         prov = str(parameters.get("provider", "") or "").strip()
         url = str(parameters.get("base_url", "") or "").strip()
         if not prov or not url:
-            return outcome.failed("Both 'provider' and 'base_url' are required.")
+            return outcome.failed("model_router", "Both 'provider' and 'base_url' are required.")
         ok, msg = router.set_provider_url(prov, url)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("model_router", result=msg) if ok else outcome.failed("model_router", msg)
 
     if action == "recommend":
         role = str(parameters.get("role", "reasoning") or "reasoning").strip()
         rec = router.recommend_size(role)
         return outcome.done(
-            f"Recommended model size for '{role}' on this hardware: {rec} (currently routed to {router.route(role)})."
+            "model_router",
+            result=f"Recommended model size for '{role}' on this hardware: {rec} (currently routed to {router.route(role)})."
         )
 
-    return outcome.failed(f"Unknown model_router action '{action}'.")
+    return outcome.failed("model_router", f"Unknown model_router action '{action}'.")
 

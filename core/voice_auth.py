@@ -473,13 +473,16 @@ class VoiceAuthenticator:
     ) -> list[np.ndarray]:
         """Record `num_samples` voice clips from the configured microphone via sounddevice."""
         import sounddevice as sd
+        from scipy import signal
+        import core.audio_devices as ad
 
         dev_name = get_input_device()
-        device = None
-        if dev_name:
+        device = ad.resolve(dev_name, "input")
+        if device is None:
             try:
                 for idx, d in enumerate(sd.query_devices()):
-                    if d.get("max_input_channels", 0) > 0 and dev_name.lower() in d.get("name", "").lower():
+                    name_l = d.get("name", "").lower()
+                    if d.get("max_input_channels", 0) > 0 and ("pipewire" in name_l or "pulse" in name_l or "default" in name_l):
                         device = idx
                         break
             except Exception:
@@ -488,15 +491,36 @@ class VoiceAuthenticator:
         samples: list[np.ndarray] = []
         frames = int(duration_sec * sample_rate)
         for _ in range(max(1, int(num_samples))):
-            rec = sd.rec(
-                frames,
-                samplerate=sample_rate,
-                channels=1,
-                dtype="int16",
-                device=device,
-            )
-            sd.wait()
-            samples.append(rec[:, 0].copy())
+            try:
+                rec = sd.rec(
+                    frames,
+                    samplerate=sample_rate,
+                    channels=1,
+                    dtype="int16",
+                    device=device,
+                )
+                sd.wait()
+                samples.append(rec[:, 0].copy())
+            except Exception:
+                # Hardware ALSA or driver rejected 16kHz — record at device default rate and resample
+                fallback_rate = 48000
+                try:
+                    dev_info = sd.query_devices(device) if device is not None else sd.query_devices(kind="input")
+                    fallback_rate = int(dev_info.get("default_samplerate") or 48000)
+                except Exception:
+                    fallback_rate = 48000
+                fallback_frames = int(duration_sec * fallback_rate)
+                rec = sd.rec(
+                    fallback_frames,
+                    samplerate=fallback_rate,
+                    channels=1,
+                    dtype="int16",
+                    device=device,
+                )
+                sd.wait()
+                resampled = signal.resample(rec[:, 0].astype(np.float32), frames)
+                clipped = np.clip(resampled, -32768, 32767).astype(np.int16)
+                samples.append(clipped)
             time.sleep(0.25)
         return samples
 

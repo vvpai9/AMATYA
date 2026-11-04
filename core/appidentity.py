@@ -853,16 +853,25 @@ def focus(match: "Match") -> bool:
         except Exception:
             return False
 
-    # Linux. There is no single API here — X11 window management is whatever
-    # the user installed — so the two tools nearly every desktop ships are
-    # tried in turn, and neither being present is a normal minimal-desktop
-    # state rather than an error. When both are missing this returns False and
-    # the caller launches the application instead, which on most desktops
-    # raises the existing window anyway.
-    #
-    # `xdotool` first because it can select by PID, which is exactly the
-    # question being asked. `wmctrl` has no PID selector, so it matches on the
-    # window title — looser, and only used when xdotool is absent.
+    # Linux: Try Wayland native KWin focus first via kwin-mcp
+    try:
+        from core.kwin_mcp_client import get_client
+        c = get_client()
+        if c.ensure_started():
+            windows = c.get_kwin_windows()
+            targets = [match.label.lower(), match.exe.lower()] + [t.lower() for t in (match.titles or [])]
+            for w in windows:
+                caption = str(w.get("caption", "")).lower()
+                app_id = str(w.get("app_id") or w.get("app") or "").lower()
+                for target in targets:
+                    if target and (target in caption or target in app_id):
+                        wid = w.get("id")
+                        c.focus_window(window_id=wid)
+                        return True
+    except Exception:
+        pass
+
+    # X11 tools fallback
     try:
         r = subprocess.run(
             ["xdotool", "search", "--pid", str(match.pid), "windowactivate"],

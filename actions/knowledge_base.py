@@ -108,12 +108,12 @@ def execute(
     if action == "query":
         q = str(parameters.get("query", "") or "").strip()
         if not q:
-            return outcome.failed("Please provide a 'query' string.")
+            return outcome.failed("knowledge_base", "Please provide a 'query' string.")
         top_k = int(parameters.get("top_k", 5) or 5)
         hits = kb.query(q, top_k=top_k)
         mem_hits = search_memory(q, limit=5)
         if not hits and "Nothing stored" in mem_hits:
-            return outcome.done(f"No matching knowledge or memory found for '{q}'.", data={"rag_hits": []})
+            return outcome.done("knowledge_base", result=f"No matching knowledge or memory found for '{q}'.", data={"rag_hits": []})
         lines = []
         for idx, h in enumerate(hits, 1):
             lines.append(
@@ -121,19 +121,21 @@ def execute(
             )
         rag_block = "\n\n".join(lines) if lines else "No indexed document chunks matched."
         return outcome.done(
-            f"Knowledge Base Results for '{q}':\n{rag_block}\n\nLong-Term Memory:\n{mem_hits}",
+            "knowledge_base",
+            result=f"Knowledge Base Results for '{q}':\n{rag_block}\n\nLong-Term Memory:\n{mem_hits}",
             data={"rag_hits": hits, "memory_summary": mem_hits},
         )
 
     if action == "index_path":
         path = str(parameters.get("path", "") or "").strip()
         if not path:
-            return outcome.failed("Please specify 'path' to index.")
+            return outcome.failed("knowledge_base", "Please specify 'path' to index.")
         res = kb.index_path(path)
         if not res.get("ok"):
-            return outcome.failed(res.get("error", f"No indexable files found in {path}."), data=res)
+            return outcome.failed("knowledge_base", res.get("error", f"No indexable files found in {path}."), data=res)
         return outcome.done(
-            f"Indexed {res['indexed_files']} file(s) ({res['total_chunks']} chunks) from '{res['path']}'.",
+            "knowledge_base",
+            result=f"Indexed {res['indexed_files']} file(s) ({res['total_chunks']} chunks) from '{res['path']}'.",
             data=res,
         )
 
@@ -143,39 +145,42 @@ def execute(
         text = str(parameters.get("text", "") or "").strip()
         res = kb.index_text(source_id=sid, text=text, title=title)
         if not res.get("ok"):
-            return outcome.failed(res.get("error", "Failed to index note."), data=res)
+            return outcome.failed("knowledge_base", res.get("error", "Failed to index note."), data=res)
         return outcome.done(
-            f"Indexed note '{title}' ({res['chunk_count']} chunk(s)).",
+            "knowledge_base",
+            result=f"Indexed note '{title}' ({res['chunk_count']} chunk(s)).",
             data=res,
         )
 
     if action == "list_sources":
         info = kb.list_sources()
         return outcome.done(
-            f"Knowledge Base contains {info['total_sources']} source(s) and {info['total_chunks']} chunk(s).",
+            "knowledge_base",
+            result=f"Knowledge Base contains {info['total_sources']} source(s) and {info['total_chunks']} chunk(s).",
             data=info,
         )
 
     if action == "remove_source":
         sid = str(parameters.get("source_id", "") or "").strip()
         if not sid:
-            return outcome.failed("Please specify 'source_id' to remove.")
+            return outcome.failed("knowledge_base", "Please specify 'source_id' to remove.")
         ok, msg = kb.remove_source(sid)
-        return outcome.done(msg) if ok else outcome.failed(msg)
+        return outcome.done("knowledge_base", result=msg) if ok else outcome.failed("knowledge_base", msg)
 
     if action == "clear_index":
         msg = kb.clear_all()
-        return outcome.done(msg)
+        return outcome.done("knowledge_base", result=msg)
 
     if action == "export_memory":
         path = parameters.get("path")
         ok, msg = export_memory(path)
-        return outcome.done(f"Memory exported to {msg}.") if ok else outcome.failed(msg)
+        return outcome.done("knowledge_base", result=f"Memory exported to {msg}.") if ok else outcome.failed("knowledge_base", msg)
 
     if action == "list_memory":
         entries = all_entries_for_ui()
         return outcome.done(
-            f"Long-term memory has {len(entries)} stored item(s).",
+            "knowledge_base",
+            result=f"Long-term memory has {len(entries)} stored item(s).",
             data={"entries": entries},
         )
 
@@ -183,14 +188,14 @@ def execute(
         cat = str(parameters.get("category", "notes") or "notes").strip()
         key = str(parameters.get("key", "") or "").strip()
         if not key:
-            return outcome.failed("Please provide 'key' (and optional 'category') to delete.")
+            return outcome.failed("knowledge_base", "Please provide 'key' (and optional 'category') to delete.")
         msg = forget(key, cat)
-        return outcome.done(msg)
+        return outcome.done("knowledge_base", result=msg)
 
     if action == "clear_memory_category":
         cat = str(parameters.get("category", "") or "").strip()
         msg = clear_category(cat)
-        return outcome.done(msg)
+        return outcome.done("knowledge_base", result=msg)
 
-    return outcome.failed(f"Unknown knowledge_base action '{action}'.")
+    return outcome.failed("knowledge_base", f"Unknown knowledge_base action '{action}'.")
 

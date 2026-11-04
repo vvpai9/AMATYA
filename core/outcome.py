@@ -106,26 +106,32 @@ def done(action: str, /, **facts: Any) -> str:
     return _line(DONE, action, facts)
 
 
-def unverified(action: str, reason: str, /, **facts: Any) -> str:
+def unverified(action: str, reason: str = "", /, **facts: Any) -> str:
     """It was requested; the result could not be confirmed.
 
     The instruction on the end is not decoration. Without it, a model handed
     "status=unverified" reliably rounds it off to "Done!" — this was watched
     happening, which is why the sentence spells out what may not be said.
     """
+    if not reason:
+        reason = action
+        action = str(facts.pop("action", "action"))
     return _line(UNVERIFIED, action, {**facts, "reason": reason}) + (
         " -- NOT confirmed. Tell the user plainly that you asked and cannot "
         "confirm it worked, and say what they can check. Do NOT say it is done."
     )
 
 
-def failed(action: str, reason: str, /, **facts: Any) -> str:
+def failed(action: str, reason: str = "", /, **facts: Any) -> str:
     """It did not happen.
 
     `reason` is for the user, through the model, so write it as a cause a
     person can act on — "no running application matches that name" rather than
     "returncode 1".
     """
+    if not reason:
+        reason = action
+        action = str(facts.pop("action", "action"))
     return _line(FAILED, action, {**facts, "reason": reason}) + (
         " -- This did NOT happen. Tell the user so in their own language, with "
         "the reason. Do not claim any part of it succeeded."

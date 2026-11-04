@@ -355,16 +355,47 @@ def open_app(parameters=None, response=None, player=None,
     before = appidentity.snapshot()
     _log(player, f"AMATYA: Opening {spoken}…")
 
+    launcher = _LAUNCHERS[_SYSTEM]
+    requested = launcher(launcher_name)
+    if not requested and launcher_name.lower() != spoken.lower():
+        requested = launcher(spoken)
+
+    # Fast verification: wait up to 2 seconds for window/process to appear
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        time.sleep(0.25)
+        # 1. Check KWin windows on Wayland
+        try:
+            from core.kwin_mcp_client import get_client
+            c = get_client()
+            if c.ensure_started():
+                windows = c.get_kwin_windows()
+                for w in windows:
+                    caption = str(w.get("caption", "")).lower()
+                    app_id = str(w.get("app_id") or w.get("app") or "").lower()
+                    sp = spoken.lower()
+                    if sp in caption or sp in app_id:
+                        _log(player, f"AMATYA: {w.get('caption') or spoken} is open.")
+                        return outcome.done(
+                            "open_app", app=spoken, window=w.get("caption"), verified=True
+                        )
+        except Exception:
+            pass
+
+        # 2. Check process table
+        appeared = appidentity.wait_for_launch(spoken, before, timeout=0.1, poll=0.1)
+        if appeared is not None:
+            _log(player, f"AMATYA: {appeared.label} is open.")
+            return outcome.done(
+                "open_app", app=spoken, matched=appeared.label, verified=True
+            )
+
     threading.Thread(
         target=_launch_and_verify,
         args=(player, spoken, launcher_name, before),
         daemon=True, name=f"open-app-{spoken[:20]}",
     ).start()
 
-    # Facts, not a sentence. Handing the model a finished English sentence is
-    # an invitation to repeat it verbatim — whatsapp_call.py has the receipt:
-    # a request made in Turkish came back in English, padded with an offer
-    # nobody had made. The model writes the sentence, in the user's language.
     return outcome.started("open_app", app=spoken)
 
 
