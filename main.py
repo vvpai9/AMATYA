@@ -35,6 +35,7 @@ for _stream in ("stdout", "stderr"):
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio
+import collections
 import re
 import threading
 import time
@@ -438,16 +439,34 @@ TOOL_DECLARATIONS = [
         },
     },
     {
-        "name": "shutdown_amatya",
+        "name": "sleep_amatya",
         "description": (
-            "Shuts down the assistant completely. "
-            "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Amatya. "
-            "The user can say this in ANY language."
+            "Puts the AMATYA assistant into sleep mode. "
+            "Call this when the user says 'go to sleep', 'sleep', 'take a rest', "
+            "'stop listening', 'standby', 'goodnight', or wants AMATYA to be quiet until the wake word is called. "
+            "In sleep mode, AMATYA stops streaming microphone audio to Gemini and waits for the wake word ('Hey Amatya' / 'Amatya') to wake up."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {},
+        }
+    },
+    {
+        "name": "shutdown_amatya",
+        "description": (
+            "Completely closes and terminates the AMATYA assistant application process. "
+            "ONLY call this when the user explicitly commands to shut down, quit, or exit AMATYA. "
+            "NEVER call this for 'sleep', 'take a rest', or 'stop listening' (use sleep_amatya for those). "
+            "Requires user confirmation: always prompt for confirmation before shutting down."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "confirmed": {
+                    "type": "BOOLEAN",
+                    "description": "True if the user has explicitly confirmed shutting down AMATYA.",
+                }
+            },
         }
     },
     {
@@ -1473,29 +1492,51 @@ class AmatyaLive:
                 else:
                     result = "Specify action (add/remove/list) and a topic."
 
+            elif name == "sleep_amatya":
+                self.ui.write_log("SYS: Sleep mode requested by user.")
+                # Ensure wake detector is running so AMATYA can be awakened later
+                self._wake_enabled = True
+                self._ensure_wake_detector()
+                self.sleep(reason="user commanded sleep")
+                result = "Going to sleep. Say 'Hey Amatya' whenever you need me."
+
             elif name == "shutdown_amatya":
-                self.ui.write_log("SYS: Shutdown requested.")
-                async def _do_shutdown():
-                    await self._save_session_summary()
-                    if self.session:
-                        try:
-                            await self.session.send_client_content(
-                                turns={"role": "user", "parts": [{"text": "Say a brief natural goodbye to the user."}]},
-                                turn_complete=True,
-                            )
-                        except Exception:
-                            pass
-                    await asyncio.sleep(1.5)
-                    import os as _os
-                    _os._exit(0)
-                asyncio.create_task(_do_shutdown())
+                confirmed = bool(
+                    args.get("confirmed", False)
+                    or args.get("confirm", False)
+                    or str(args.get("confirmed", "")).lower() in ("yes", "true", "1", "confirm")
+                )
+                if not confirmed:
+                    result = (
+                        "[CONFIRMATION_REQUIRED] You requested to shut down AMATYA completely. "
+                        "Say ONE short sentence asking the user to confirm before you shut down. "
+                        "Do NOT call shutdown_amatya with confirmed=true until the user explicitly confirms."
+                    )
+                else:
+                    self.ui.write_log("SYS: Shutdown confirmed by user.")
+                    async def _do_shutdown():
+                        await self._save_session_summary()
+                        if self.session:
+                            try:
+                                await self.session.send_client_content(
+                                    turns={"role": "user", "parts": [{"text": "Say a brief natural goodbye to the user."}]},
+                                    turn_complete=True,
+                                )
+                            except Exception:
+                                pass
+                        await asyncio.sleep(1.5)
+                        import os as _os
+                        _os._exit(0)
+                    asyncio.create_task(_do_shutdown())
+                    result = "Shutting down AMATYA. Goodbye."
 
             elif self._action_registry.has(name):
                 # file_processor: fall back to the currently-uploaded file when none is given
                 if name == "file_processor" and not args.get("file_path") and self.ui.current_file:
                     args["file_path"] = self.ui.current_file
                 _ctx = {"player": self.ui, "speak": self.speak,
-                        "response": self.session, "session_memory": None}
+                        "response": self.session, "session_memory": None,
+                        "amatya": self}
                 r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                 result = r or "Done."
                 # web_search: mirror results to the on-screen content panel
@@ -1590,6 +1631,16 @@ class AmatyaLive:
         print("[AMATYA] 🎤 Mic started")
         loop = asyncio.get_event_loop()
 
+        # ── Noise gate & speech presence detection ──────────────────────────
+        # When pure background noise, fan hiss, or far whispers enter the mic,
+        # squelch them locally rather than streaming them to Gemini. LLM audio
+        # encoders hallucinate phantom words and foreign languages when fed pure
+        # low-level room noise.
+        _noise_gate_thresh = 0.012  # RMS level floor (~90 RMS)
+        _last_voice_ts = [time.monotonic()]
+        _pre_roll = collections.deque(maxlen=4)  # ~120ms ring buffer to preserve leading syllables
+        _HANGOVER_SEC = 0.65                     # keep stream open briefly after words end
+
         def callback(indata, frames, time_info, status):
             # ── Wake-word gate ───────────────────────────────────────────────
             # While asleep, the mic audio NEVER goes to Gemini (nothing is
@@ -1610,28 +1661,11 @@ class AmatyaLive:
             # While AMATYA talks the mic is not streamed, but it is still worth
             # listening to locally: if the user starts speaking, cut the answer
             # short the way a person would stop when interrupted.
-            #
-            # The whole difficulty is echo — on speakers the mic hears AMATYA.
-            # So the test is not "is the mic loud" but "is the mic louder than
-            # the echo of what we are playing right now", sustained long enough
-            # that a cough or a keystroke cannot trigger it.
             if amatya_speaking:
-                # Nothing is streamed while AMATYA talks.
-                #
-                # Interrupting by voice used to live here: `EchoGuard` can pick a
-                # user out from under our own echo, and `core/echo.py` still does
-                # that for the tail below. Re-enabling is small — classify each
-                # block here and call interrupt() after `required_blocks` of
-                # agreement — but it depends on the listener's room, so it stays
-                # out until it can be tried on real hardware.
                 return
 
             # ── Echo tail ────────────────────────────────────────────────────
             # The speaking flag has dropped but the speakers have not finished.
-            # Sending this to the model is how an assistant hears itself, decides
-            # it was addressed, and answers its own last sentence. The microphone
-            # stays OPEN — the guard only drops blocks that are our own voice, so
-            # replying the instant it stops still works.
             if self._tail_active():
                 try:
                     if not self._echo.is_user_speech(
@@ -1649,20 +1683,34 @@ class AmatyaLive:
             # unless you are holding the key.
             if self._ptt_enabled and not self._ptt_held:
                 return
-            
+
+            lvl = _pcm_level(indata)
+            try:
+                self.ui.set_audio_level(lvl)
+            except Exception:
+                pass
+
             if not self.ui.muted and not self._phone_active:
-                data = indata.tobytes()
-                loop.call_soon_threadsafe(
-                    self._push_out_audio,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
-                # Feed the live mic level to the HUD so the waveform reacts to
-                # the user's actual voice while listening. Purely cosmetic — any
-                # failure here must never disturb the mic.
-                try:
-                    self.ui.set_audio_level(_pcm_level(indata))
-                except Exception:
-                    pass
+                now = time.monotonic()
+                is_speech = (lvl >= _noise_gate_thresh)
+                if is_speech:
+                    _last_voice_ts[0] = now
+                    self._last_user_speech = now
+
+                in_hangover = (now - _last_voice_ts[0]) < _HANGOVER_SEC
+
+                chunk_item = {"data": indata.tobytes(), "mime_type": "audio/pcm"}
+
+                if is_speech or in_hangover:
+                    # Flush pre-roll buffer if transitioning from silence into speech
+                    if is_speech and _pre_roll:
+                        while _pre_roll:
+                            pchunk = _pre_roll.popleft()
+                            loop.call_soon_threadsafe(self._push_out_audio, pchunk)
+                    loop.call_soon_threadsafe(self._push_out_audio, chunk_item)
+                else:
+                    # Squelch low ambient noise/hiss, but keep recent history in pre-roll
+                    _pre_roll.append(chunk_item)
 
         try:
             def _open_mic(dev):

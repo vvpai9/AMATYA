@@ -1235,19 +1235,15 @@ def _log(player, text: str):
 TOOL = {
     "name": "browser_control",
     "description": (
-        "Controls the web browser: open an address, search, click, type, "
-        "scroll, read the page, manage tabs, go back and forward. "
-        "THIS TOOL OPENS THE BROWSER ITSELF. Never call open_app for the "
-        "browser first - doing both launches it twice, the second copy on a "
-        "different profile with none of the user's sign-ins. 'Open Chrome and "
-        "go to YouTube' is ONE call to this tool. "
-        "Read the status it returns. 'done' means it was confirmed - for an "
-        "open, the url reported back is the page's OWN address, so if it "
-        "differs from what was asked for the site redirected and the user "
-        "should be told. 'unverified' means the address was handed to the "
-        "system's default browser, which never reports back: say it was opened "
-        "but not confirmed, never that the page is up. 'failed' means nothing "
-        "happened."
+        "Controls the web browser on screen for user-directed browsing sessions: "
+        "open an address, click, type, scroll, read the page, manage tabs, go back and forward. "
+        "DO NOT use this tool for answering questions, looking up facts, or general searches — "
+        "use `web_search` instead so the answer is delivered conversationally like ChatGPT/Gemini "
+        "without opening a window. ONLY use `browser_control` when the user explicitly requests to "
+        "open a browser window or view/interact with a specific website on screen. "
+        "THIS TOOL OPENS THE BROWSER ITSELF. Never call open_app for the browser first. "
+        "Read the status it returns: 'done' was confirmed, 'unverified' means handed to system default, "
+        "'failed' means nothing happened."
     ),
     "brief": (
         "Controls the web browser: open a URL, navigate, click, read the page."

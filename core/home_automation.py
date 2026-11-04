@@ -438,7 +438,10 @@ class HomeAutomationController:
         params = dict(params or {})
 
         # Determine permission tier
-        tier = PermissionTier(int(dev.get("permission_tier", PermissionTier.REMOTE_DEVICE_CONTROL)))
+        if cmd in ("status", "query", "get", "info"):
+            tier = PermissionTier.GENERAL_CONVERSATION
+        else:
+            tier = PermissionTier(int(dev.get("permission_tier", PermissionTier.REMOTE_DEVICE_CONTROL)))
         # Unlocking a door or disarming an alarm is always CRITICAL_SECURITY
         if cmd in ("unlock", "disarm", "disable_privacy"):
             tier = PermissionTier.CRITICAL_SECURITY
@@ -487,6 +490,45 @@ class HomeAutomationController:
         # 1. If connected to live Home Assistant, call /api/services/<domain>/<service>
         # and then query /api/states/<entity_id> to verify!
         verified = False
+        mode_label = conn["mode_label"]
+
+        # Delegate media_player.redmi_tv to real device_manager atvremote backend
+        if eid == "media_player.redmi_tv":
+            try:
+                from core.device_manager import get_device_manager
+                dm = get_device_manager()
+                if cmd in ("turn_on", "on", "turn_off", "off", "toggle"):
+                    tv_res = dm.tv_action("power")
+                elif cmd == "volume_set":
+                    tv_res = dm.tv_action("set_volume", volume_pct=params.get("volume_pct", 35))
+                elif cmd in ("media_play", "media_pause", "media_play_pause"):
+                    tv_res = dm.tv_action("key", key_command="ENTER")
+                else:
+                    tv_res = dm.tv_action("status")
+
+                if tv_res.get("ok") and not tv_res.get("simulated"):
+                    simulated = False
+                    verified = True
+                    mode_label = tv_res.get("mode_label", "[LIVE ANDROID TV]")
+                    dev["state"] = tv_res["status"].get("power", expected_state)
+                    dev["connectivity"] = "online"
+                    dev["attributes"].update(tv_res["status"])
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "verified": True,
+                        "simulated": False,
+                        "mode_label": mode_label,
+                        "entity_id": eid,
+                        "name": dev["name"],
+                        "room": dev["room"],
+                        "command": cmd,
+                        "state": dev["state"],
+                        "attributes": dev["attributes"],
+                    }
+            except Exception as e:
+                print(f"[HomeAutomation] TV delegation failed: {e}")
+
         if not simulated:
             cfg = self.get_ha_config()
             domain = eid.split(".")[0]

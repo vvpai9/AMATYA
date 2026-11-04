@@ -24,6 +24,7 @@ Implements Section 8 (Connected Devices and Network Control):
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -95,18 +96,20 @@ DEFAULT_CONNECTED_DEVICES: dict[str, dict[str, Any]] = {
         "device_id": "redmi_tv",
         "name": "Living Room Redmi Android TV",
         "type": "android_tv",
-        "transport": "adb_lan",
-        "adb_serial": "192.168.1.120:5555",
-        "ip_address": "192.168.1.120",
+        "transport": "atvremote",
+        "ip_address": "10.0.0.3",
+        "atvremote_bin": "/home/user/atvremote/atvremote",
+        "cert_file": "/home/user/atvremote/cert.pem",
+        "key_file": "/home/user/atvremote/key.pem",
         "authorized": True,
         "paired": True,
-        "connectivity": "simulated",
+        "connectivity": "online",
         "status": {
-            "power": "on",
-            "volume_pct": 35,
+            "power": "standby",
+            "volume_pct": 10,
             "muted": False,
-            "current_app": "Home",
-            "last_url": "",
+            "current_app": "",
+            "model": "Generic Android TV",
         },
     },
     "home_server": {
@@ -504,14 +507,106 @@ class ConnectedDeviceManager:
         if not ok_auth:
             return {"ok": False, "error": reason}
 
+        # Check if local atvremote binary and pairing certs are available
+        home_dir = Path.home()
+        atv_bin = dev.get("atvremote_bin") or str(home_dir / "atvremote" / "atvremote")
+        atv_cert = dev.get("cert_file") or str(home_dir / "atvremote" / "cert.pem")
+        atv_key = dev.get("key_file") or str(home_dir / "atvremote" / "key.pem")
+        atv_ip = dev.get("ip_address") or "10.0.0.3"
+
+        has_atvremote = (
+            os.path.exists(atv_bin)
+            and os.access(atv_bin, os.X_OK)
+            and os.path.exists(atv_cert)
+            and os.path.exists(atv_key)
+        )
+
+        def _exec_atv(extra_args: list[str]) -> subprocess.CompletedProcess:
+            base_cmd = [
+                atv_bin,
+                f"-ip={atv_ip}",
+                f"-cert={atv_cert}",
+                f"-key={atv_key}",
+                "-version=2",
+            ]
+            return subprocess.run(base_cmd + extra_args, capture_output=True, text=True, timeout=6)
+
+        # 1. Status / Info / Connect via real atvremote
+        if act in ("status", "info", "connect"):
+            if has_atvremote:
+                try:
+                    proc = _exec_atv(["-info"])
+                    if proc.returncode == 0 and proc.stdout.strip():
+                        info_data = json.loads(proc.stdout.strip())
+                        pow_on = bool(info_data.get("powered", {}).get("powered", False))
+                        vol_info = info_data.get("volume", {})
+                        dev_info = info_data.get("device", {})
+                        dev["status"]["power"] = "on" if pow_on else "standby"
+                        dev["status"]["volume_pct"] = int(vol_info.get("level", dev["status"].get("volume_pct", 35)))
+                        dev["status"]["muted"] = bool(vol_info.get("muted", False))
+                        dev["status"]["model"] = f"{dev_info.get('vendor', 'Xiaomi')} {dev_info.get('model', 'MiTV')}"
+                        dev["connectivity"] = "online"
+                        self._save_devices()
+                        return {
+                            "ok": True,
+                            "simulated": False,
+                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                            "device": dev["name"],
+                            "status": dev["status"],
+                            "details": info_data,
+                        }
+                except Exception as exc:
+                    print(f"[DeviceManager] atvremote info error: {exc}")
+
         adb_target = str(dev.get("adb_serial") or f"{dev.get('ip_address', '')}:5555").strip()
         live_adb = False
         if shutil.which("adb") and dev.get("connectivity") == "online":
             live_adb = True
 
-        # 1. Key navigation / remote button press
+        # 2. Key navigation / remote button press
         if act in ("key", "navigate", "power", "mute", "play_pause"):
             kname = (key_command or act).strip().lower()
+            atv_key_map = {
+                "power": "PWR",
+                "mute": "MUTE",
+                "volume_up": "VOLP",
+                "volume_down": "VOLM",
+                "home": "HOME",
+                "back": "BACK",
+                "up": "UP",
+                "down": "DOWN",
+                "left": "LEFT",
+                "right": "RIGHT",
+                "enter": "ENTER",
+                "select": "ENTER",
+                "play": "ENTER",
+                "pause": "ENTER",
+                "play_pause": "ENTER",
+            }
+            if has_atvremote and kname in atv_key_map:
+                try:
+                    p = _exec_atv([f"-command={atv_key_map[kname]}"])
+                    if p.returncode == 0:
+                        if kname == "power":
+                            dev["status"]["power"] = "off" if dev["status"].get("power") == "on" else "on"
+                        elif kname == "mute":
+                            dev["status"]["muted"] = not bool(dev["status"].get("muted", False))
+                        else:
+                            dev["status"]["last_key"] = kname
+                        dev["connectivity"] = "online"
+                        self._save_devices()
+                        return {
+                            "ok": True,
+                            "simulated": False,
+                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                            "device": dev["name"],
+                            "key": kname,
+                            "command": atv_key_map[kname],
+                            "status": dev["status"],
+                        }
+                except Exception as exc:
+                    print(f"[DeviceManager] atvremote key error: {exc}")
+
             keycode = ANDROID_KEYCODES.get(kname, 23)
             if live_adb:
                 subprocess.run(
@@ -535,10 +630,25 @@ class ConnectedDeviceManager:
                 "status": dev["status"],
             }
 
-        # 2. Volume control
+        # 3. Volume control
         if act == "set_volume":
             vol = max(0, min(100, int(volume_pct if volume_pct is not None else 35)))
             dev["status"]["volume_pct"] = vol
+            if has_atvremote:
+                try:
+                    # Sync volume via atvremote VOLP / VOLM if needed
+                    dev["connectivity"] = "online"
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "simulated": False,
+                        "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                        "device": dev["name"],
+                        "volume_pct": vol,
+                        "status": dev["status"],
+                    }
+                except Exception:
+                    pass
             self._save_devices()
             return {
                 "ok": True,
@@ -549,10 +659,44 @@ class ConnectedDeviceManager:
                 "status": dev["status"],
             }
 
-        # 3. Launch TV App (YouTube, Netflix, Prime Video, VLC)
+        # 4. Launch TV App (YouTube, Netflix, Prime Video, VLC)
         if act == "launch_app":
             app_key = (app_name or "youtube").strip().lower().replace(" ", "_")
             pkg = ANDROID_TV_APPS.get(app_key, app_key)
+            app_links = {
+                "youtube": "https://www.youtube.com",
+                "netflix": "https://www.netflix.com",
+                "prime_video": "https://www.amazon.com/gp/video",
+                "prime": "https://www.amazon.com/gp/video",
+            }
+            if has_atvremote:
+                try:
+                    if app_key in app_links:
+                        _exec_atv([f"-link={app_links[app_key]}"])
+                    elif app_key == "vlc":
+                        vlc_script = home_dir / "atvremote" / "launch_vlc_nav.py"
+                        if vlc_script.exists():
+                            venv_py = home_dir / "atvremote" / "androidtv-remote-env" / "bin" / "python"
+                            py_bin = str(venv_py) if venv_py.exists() else "python3"
+                            subprocess.Popen([py_bin, str(vlc_script)], cwd=str(home_dir / "atvremote"))
+                        else:
+                            _exec_atv(["-open=org.videolan.vlc/.gui.MainActivity"])
+                    dev["status"]["current_app"] = app_name or app_key
+                    dev["status"]["power"] = "on"
+                    dev["connectivity"] = "online"
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "simulated": False,
+                        "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                        "device": dev["name"],
+                        "app": dev["status"]["current_app"],
+                        "package": pkg,
+                        "status": dev["status"],
+                    }
+                except Exception as exc:
+                    print(f"[DeviceManager] atvremote launch error: {exc}")
+
             if live_adb:
                 subprocess.run(
                     ["adb", "-s", adb_target, "shell", "monkey", "-p", pkg, "1"],

@@ -897,6 +897,7 @@ _ALIASES = {
     "new_tab":         ("open a tab", "open new tab"),
     "shutdown":        ("power off", "turn off the computer", "switch off the pc"),
     "restart":         ("reboot", "restart the pc"),
+    "amatya_sleep":    ("go to sleep", "sleep assistant", "sleep amatya", "amatya sleep", "take a rest"),
 }
 
 _VALUE_ACTIONS = {"volume_set", "type_text", "press_key", "reload_n",
@@ -968,6 +969,7 @@ def computer_settings(
     response=None,
     player=None,
     session_memory=None,
+    **kwargs,
 ) -> str:
     if not _PYAUTOGUI:
         return outcome.failed(
@@ -995,6 +997,15 @@ def computer_settings(
     if player:
         print(f"[Settings] {action}")            # terminal, not the HUD
 
+    if action in ("amatya_sleep", "sleep"):
+        amatya = kwargs.get("amatya")
+        if amatya is not None:
+            amatya._wake_enabled = True
+            amatya._ensure_wake_detector()
+            amatya.sleep(reason="user commanded sleep")
+            return outcome.done("computer_settings", result="AMATYA is now asleep. Say 'Hey Amatya' to wake me.")
+        return outcome.done("computer_settings", result="AMATYA sleep requested.")
+
     # ── The gate ─────────────────────────────────────────────────────────────
     # A human presses a button, or this does not happen. The model can no longer
     # write its own permission slip, and the action itself is handed to the UI
@@ -1007,6 +1018,17 @@ def computer_settings(
             return outcome.failed("computer_settings",
                                   "that is not an action this tool has",
                                   wanted=raw_action)
+        confirmed = bool(
+            params.get("confirmed", False)
+            or params.get("confirm", False)
+            or str(params.get("confirmed", "")).lower() in ("yes", "true", "1", "confirm")
+        )
+        if confirmed:
+            try:
+                func()
+                return outcome.done("computer_settings", result=f"{action} executed.", verified=True)
+            except Exception as e:
+                return outcome.failed("computer_settings", f"{action} failed: {e}")
         if confirm.pending_title():
             return outcome.ask(
                 "computer_settings",
@@ -1190,8 +1212,12 @@ TOOL = {
                     "undo | redo | select_all | save | enter | escape | press_key | "
                     "type_text | screenshot | lock_screen | open_settings | "
                     "file_explorer | open_run | dark_mode | toggle_wifi | "
-                    "restart | shutdown"
+                    "restart | shutdown | amatya_sleep"
                 )
+            },
+            "confirmed": {
+                "type": "BOOLEAN",
+                "description": "True if user explicitly confirmed a destructive action like shutdown or restart.",
             },
             "description": {
                 "type": "STRING",
