@@ -56,6 +56,21 @@ class ContextManager:
                     data = json.loads(self.state_path.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
                         self._state.update(data)
+                        # Canonicalize recent_projects and remove duplicate relative paths
+                        projs: list[str] = []
+                        for p in self._state.get("recent_projects", []):
+                            try:
+                                norm = str(Path(p).expanduser().resolve())
+                            except Exception:
+                                norm = str(p)
+                            if norm and norm not in projs:
+                                projs.append(norm)
+                        self._state["recent_projects"] = projs[:5]
+                        if self._state.get("last_project"):
+                            try:
+                                self._state["last_project"] = str(Path(self._state["last_project"]).expanduser().resolve())
+                            except Exception:
+                                pass
                 except Exception:
                     pass
 
@@ -106,12 +121,23 @@ class ContextManager:
                 self._state["recent_files"] = rfiles[:10]
 
             if kwargs.get("last_project"):
-                lp = str(kwargs["last_project"])
+                raw_lp = str(kwargs["last_project"]).strip()
+                try:
+                    lp = str(Path(raw_lp).expanduser().resolve())
+                except Exception:
+                    lp = raw_lp
+                self._state["last_project"] = lp
                 rprojs = self._state.setdefault("recent_projects", [])
-                if lp in rprojs:
-                    rprojs.remove(lp)
-                rprojs.insert(0, lp)
-                self._state["recent_projects"] = rprojs[:5]
+                norm_rprojs: list[str] = []
+                for p in rprojs:
+                    try:
+                        p_norm = str(Path(p).expanduser().resolve())
+                    except Exception:
+                        p_norm = str(p)
+                    if p_norm != lp and p_norm not in norm_rprojs:
+                        norm_rprojs.append(p_norm)
+                norm_rprojs.insert(0, lp)
+                self._state["recent_projects"] = norm_rprojs[:5]
 
             self._save()
             return dict(self._state)
@@ -189,9 +215,29 @@ class ContextManager:
         res = self.resolve_references(instruction)
         text = (instruction or "").strip().lower()
         is_ambig = bool(res.get("ambiguous", False))
+
+        # Check pronoun references that failed to resolve
         if not is_ambig and ("that" in text or "it" in text or "this" in text) and not res.get("resolutions"):
             is_ambig = True
-        q = res.get("clarification_question") or (f"Could you specify what entity you mean by '{instruction}'?" if is_ambig else "")
+
+        # Check 'other/another' entity references that failed to resolve
+        if not is_ambig and re.search(r"\b(the\s+other|another)\s+(project|repo|repository|file|document|device|window|app)\b", text):
+            if not res.get("resolutions"):
+                is_ambig = True
+
+        q = res.get("clarification_question")
+        if not q and is_ambig:
+            if re.search(r"\b(the\s+other|another)\s+(project|repo|repository)\b", text):
+                q = "Which other project did you have in mind?"
+            elif re.search(r"\b(the\s+other|another)\s+(file|document)\b", text):
+                q = "Which other file did you have in mind?"
+            elif re.search(r"\b(the\s+other|another)\s+device\b", text):
+                q = "Which other device did you mean?"
+            elif re.search(r"\b(the\s+other|another)\s+(window|app)\b", text):
+                q = "Which other window or application did you mean?"
+            else:
+                q = f"Could you specify what entity you mean by '{instruction}'?"
+
         return {
             "is_ambiguous": is_ambig,
             "clarification_question": q,
@@ -245,9 +291,24 @@ class ContextManager:
                 "parameters": {"action": "check_project", "project_path": proj},
             }
 
-        # 4. "Do the same thing for the other project"
-        elif re.search(r"\b(do|run)\s+(the\s+same\s+thing|that)\s+for\s+(the\s+other|another)\s+project\b", lower):
-            recent_p = [p for p in st.get("recent_projects", []) if p != st.get("last_project")]
+        # 4. "Do the same thing for the other project" / "Test the other project" / "Check another project"
+        elif re.search(r"\b(the\s+other|another)\s+(project|repo|repository)\b", lower):
+            cur_p = ""
+            if st.get("last_project"):
+                try:
+                    cur_p = str(Path(st.get("last_project", "")).expanduser().resolve())
+                except Exception:
+                    cur_p = str(st.get("last_project", ""))
+
+            recent_p: list[str] = []
+            for p in st.get("recent_projects", []):
+                try:
+                    p_norm = str(Path(p).expanduser().resolve())
+                except Exception:
+                    p_norm = str(p)
+                if p_norm and p_norm != cur_p and p_norm not in recent_p:
+                    recent_p.append(p_norm)
+
             if recent_p:
                 target_p = recent_p[0]
                 resolutions["project_path"] = target_p

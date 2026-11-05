@@ -260,6 +260,40 @@ class TestUserEnhancements(unittest.TestCase):
         time.sleep(0.1)
         self.assertEqual(len(executed), 1)
 
+    # ── 7. ContextManager Alternative Project Ambiguity Detection ─────────────
+
+    def test_07_context_manager_other_project_ambiguity(self):
+        """Verify ContextManager correctly flags ambiguity for 'other project' when no alternative exists."""
+        from core.context_manager import ContextManager
+        ctx_file = Path(self.test_dir) / "test_ambiguity_ctx.json"
+        cm = ContextManager(state_path=ctx_file)
+
+        # 1. State with only 1 project and dot
+        cm.update_entity(last_project="/home/user/Projects/Mark-LVI")
+        cm.update_entity(last_project=".")  # should canonicalize to the same project
+        self.assertEqual(len(cm.get_state().get("recent_projects", [])), 1)
+
+        # 2. Assert ambiguity on alternative project queries
+        res1 = cm.detect_ambiguity("Do the same thing for the other project")
+        self.assertTrue(res1["is_ambiguous"])
+        self.assertIn("Which other project", res1["clarification_question"])
+
+        res2 = cm.detect_ambiguity("Do the same for the other project")
+        self.assertTrue(res2["is_ambiguous"])
+        self.assertIn("Which other project", res2["clarification_question"])
+
+        res3 = cm.detect_ambiguity("Switch to another project")
+        self.assertTrue(res3["is_ambiguous"])
+
+        # 3. Add a truly distinct second project
+        cm.update_entity(last_project="/home/user/Projects/AlternativeApp")
+        res_distinct = cm.detect_ambiguity("Do the same thing for the other project")
+        self.assertFalse(res_distinct["is_ambiguous"])
+        self.assertEqual(
+            res_distinct["resolutions"].get("project_path"),
+            str(Path("/home/user/Projects/Mark-LVI").resolve()),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
