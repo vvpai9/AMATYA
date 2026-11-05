@@ -3,6 +3,7 @@ import json
 import re
 import sys
 import time
+import shutil
 import subprocess
 import platform
 from pathlib import Path
@@ -600,24 +601,41 @@ def type_text(text: str, press_enter_after: bool = False):
         press_enter()
 
 def take_screenshot():
+    save_path = Path.home() / "Desktop" / f"screenshot_{int(time.time())}.png"
     if _OS == "Windows":
         pyautogui.hotkey("win", "shift", "s")
+        return f"Screenshot triggered via Windows snip."
     elif _OS == "Darwin":
         pyautogui.hotkey("command", "shift", "3")
+        return f"Screenshot captured to Desktop."
     else:
-        if _is_wayland():
+        # 1. Native Wayland vision engine
+        try:
+            from core.vision import get_vision
+            cap = get_vision().capture_full()
+            if cap.ok and cap.image_bytes:
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path.write_bytes(cap.image_bytes)
+                return f"Screenshot saved to {save_path}"
+        except Exception:
+            pass
+
+        # 2. KDE Spectacle
+        if shutil.which("spectacle"):
             try:
-                from core.vision import get_vision
-                cap = get_vision().capture_full()
-                if cap.ok:
-                    return
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["spectacle", "-b", "-n", "-o", str(save_path)], check=True, timeout=6)
+                if save_path.exists() and save_path.stat().st_size > 0:
+                    return f"Screenshot saved to {save_path}"
             except Exception:
                 pass
-        for cmd in [["spectacle", "-b", "-n"], ["scrot"], ["gnome-screenshot"], ["import", "-window", "root", "screenshot.png"]]:
+
+        for cmd in [["scrot", str(save_path)], ["gnome-screenshot", "-f", str(save_path)]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
-                subprocess.Popen(cmd)
-                return
+                subprocess.run(cmd, capture_output=True)
+                return f"Screenshot saved to {save_path}"
         pyautogui.hotkey("ctrl", "print_screen")
+        return f"Screenshot triggered via PrintScreen hotkey."
 
 def lock_screen():
     if _OS == "Windows":

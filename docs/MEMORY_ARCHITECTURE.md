@@ -83,3 +83,4 @@ When a new fact $(S, P, V_{\text{new}})$ is proposed:
    - No context extraction or facts are recorded to disk.
 3. **Secret Redaction:**
    - Any string matching API keys, `.env` files, passwords, or session tokens is automatically redacted via `core.security.redact_secrets` before disk write.
+

@@ -179,13 +179,69 @@ class Vision:
     ) -> CaptureResult:
         """Internal capture dispatcher."""
         try:
-            # Prefer kwin-mcp on Wayland (native, works where mss fails).
+            # 1. Prefer kwin-mcp on Wayland (native, works where mss fails).
             if self._ensure_kwin():
-                return self._capture_kwin(kind, monitor, region, window_id)
-            # Fallback to mss (X11 or when kwin-mcp is not available).
-            return self._capture_mss(kind, monitor, region)
+                res = self._capture_kwin(kind, monitor, region, window_id)
+                if res.ok and res.image_bytes:
+                    return res
+            # 2. Native KDE Plasma Wayland capture via spectacle
+            res_spec = self._capture_spectacle(kind, monitor, region, window_id)
+            if res_spec.ok and res_spec.image_bytes:
+                return res_spec
+            # 3. Fallback to mss (X11 or when kwin-mcp is not available).
+            res_mss = self._capture_mss(kind, monitor, region)
+            if res_mss.ok and res_mss.image_bytes:
+                return res_mss
+            return res_spec if not res_spec.ok else CaptureResult(ok=False, error="All screen capture backends failed.")
         except Exception as e:
             return CaptureResult(ok=False, error=str(e))
+
+    def _capture_spectacle(
+        self,
+        kind: str,
+        monitor: int = 1,
+        region: Optional[dict[str, Any]] = None,
+        window_id: Optional[Any] = None,
+    ) -> CaptureResult:
+        """Capture via spectacle (KDE Plasma Wayland native tool)."""
+        import shutil as _shutil
+        import subprocess as _sp
+        import tempfile as _tmp
+        if not _shutil.which("spectacle"):
+            return CaptureResult(ok=False, error="spectacle not installed")
+        tmp_file = Path(_tmp.gettempdir()) / f"amatya_spec_{int(time.time() * 1000)}.png"
+        cmd = ["spectacle", "-b", "-n"]
+        if kind in ("window", "active_window"):
+            cmd.append("-a")
+        elif kind == "monitor":
+            cmd.append("-m")
+        else:
+            cmd.append("-f")
+        cmd.extend(["-o", str(tmp_file)])
+
+        try:
+            p = _sp.run(cmd, capture_output=True, timeout=6)
+            if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                img_bytes = tmp_file.read_bytes()
+                tmp_file.unlink(missing_ok=True)
+                # If region requested, crop image using PIL
+                if kind == "region" and region:
+                    try:
+                        import io
+                        from PIL import Image
+                        im = Image.open(io.BytesIO(img_bytes))
+                        box = (region["x"], region["y"], region["x"] + region["width"], region["y"] + region["height"])
+                        cropped = im.crop(box)
+                        buf = io.BytesIO()
+                        cropped.save(buf, format="PNG")
+                        img_bytes = buf.getvalue()
+                    except Exception:
+                        pass
+                return self._finalize_capture(img_bytes, "image/png", kind, monitor, region, window_id, None, None)
+            err_msg = p.stderr.decode("utf-8", errors="ignore") if p.stderr else "unknown error"
+            return CaptureResult(ok=False, error=f"spectacle failed: {err_msg}")
+        except Exception as exc:
+            return CaptureResult(ok=False, error=f"spectacle error: {exc}")
 
     def _get_monitor_region(self, monitor: int) -> Optional[dict[str, int]]:
         """Query KDE kscreen-doctor JSON for monitor geometry (1-based index)."""
@@ -371,8 +427,8 @@ class Vision:
         monitor: int,
         region: Optional[dict[str, Any]],
         window_id: Optional[int],
-        path: Optional[str],
-        uri: Optional[str],
+        path: Optional[str] = None,
+        uri: Optional[str] = None,
     ) -> CaptureResult:
         """Common finalization: hash, store, history, compress."""
         img_hash = hashlib.sha256(image_bytes).hexdigest()[:16]

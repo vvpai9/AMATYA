@@ -61,20 +61,16 @@ AMATYA is a fork and evolution of **[Mark-LVI by FatihMakes](https://github.com/
 | Capability | Status in AMATYA |
 |---|---|
 | Gemini Live voice conversation & local STT/LLM/TTS | ✅ Preserved + expanded |
-| Auto-discovered actions & plugins + `SKILL_METADATA` | ✅ 27 bundled actions verified |
+| Auto-discovered actions & plugins + `SKILL_METADATA` | ✅ 26 bundled actions verified |
 | Verified outcomes (`done`/`unverified`/`failed`) & Undo stack | ✅ Preserved |
 | Wayland-native desktop automation (`kwin-mcp` v0.12.0 + AT-SPI2) | ✅ Complete & verified live |
 | Biometric speaker verification & 6-tier security policy | ✅ Complete & verified |
 | 11-role GPU-aware Local AI Model Router + Hybrid RAG | ✅ Complete & verified |
-| AI Privacy Modes (`strict_local`, `hybrid`, `cloud_enabled`) | ✅ Phase 12 verified |
-| Persistent Layered Memory (Working, Episodic, Semantic, Procedural) | ✅ Phase 12 verified |
-| Adaptive Workflow Engine & Routine Approval Gates | ✅ Phase 12 verified |
-| Proactive Intelligence (5 Priority Tiers + Quiet Hours Policy) | ✅ Phase 12 verified |
 | CentralOrchestrator & contextual reference resolution | ✅ Complete & verified |
 | Smart Home Automation (HA + MQTT + Simulator + Routines) | ✅ Complete & verified |
 | Connected Devices (KDE Connect, ADB, Redmi TV, SSH, LAN) | ✅ Complete & verified live |
-| CREATOR Coding Agent + Project Profile Manager (`memory/project_profiles.json`) | ✅ Phase 12 verified |
-| Command-Centre HUD + Subsystem Self-Diagnostics | ✅ Phase 12 verified |
+| CREATOR Coding Agent + PDF/DOCX/XLSX/PPTX/CSV/MD/ZIP Engine | ✅ Complete & verified |
+| Command-Centre HUD + Emergency Stop | ✅ Complete & verified |
 
 ---
 
@@ -84,7 +80,7 @@ AMATYA is a fork and evolution of **[Mark-LVI by FatihMakes](https://github.com/
 # Run AMATYA
 ./AMATYA/bin/python main.py
 
-# Run the complete automated test suite (30 unit & acceptance tests across Phase 10, 11, and 12)
+# Run the full automated test suite (8 end-to-end test suites)
 ./AMATYA/bin/python -m unittest discover -s tests -v
 ```
 

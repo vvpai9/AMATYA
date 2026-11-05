@@ -35,6 +35,7 @@ WHAT BELONGS HERE AND WHAT DOES NOT
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -62,15 +63,16 @@ _lock = threading.Lock()
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
 # and () -> None for hide. Both are marshalled onto the Qt thread by the UI.
-_show_cb: Optional[Callable[[str, str], None]] = None
-_hide_cb: Optional[Callable[[], None]] = None
-_log_cb:  Optional[Callable[[str], None]] = None
+_show_cb:  Optional[Callable[[str, str], None]] = None
+_hide_cb:  Optional[Callable[[], None]] = None
+_log_cb:   Optional[Callable[[str], None]] = None
+_speak_cb: Optional[Callable[[str], None]] = None
 
 
-def bind(show, hide, log=None) -> None:
-    """Wire this module to the HUD. Called once from main.py at startup."""
-    global _show_cb, _hide_cb, _log_cb
-    _show_cb, _hide_cb, _log_cb = show, hide, log
+def bind(show, hide, log=None, speak=None) -> None:
+    """Wire this module to the HUD and speech. Called once from main.py at startup."""
+    global _show_cb, _hide_cb, _log_cb, _speak_cb
+    _show_cb, _hide_cb, _log_cb, _speak_cb = show, hide, log, speak
 
 
 def _log(msg: str) -> None:
@@ -79,6 +81,59 @@ def _log(msg: str) -> None:
             _log_cb(msg)
         except Exception:
             pass
+
+
+def _speak(msg: str) -> None:
+    if _speak_cb:
+        try:
+            _speak_cb(msg)
+        except Exception:
+            pass
+
+
+def has_pending() -> bool:
+    """Check if a confirmation is currently awaiting authorization."""
+    with _lock:
+        if _pending is None:
+            return False
+        if time.monotonic() - _pending.at > TIMEOUT_SECONDS:
+            return False
+        return True
+
+
+def get_pending_info() -> dict[str, str] | None:
+    """Return key details of the pending confirmation if active."""
+    with _lock:
+        if _pending is None or (time.monotonic() - _pending.at > TIMEOUT_SECONDS):
+            return None
+        return {"key": _pending.key, "title": _pending.title, "detail": _pending.detail}
+
+
+def voice_authorize(utterance: str) -> bool | None:
+    """Evaluate spoken user input to authorize or cancel a pending confirmation via voice.
+
+    Returns:
+        True if authorized via voice
+        False if cancelled via voice
+        None if not an authorization utterance or no confirmation pending
+    """
+    if not has_pending():
+        return None
+
+    text = (utterance or "").strip().lower()
+    affirmative = ("confirm", "yes", "proceed", "authorize", "authorise", "go ahead", "approved", "run it", "execute", "do it")
+    if any(re.search(rf"\b{re.escape(w)}\b", text) for w in affirmative):
+        _speak("Command authorized. Executing.")
+        resolve(True)
+        return True
+
+    negative = ("cancel", "no", "abort", "don't", "stop", "deny", "reject", "never mind", "do not")
+    if any(re.search(rf"\b{re.escape(w)}\b", text) for w in negative):
+        _speak("Command cancelled, sir.")
+        resolve(False)
+        return False
+
+    return None
 
 
 def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
@@ -107,10 +162,10 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
         return f"Could not ask for confirmation: {e}. Nothing was done."
 
     _log(f"SYS: Awaiting confirmation — {title}")
+    _speak(f"Sir, authorization is required for {title}. Say confirm to authorize, or cancel to abort.")
     return (
-        f"[CONFIRMATION_PENDING] I have put a confirmation on screen for: {title}. "
-        f"Say ONE short sentence in the user's own language telling them you need "
-        f"them to confirm it on the HUD before you do it. Do not claim it is done."
+        f"[CONFIRMATION_PENDING] Authorization required for: {title}. "
+        f"Say ONE short sentence asking the user out loud to confirm or cancel via voice. Do not claim it is done."
     )
 
 
@@ -153,6 +208,7 @@ def request_confirmation(
         return False
 
     _log(f"SYS: Awaiting interactive confirmation for {operation} (timeout {timeout}s)...")
+    _speak(f"Sir, confirmation required for {description or operation}. Please say confirm or cancel.")
     completed = evt.wait(timeout=timeout)
 
     if not completed:

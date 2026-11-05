@@ -14,6 +14,7 @@ except ImportError:
     _SEND2TRASH = False
 
 from core.undo import push_undo
+from memory.config_manager import BASE_DIR as _BASE_DIR
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
@@ -827,3 +828,6 @@ TOOL = {
     },
     "handler": file_controller,
 }
+
+execute = file_controller
+

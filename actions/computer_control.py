@@ -261,9 +261,14 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
         return f"Scrolled {direction} ×{amount}"
 
     if action == "screenshot":
-        result = client.screenshot()
-        path = _extract_screenshot_path(result)
-        return f"Screenshot saved: {path}"
+        try:
+            result = client.screenshot()
+            path = _extract_screenshot_path(result)
+            if path and path != "(screenshot path unavailable)" and Path(path).exists():
+                return f"Screenshot saved: {path}"
+        except Exception:
+            pass
+        return _screenshot(params.get("path"))
 
     if action == "focus_window":
         title = params.get("title", "")
@@ -554,11 +559,36 @@ def _clipboard_paste(text: str) -> str:
 
 
 def _screenshot(save_path: str | None = None) -> str:
-    _require_pyautogui()
     path = _safe_screenshot_path(save_path)
-    img  = pyautogui.screenshot()
-    img.save(str(path))
-    return f"Screenshot saved: {path}"
+    # 1. Use Wayland-native vision engine (Spectacle / KWin)
+    try:
+        from core.vision import get_vision
+        cap = get_vision().capture_full()
+        if cap.ok and cap.image_bytes:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(cap.image_bytes)
+            return f"Screenshot saved: {path}"
+    except Exception:
+        pass
+
+    # 2. Try spectacle directly
+    if shutil.which("spectacle"):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["spectacle", "-b", "-n", "-o", str(path)], check=True, timeout=6)
+            if path.exists() and path.stat().st_size > 0:
+                return f"Screenshot saved: {path}"
+        except Exception:
+            pass
+
+    # 3. Fallback to PyAutoGUI
+    try:
+        _require_pyautogui()
+        img = pyautogui.screenshot()
+        img.save(str(path))
+        return f"Screenshot saved: {path}"
+    except Exception as exc:
+        return f"Failed to capture screenshot: {exc}"
 
 
 def _clear_field() -> str:
@@ -1081,3 +1111,6 @@ TOOL = {
     },
     "handler": computer_control,
 }
+
+execute = computer_control
+

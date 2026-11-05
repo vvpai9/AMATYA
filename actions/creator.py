@@ -147,6 +147,8 @@ def execute(
     response=None,
     player=None,
     session_memory=None,
+    speak=None,
+    **kwargs,
 ) -> Any:
     action = str(parameters.get("action", "check_project") or "check_project").strip().lower()
     engine = get_creator_engine()
@@ -256,6 +258,7 @@ def execute(
             sections=parameters.get("sections"),
             rows=parameters.get("rows"),
             source_paths=parameters.get("source_paths"),
+            theme=str(parameters.get("theme", "navy")),
         )
         if not res.get("ok"):
             return outcome.failed("creator", res.get("error", "Document generation failed."), data=res)

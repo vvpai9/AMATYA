@@ -100,7 +100,7 @@ class TestPhase12Acceptance(unittest.TestCase):
 
     def test_02_contextual_intelligence_and_ambiguity(self):
         """Verify Objective B: Pronoun resolution, previous task references, and ambiguity questions."""
-        cm = ContextManager()
+        cm = ContextManager(state_path=self.temp_path / "test_context.json")
 
         # Record turns and task outcomes
         cm.record_turn("user", "Generate the annual revenue summary presentation.")

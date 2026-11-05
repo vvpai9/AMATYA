@@ -26,6 +26,7 @@ SKILL_METADATA = {
         "update_context",
         "plan_and_execute",
         "resume_last_task",
+        "multitask",
         "list_tasks",
         "emergency_stop",
     ],
@@ -39,9 +40,10 @@ TOOL = {
         "pronouns and contextual references ('Open that', 'Close the previous "
         "window', 'Continue what you were doing', 'Check the same project again', "
         "'Send that file to my phone'), plans and executes multi-step cross-domain "
-        "workflows, lists active/prioritized tasks, and supports emergency_stop. "
+        "workflows, runs multiple simultaneous tasks concurrently with voice updates (multitask), "
+        "lists active/prioritized tasks, and supports emergency_stop. "
         "Actions: 'resolve_context', 'get_context', 'update_context', "
-        "'plan_and_execute', 'resume_last_task', 'list_tasks', 'emergency_stop'."
+        "'plan_and_execute', 'resume_last_task', 'multitask', 'list_tasks', 'emergency_stop'."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -50,12 +52,17 @@ TOOL = {
                 "type": "STRING",
                 "description": (
                     "Action: 'resolve_context', 'get_context', 'update_context', "
-                    "'plan_and_execute', 'resume_last_task', 'list_tasks', 'emergency_stop'."
+                    "'plan_and_execute', 'resume_last_task', 'multitask', 'list_tasks', 'emergency_stop'."
                 ),
             },
             "instruction": {
                 "type": "STRING",
                 "description": "Natural language instruction or contextual command.",
+            },
+            "tasks": {
+                "type": "ARRAY",
+                "items": {"type": "STRING"},
+                "description": "List of task instructions to execute simultaneously in parallel (for action='multitask').",
             },
             "priority": {
                 "type": "INTEGER",
@@ -78,6 +85,8 @@ def execute(
     response=None,
     player=None,
     session_memory=None,
+    speak=None,
+    **kwargs,
 ) -> Any:
     action = str(parameters.get("action", "get_context") or "get_context").strip().lower()
     orch = get_orchestrator()
@@ -154,6 +163,19 @@ def execute(
             result=f"Resumed task '{completed.resolved_goal}': {completed.result_summary}",
             data=completed.to_dict(),
         )
+
+    if action in ("multitask", "concurrent_tasks"):
+        tasks = parameters.get("tasks") or parameters.get("instructions")
+        if not tasks and parameters.get("instruction"):
+            tasks = [parameters.get("instruction")]
+        if isinstance(tasks, str):
+            tasks = [t.strip() for t in tasks.split(",") if t.strip()]
+        if not isinstance(tasks, list) or not tasks:
+            return outcome.failed("orchestrator", "Please provide a list of 'tasks' to run simultaneously.")
+        res = orch.run_multitask(tasks, speak=speak or kwargs.get("speak"))
+        if res.get("ok"):
+            return outcome.done("orchestrator", result=res.get("summary", "Multitasking completed successfully."), data=res)
+        return outcome.failed("orchestrator", res.get("summary", "Multitasking encountered issues."), data=res)
 
     if action in ("task_status", "what_are_you_doing", "status"):
         summary = orch.get_active_task_summary()

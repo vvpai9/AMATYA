@@ -13,6 +13,7 @@ Contextual References Resolved:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import re
@@ -160,6 +161,7 @@ class CentralOrchestrator:
         self._tasks: dict[str, TaskRecord] = {}
         self._active_tasks_path = ACTIVE_TASKS_PATH
         self._cancel_requested = threading.Event()
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="amatya-task")
         self._load_active_tasks()
 
     def _load_active_tasks(self) -> None:
@@ -375,6 +377,8 @@ class CentralOrchestrator:
         self,
         task: TaskRecord,
         action_runner: Callable[[str, dict[str, Any]], Any] | None = None,
+        on_status_update: Callable[[TaskRecord, str], None] | None = None,
+        speak: Callable[[str], None] | None = None,
     ) -> TaskRecord:
         """Execute a planned TaskRecord step-by-step with parameter bridging and loop prevention."""
         self._cancel_requested.clear()
@@ -398,6 +402,13 @@ class CentralOrchestrator:
             task.current_step_index = idx
             tool_name = step.get("tool", "")
             raw_params = step.get("parameters", {})
+
+            # Continuous voice / listener updates
+            step_desc = step.get("description") or f"Running {tool_name}"
+            if on_status_update:
+                on_status_update(task, f"Task '{task.goal}' started step {idx + 1}/{len(task.steps)}: {step_desc}")
+            if speak:
+                speak(f"Sir, {task.goal}: starting step {idx + 1}.")
 
             # ── Dynamic Parameter Bridging across steps ───────────────────────
             params = resolve_bridged_parameters(raw_params, task.step_results, context_state)
@@ -436,6 +447,11 @@ class CentralOrchestrator:
                 summaries.append(f"Step {idx + 1} ({tool_name}): {res_str[:200]}")
                 self.context.record_tool_call(tool_name, params)
                 self._save_active_tasks()
+
+                if on_status_update:
+                    on_status_update(task, f"Task '{task.goal}' finished step {idx + 1}/{len(task.steps)}.")
+                if speak:
+                    speak(f"Sir, {task.goal}: step {idx + 1} completed.")
             except Exception as exc:
                 step["status"] = "failed"
                 step["error"] = str(exc)
@@ -443,6 +459,8 @@ class CentralOrchestrator:
                 task.result_summary = f"Step {idx + 1} ({tool_name}) failed: {exc}"
                 self.context.update_entity(last_task=task.to_dict())
                 self._save_active_tasks()
+                if on_status_update:
+                    on_status_update(task, f"Task '{task.goal}' failed at step {idx + 1}: {exc}")
                 return task
 
         task.status = "completed"
@@ -452,6 +470,11 @@ class CentralOrchestrator:
         self.context.update_entity(last_task=task.to_dict())
         self._save_active_tasks()
 
+        if on_status_update:
+            on_status_update(task, f"Task '{task.goal}' completed successfully.")
+        if speak:
+            speak(f"Sir, completed task: {task.goal}.")
+
         # Acoustic notification on completed task
         try:
             from core.audio_cues import play_task_complete_chime
@@ -460,6 +483,80 @@ class CentralOrchestrator:
             pass
 
         return task
+
+    def execute_task_async(
+        self,
+        task: TaskRecord,
+        action_runner: Callable[[str, dict[str, Any]], Any] | None = None,
+        on_status_update: Callable[[TaskRecord, str], None] | None = None,
+        speak: Callable[[str], None] | None = None,
+    ) -> concurrent.futures.Future:
+        """Run task asynchronously on the background worker pool."""
+        if not hasattr(self, "_executor") or self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="amatya-task")
+        return self._executor.submit(self.execute_task, task, action_runner, on_status_update, speak)
+
+    def run_multitask(
+        self,
+        instructions: list[str],
+        action_runner: Callable[[str, dict[str, Any]], Any] | None = None,
+        speak: Callable[[str], None] | None = None,
+        status_interval_sec: float = 3.0,
+    ) -> dict[str, Any]:
+        """Execute two or more tasks simultaneously while providing continuous voice status updates."""
+        if not instructions:
+            return {"ok": False, "error": "No tasks provided for multitasking."}
+
+        tasks: list[TaskRecord] = []
+        for inst in instructions:
+            t = self.plan_workflow(inst)
+            tasks.append(t)
+
+        task_titles = [f"'{t.goal}'" for t in tasks]
+        init_announcement = f"Sir, initiating concurrent multitasking for {len(tasks)} tasks: {' and '.join(task_titles)}."
+        if speak:
+            speak(init_announcement)
+
+        status_log: list[str] = [init_announcement]
+
+        def _voice_update(task: TaskRecord, message: str) -> None:
+            status_log.append(message)
+            if speak:
+                speak(f"Task update: {task.goal} at step {task.current_step_index + 1} of {len(task.steps)}.")
+
+        futures = []
+        for t in tasks:
+            f = self.execute_task_async(t, action_runner=action_runner, on_status_update=_voice_update, speak=None)
+            futures.append(f)
+
+        # Monitor loop for continuous status updates while running
+        while any(not f.done() for f in futures):
+            active_info = []
+            for t in tasks:
+                if t.status in ("running", "pending"):
+                    active_info.append(f"{t.goal} ({t.progress_pct}% complete)")
+            if speak and active_info:
+                speak(f"Current task progress: {', '.join(active_info)}.")
+            time.sleep(status_interval_sec)
+
+        # Collect finished tasks
+        results = [f.result() for f in futures]
+        all_completed = all(r.status == "completed" for r in results)
+        final_announcement = (
+            f"Sir, all {len(results)} concurrent tasks have completed successfully."
+            if all_completed
+            else f"Sir, concurrent multitasking finished with {sum(1 for r in results if r.status == 'completed')}/{len(results)} completed."
+        )
+        if speak:
+            speak(final_announcement)
+
+        return {
+            "ok": all_completed,
+            "tasks_count": len(results),
+            "tasks": [r.to_dict() for r in results],
+            "status_log": status_log,
+            "summary": final_announcement,
+        }
 
     def get_active_task_summary(self) -> str:
         """Provide a concise conversational status for 'What are you doing?'."""

@@ -1023,6 +1023,12 @@ class AmatyaLive:
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
+        # If an interactive confirmation is pending, allow text-based authorization
+        if confirm_gate.has_pending():
+            v_res = confirm_gate.voice_authorize(text)
+            if v_res is not None:
+                self.ui.write_log(f"SYS: Authorization via input: {'AUTHORIZED' if v_res else 'CANCELLED'}")
+                return
         # Respect wake-word sleep: a typed command must not be answered while
         # asleep either (the sleep gate is not just for the mic). Wake first with
         # "Hey Amatya" or the WAKE NOW button.
@@ -1173,6 +1179,22 @@ class AmatyaLive:
         short = str(error)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
         self.speak(f"Sir, {tool_name} encountered an error. {short}")
+
+    async def _execute_shutdown(self):
+        """Perform a clean shutdown sequence after human confirmation."""
+        self.ui.write_log("SYS: Executing AMATYA shutdown sequence.")
+        await self._save_session_summary()
+        if self.session:
+            try:
+                await self.session.send_client_content(
+                    turns={"role": "user", "parts": [{"text": "Say a brief natural goodbye to the user."}]},
+                    turn_complete=True,
+                )
+            except Exception:
+                pass
+        await asyncio.sleep(1.5)
+        import os as _os
+        _os._exit(0)
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
@@ -1506,34 +1528,21 @@ class AmatyaLive:
                 result = "Going to sleep. Say 'Hey Amatya' whenever you need me."
 
             elif name == "shutdown_amatya":
-                confirmed = bool(
-                    args.get("confirmed", False)
-                    or args.get("confirm", False)
-                    or str(args.get("confirmed", "")).lower() in ("yes", "true", "1", "confirm")
-                )
-                if not confirmed:
-                    result = (
-                        "[CONFIRMATION_REQUIRED] You requested to shut down AMATYA completely. "
-                        "Say ONE short sentence asking the user to confirm before you shut down. "
-                        "Do NOT call shutdown_amatya with confirmed=true until the user explicitly confirms."
-                    )
-                else:
-                    self.ui.write_log("SYS: Shutdown confirmed by user.")
-                    async def _do_shutdown():
-                        await self._save_session_summary()
-                        if self.session:
-                            try:
-                                await self.session.send_client_content(
-                                    turns={"role": "user", "parts": [{"text": "Say a brief natural goodbye to the user."}]},
-                                    turn_complete=True,
-                                )
-                            except Exception:
-                                pass
-                        await asyncio.sleep(1.5)
+                self.ui.write_log("SYS: Shutdown requested — requiring explicit user confirmation.")
+                def _do_shutdown_sync():
+                    if self._loop:
+                        asyncio.run_coroutine_threadsafe(self._execute_shutdown(), self._loop)
+                    else:
                         import os as _os
                         _os._exit(0)
-                    asyncio.create_task(_do_shutdown())
-                    result = "Shutting down AMATYA. Goodbye."
+                    return "Shutdown initiated."
+
+                result = confirm_gate.request(
+                    key="shutdown_amatya",
+                    title="Shut Down AMATYA",
+                    detail="This will terminate AMATYA and close all background services. Please confirm or cancel.",
+                    run=_do_shutdown_sync,
+                )
 
             elif self._action_registry.has(name):
                 # file_processor: fall back to the currently-uploaded file when none is given
@@ -1900,6 +1909,10 @@ class AmatyaLive:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
+                                if confirm_gate.has_pending():
+                                    v_res = confirm_gate.voice_authorize(full_in)
+                                    if v_res is not None:
+                                        self.ui.write_log(f"SYS: Voice authorization result: {'AUTHORIZED' if v_res else 'CANCELLED'}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
                                         "type": "log", "speaker": "user",
@@ -2563,9 +2576,10 @@ class AmatyaLive:
         # trim is invisible without a way to say so. Both are bound once here
         # rather than passed down through every action signature.
         confirm_gate.bind(
-            show = self.ui.show_confirm,
-            hide = self.ui.hide_confirm,
-            log  = self.ui.write_log,
+            show  = self.ui.show_confirm,
+            hide  = self.ui.hide_confirm,
+            log   = self.ui.write_log,
+            speak = self.speak,
         )
         set_trim_notifier(self.ui.write_log)
 
