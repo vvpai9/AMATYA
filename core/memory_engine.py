@@ -77,12 +77,23 @@ class EpisodicEvent:
 
 class FactResult(dict):
     """Dictionary supporting property access for facts."""
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self)
+
     @property
     def key(self) -> str:
         return self.get("predicate", "")
 
     @property
+    def predicate(self) -> str:
+        return self.get("predicate", "")
+
+    @property
     def value(self) -> str:
+        return self.get("object_value", "")
+
+    @property
+    def object_value(self) -> str:
         return self.get("object_value", "")
 
     @property
@@ -125,9 +136,17 @@ class DeleteResult(tuple):
 class MemoryEngine:
     """Central layered memory controller for AMATYA Phase 12."""
 
-    def __init__(self, memory_dir: Path | None = None, storage_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        memory_dir: Path | str | None = None,
+        storage_path: Path | str | None = None,
+        storage_dir: Path | str | None = None,
+    ) -> None:
+        if storage_dir is not None:
+            memory_dir = storage_dir
         if storage_path is not None:
-            memory_dir = storage_path.parent if storage_path.suffix else storage_path
+            sp = Path(storage_path)
+            memory_dir = sp.parent if sp.suffix else sp
         self.mem_dir = Path(memory_dir or MEMORY_DIR)
         self.mem_dir.mkdir(parents=True, exist_ok=True)
         self.working_path = self.mem_dir / "working_memory.json"
@@ -410,8 +429,10 @@ class MemoryEngine:
                     return FactResult(item)
             return None
 
-    def search_memories(self, query: str, limit: int = 10) -> list[FactResult]:
+    def search_memories(self, query: str, limit: int = 10, top_k: int | None = None) -> list[FactResult]:
         """Retrieve memories matching query keywords and semantic tokens."""
+        if top_k is not None:
+            limit = top_k
         if not self._memory_enabled:
             return []
         tokens = set(re.findall(r"\w{2,}", query.lower()))
@@ -536,9 +557,11 @@ _ENGINE: MemoryEngine | None = None
 _ENGINE_LOCK = threading.Lock()
 
 
-def get_memory_engine() -> MemoryEngine:
+def get_memory_engine(storage_dir: str | Path | None = None) -> MemoryEngine:
     global _ENGINE
     with _ENGINE_LOCK:
+        if storage_dir is not None:
+            return MemoryEngine(storage_dir=storage_dir)
         if _ENGINE is None:
             _ENGINE = MemoryEngine()
     return _ENGINE

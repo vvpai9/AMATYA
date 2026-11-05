@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -154,13 +155,26 @@ def generate_document(
         if ext == ".pptx":
             pptx_content = content
             pptx_title = title
-            pptx_sections = sections
+            pptx_sections = sections or kwargs.get("slides")
             pptx_theme = str(kwargs.get("theme", "navy"))
             if isinstance(content, dict):
                 pptx_title = title or content.get("title") or "AMATYA Professional Presentation"
-                pptx_sections = sections or content.get("slides") or content.get("sections")
+                pptx_sections = pptx_sections or content.get("slides") or content.get("sections")
                 pptx_theme = str(content.get("theme") or kwargs.get("theme", "navy"))
                 pptx_content = content.get("subtitle") or content.get("content") or ""
+            elif isinstance(content, str) and content.strip().startswith(("{", "[")):
+                try:
+                    parsed_json = json.loads(content.strip())
+                    if isinstance(parsed_json, dict):
+                        pptx_title = title or parsed_json.get("title") or "AMATYA Professional Presentation"
+                        pptx_sections = pptx_sections or parsed_json.get("slides") or parsed_json.get("sections")
+                        pptx_theme = str(parsed_json.get("theme") or kwargs.get("theme", "navy"))
+                        pptx_content = parsed_json.get("subtitle") or parsed_json.get("content") or ""
+                    elif isinstance(parsed_json, list):
+                        pptx_sections = pptx_sections or parsed_json
+                        pptx_content = ""
+                except Exception:
+                    pass
 
             return _build_professional_pptx(
                 output_path=out,
@@ -329,6 +343,216 @@ def analyze_document(file_path: str | Path) -> dict[str, Any]:
         return {"ok": False, "path": str(fp), "error": f"Document analysis failed: {exc}"}
 
 
+def _parse_presentation_slides(
+    title: str,
+    content: str = "",
+    sections: list[Any] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Parse raw content or structured sections into a list of normalized slide dictionaries.
+
+    Returns (clean_subtitle, slide_items) where each slide item has:
+      - heading: str
+      - subheading: str
+      - body: str
+      - cards: list[dict] (optional)
+      - stats: list[dict] (optional)
+      - image: str (optional)
+    """
+    # 1. If sections is provided, normalize each item
+    if sections and isinstance(sections, (list, tuple)):
+        items = []
+        for idx, s in enumerate(sections):
+            if isinstance(s, dict):
+                heading = (
+                    s.get("heading")
+                    or s.get("title")
+                    or s.get("header")
+                    or s.get("name")
+                    or f"Topic {idx + 1}"
+                )
+                subheading = (
+                    s.get("subheading")
+                    or s.get("subtitle")
+                    or s.get("summary")
+                    or ""
+                )
+                body = (
+                    s.get("body")
+                    or s.get("content")
+                    or s.get("text")
+                    or s.get("description")
+                    or ""
+                )
+                bullets = (
+                    s.get("bullets")
+                    or s.get("bullet_points")
+                    or s.get("points")
+                    or s.get("items")
+                )
+                if bullets and isinstance(bullets, list) and not body:
+                    body = "\n".join(str(b) for b in bullets)
+                items.append({
+                    "heading": str(heading).strip(),
+                    "subheading": str(subheading).strip(),
+                    "body": str(body).strip(),
+                    "cards": s.get("cards") or s.get("columns") or s.get("blocks"),
+                    "stats": s.get("stats") or s.get("metrics") or s.get("kpis") or s.get("data_points"),
+                    "image": s.get("image") or s.get("img") or s.get("image_path"),
+                })
+            elif isinstance(s, str) and s.strip():
+                items.append({"heading": f"Topic {idx + 1}", "body": s.strip()})
+        if items:
+            clean_sub = (content[:160] + "...") if len(content) > 160 else content
+            return clean_sub, items
+
+    # 2. Check if content is serialized JSON (object with 'slides'/'sections' or array of slide objects)
+    content_str = (content or "").strip()
+    if content_str.startswith(("[", "{")):
+        try:
+            parsed = json.loads(content_str)
+            if isinstance(parsed, list):
+                return _parse_presentation_slides(title, "", sections=parsed)
+            if isinstance(parsed, dict):
+                p_slides = parsed.get("slides") or parsed.get("sections")
+                p_title = parsed.get("title") or title
+                p_sub = parsed.get("subtitle") or parsed.get("content") or ""
+                if p_slides and isinstance(p_slides, (list, tuple)):
+                    return _parse_presentation_slides(p_title, p_sub, sections=p_slides)
+        except Exception:
+            pass
+
+    # 3. Check for Markdown slide delimiters (---, ***, ___)
+    slide_chunks = [c.strip() for c in re.split(r"(?m)^(?:---|\*\*\*|___)\s*$", content_str) if c.strip()]
+    if len(slide_chunks) > 1:
+        items = []
+        for idx, chunk in enumerate(slide_chunks):
+            lines = [l for l in chunk.splitlines() if l.strip()]
+            if not lines:
+                continue
+            first = lines[0].strip()
+            heading = ""
+            body_lines = []
+            if first.startswith("#"):
+                heading = first.lstrip("#").strip()
+                body_lines = lines[1:]
+            elif len(first) < 65 and not first.startswith(("-", "*", "•", "1.", "2.", "3.")):
+                heading = first.strip(":#- ")
+                body_lines = lines[1:]
+            else:
+                heading = f"Section {idx + 1}"
+                body_lines = lines
+            items.append({
+                "heading": heading or f"Section {idx + 1}",
+                "body": "\n".join(body_lines),
+            })
+        if items:
+            return "", items
+
+    # 4. Check for Markdown Headings (# Header, ## Header, ### Header)
+    header_matches = list(re.finditer(r"(?m)^(#{1,3})\s+(.+)$", content_str))
+    if header_matches:
+        items = []
+        for i, match in enumerate(header_matches):
+            h_text = match.group(2).strip()
+            start = match.end()
+            end = header_matches[i + 1].start() if i + 1 < len(header_matches) else len(content_str)
+            body = content_str[start:end].strip()
+            items.append({
+                "heading": h_text,
+                "body": body,
+            })
+        if items:
+            prefix_sub = content_str[:header_matches[0].start()].strip()
+            return prefix_sub[:160], items
+
+    # 5. Check for numbered slide markers (e.g. Slide 1:, Slide 1 -, Topic 1:)
+    marker_matches = list(re.finditer(r"(?im)^(?:Slide|Topic|Section)\s*(?:\d+)?\s*[:\-]\s*(.+)$", content_str))
+    if marker_matches:
+        items = []
+        for i, match in enumerate(marker_matches):
+            h_text = match.group(1).strip()
+            start = match.end()
+            end = marker_matches[i + 1].start() if i + 1 < len(marker_matches) else len(content_str)
+            body = content_str[start:end].strip()
+            items.append({
+                "heading": h_text,
+                "body": body,
+            })
+        if items:
+            return "", items
+
+    # 6. Check for double-newline separated paragraphs
+    paras = [p.strip() for p in content_str.split("\n\n") if p.strip()]
+    if paras:
+        items = []
+        for idx, p in enumerate(paras):
+            lines = [l.strip() for l in p.splitlines() if l.strip()]
+            if not lines:
+                continue
+            first = lines[0]
+            if (first.startswith("**") and "**" in first[2:]) or (len(first) < 60 and first.endswith(":")):
+                heading = first.strip("*#: ").strip()
+                body = "\n".join(lines[1:]) if len(lines) > 1 else first
+            elif len(first) < 50 and len(lines) > 1 and not first.startswith(("-", "*", "•")):
+                heading = first.strip("*#: ").strip()
+                body = "\n".join(lines[1:])
+            else:
+                words = first.split()
+                h_words = words[:min(6, len(words))]
+                heading = " ".join(h_words)
+                if len(words) > 6 and not heading.endswith((".", ":", ";")):
+                    heading += "..."
+                body = "\n".join(lines)
+            items.append({
+                "heading": heading or f"Key Insight {idx + 1}",
+                "body": body,
+            })
+        return "", items
+
+    # 7. Check for single newline separated bullet items
+    lines = [l.strip() for l in content_str.splitlines() if l.strip()]
+    if lines:
+        items = []
+        chunk_size = 3
+        for i in range(0, len(lines), chunk_size):
+            chunk = lines[i:i + chunk_size]
+            first = chunk[0].strip("-*• 1234567890.: ")
+            h_words = first.split()
+            h = " ".join(h_words[:min(5, len(h_words))])
+            items.append({
+                "heading": h or f"Topic {len(items) + 1}",
+                "body": "\n".join(chunk),
+            })
+        return "", items
+
+    # 8. Truly empty content and no sections: generate dynamic outline tailored to title
+    safe_title = title or "AMATYA Executive Briefing"
+    items = [
+        {
+            "heading": f"{safe_title} — Overview",
+            "cards": [
+                {"title": "Core Objective", "text": f"Strategic goals and execution scope for {safe_title}."},
+                {"title": "Key Principles", "text": "Continuous tracking, local governance, and verified milestones."},
+            ],
+        },
+        {
+            "heading": f"{safe_title} — Technical Analysis",
+            "cards": [
+                {"title": "Architecture Focus", "text": "Comprehensive evaluation of architecture, data flow, and components."},
+                {"title": "Operational Directives", "text": "Target deliverables, performance bounds, and validation criteria."},
+            ],
+        },
+        {
+            "heading": f"{safe_title} — Strategic Roadmap",
+            "cards": [
+                {"title": "Phase 1: Rollout", "text": "Initial integration, baseline benchmarks, and test harness setup."},
+                {"title": "Phase 2: Full Deployment", "text": "Production readiness, monitoring routines, and continuous validation."},
+            ],
+        },
+    ]
+    return f"Executive Briefing & Strategic Overview — {safe_title}", items
+
+
 def _build_professional_pptx(
     output_path: Path,
     title: str,
@@ -398,6 +622,8 @@ def _build_professional_pptx(
     stripe.fill.fore_color.rgb = primary_accent
     stripe.line.fill.background()
 
+    detected_sub, slide_items = _parse_presentation_slides(title=title, content=content, sections=sections)
+
     # Title & Subtitle Box
     tb1 = s1.shapes.add_textbox(Inches(1.2), Inches(1.8), Inches(11.2), Inches(2.2))
     tf1 = tb1.text_frame
@@ -409,7 +635,11 @@ def _build_professional_pptx(
     p1.font.color.rgb = text_title_color
 
     p1_sub = tf1.add_paragraph()
-    p1_sub.text = (content[:160] + "...") if len(content) > 160 else (content or "Autonomous Intelligence & Systems Engineering")
+    sub_text = detected_sub or content
+    clean_sub = re.sub(r"[#*`]", "", sub_text).strip()
+    if len(clean_sub) > 160:
+        clean_sub = clean_sub[:160] + "..."
+    p1_sub.text = clean_sub or (f"Comprehensive Analysis & Briefing — {title}" if title else "Autonomous Intelligence & Systems Engineering")
     p1_sub.font.size = Pt(18)
     p1_sub.font.color.rgb = text_muted_color
     p1_sub.space_before = Pt(14)
@@ -426,46 +656,6 @@ def _build_professional_pptx(
     ftp.font.size = Pt(13)
     ftp.font.color.rgb = text_muted_color
     ftp.alignment = PP_ALIGN.CENTER
-
-    # ── Prepare Content Slides ──────────────────────────────────────────────────
-    slide_items = list(sections or [])
-    if not slide_items:
-        # Auto-structure content into multi-slide presentation
-        paragraphs = [p.strip() for p in (content or "").split("\n\n") if p.strip()]
-        if len(paragraphs) >= 4:
-            slide_items = [
-                {"heading": "Executive Overview & Context", "body": paragraphs[0]},
-                {"heading": "Core Analysis & Technical Principles", "body": paragraphs[1]},
-                {"heading": "Key Performance Metrics & Findings", "body": paragraphs[2]},
-                {"heading": "Strategic Conclusion & Recommendations", "body": "\n".join(paragraphs[3:])},
-            ]
-        elif paragraphs:
-            slide_items = [{"heading": title or "Detailed Overview", "body": p} for p in paragraphs]
-        else:
-            slide_items = [
-                {
-                    "heading": "Executive Overview",
-                    "cards": [
-                        {"title": "Core Objective", "text": "High-reliability autonomous operations with complete local governance."},
-                        {"title": "Strategic Focus", "text": "Continuous context tracking and secure execution of compound engineering workflows."},
-                    ],
-                },
-                {
-                    "heading": "Operational Metrics",
-                    "stats": [
-                        {"value": "100%", "label": "Test Suite Pass Rate"},
-                        {"value": "<50ms", "label": "Command Latency"},
-                        {"value": "6 Tiers", "label": "Security Hierarchy"},
-                    ],
-                },
-                {
-                    "heading": "Strategic Roadmap",
-                    "cards": [
-                        {"title": "Phase 1: Foundation", "text": "Hardware-aware intelligence routing and Wayland desktop integration."},
-                        {"title": "Phase 2: Deployment", "text": "Adaptive workflow learning and proactive companion notifications."},
-                    ],
-                },
-            ]
 
     # Find available images from source_paths or sections
     available_images = [Path(p) for p in (source_paths or []) if Path(p).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp") and Path(p).exists()]
@@ -583,46 +773,62 @@ def _build_professional_pptx(
             except Exception:
                 pass
 
-        # Case D: Detailed 2-column bullet layout
+        # Case D: Detailed bullet layout
         else:
             body_text = str(sec.get("body", ""))
             lines = [l.strip("-*• \t\r\n") for l in body_text.splitlines() if l.strip("-*• \t\r\n")]
             if not lines and content:
                 lines = [content[:200]]
 
-            mid = (len(lines) + 1) // 2
-            left_lines = lines[:mid]
-            right_lines = lines[mid:]
+            if len(lines) <= 3:
+                # Full-width card layout for 1-3 concise points
+                c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(11.6), Inches(4.6))
+                c.fill.solid()
+                c.fill.fore_color.rgb = card_color
+                c.line.color.rgb = card_border
+                tf_c = c.text_frame
+                tf_c.word_wrap = True
+                for li, line in enumerate(lines or [heading or "Key Analysis"]):
+                    p = tf_c.paragraphs[0] if li == 0 else tf_c.add_paragraph()
+                    p.text = f"▸  {line}"
+                    p.font.size = Pt(16)
+                    p.font.color.rgb = text_body_color
+                    if li > 0:
+                        p.space_before = Pt(14)
+            else:
+                mid = (len(lines) + 1) // 2
+                left_lines = lines[:mid]
+                right_lines = lines[mid:]
 
-            # Left Card
-            c1 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(5.6), Inches(4.6))
-            c1.fill.solid()
-            c1.fill.fore_color.rgb = card_color
-            c1.line.color.rgb = card_border
-            tf_c1 = c1.text_frame
-            tf_c1.word_wrap = True
-            for li, line in enumerate(left_lines or ["Key Findings"]):
-                p = tf_c1.paragraphs[0] if li == 0 else tf_c1.add_paragraph()
-                p.text = f"▸  {line}"
-                p.font.size = Pt(14)
-                p.font.color.rgb = text_body_color
-                if li > 0:
-                    p.space_before = Pt(8)
+                # Left Card
+                c1 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(5.6), Inches(4.6))
+                c1.fill.solid()
+                c1.fill.fore_color.rgb = card_color
+                c1.line.color.rgb = card_border
+                tf_c1 = c1.text_frame
+                tf_c1.word_wrap = True
+                for li, line in enumerate(left_lines):
+                    p = tf_c1.paragraphs[0] if li == 0 else tf_c1.add_paragraph()
+                    p.text = f"▸  {line}"
+                    p.font.size = Pt(14)
+                    p.font.color.rgb = text_body_color
+                    if li > 0:
+                        p.space_before = Pt(8)
 
-            # Right Card
-            c2 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(2.0), Inches(5.6), Inches(4.6))
-            c2.fill.solid()
-            c2.fill.fore_color.rgb = card_color
-            c2.line.color.rgb = card_border
-            tf_c2 = c2.text_frame
-            tf_c2.word_wrap = True
-            for li, line in enumerate(right_lines or ["Strategic Directives"]):
-                p = tf_c2.paragraphs[0] if li == 0 else tf_c2.add_paragraph()
-                p.text = f"▸  {line}"
-                p.font.size = Pt(14)
-                p.font.color.rgb = text_body_color
-                if li > 0:
-                    p.space_before = Pt(8)
+                # Right Card
+                c2 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(2.0), Inches(5.6), Inches(4.6))
+                c2.fill.solid()
+                c2.fill.fore_color.rgb = card_color
+                c2.line.color.rgb = card_border
+                tf_c2 = c2.text_frame
+                tf_c2.word_wrap = True
+                for li, line in enumerate(right_lines):
+                    p = tf_c2.paragraphs[0] if li == 0 else tf_c2.add_paragraph()
+                    p.text = f"▸  {line}"
+                    p.font.size = Pt(14)
+                    p.font.color.rgb = text_body_color
+                    if li > 0:
+                        p.space_before = Pt(8)
 
     prs.save(str(output_path))
     return {

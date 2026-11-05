@@ -242,15 +242,15 @@ def execute(
         q = str(parameters.get("query", "") or "").strip()
         if not q:
             return outcome.failed("knowledge_base", "Please provide a 'query' to search memories.")
-        top_k = int(parameters.get("top_k", 5) or 5)
-        results = mem_engine.search_memories(q, top_k=top_k)
+        top_k = int(parameters.get("top_k") or parameters.get("limit") or 5)
+        results = mem_engine.search_memories(q, limit=top_k, top_k=top_k)
         if not results:
             return outcome.done("knowledge_base", result=f"No matching memories found for '{q}'.", data={"memories": []})
         summary_lines = [f"- [{m.category}] {m.key}: {m.value} (conf={m.confidence:.2f})" for m in results]
         return outcome.done(
             "knowledge_base",
             result=f"Found {len(results)} memory match(es) for '{q}':\n" + "\n".join(summary_lines),
-            data={"memories": [m.to_dict() for m in results]},
+            data={"memories": [m.to_dict() if hasattr(m, "to_dict") else dict(m) for m in results]},
         )
 
     if action == "toggle_memory":

@@ -294,6 +294,102 @@ class TestUserEnhancements(unittest.TestCase):
             str(Path("/home/user/Projects/Mark-LVI").resolve()),
         )
 
+    # ── 8. Knowledge Base search_memories top_k keyword compatibility ──────────
+
+    def test_08_knowledge_base_search_memories_top_k(self):
+        """Verify knowledge_base search_memories handles top_k without TypeError."""
+        from actions import knowledge_base
+        from core.memory_engine import get_memory_engine
+
+        mem = get_memory_engine(storage_dir=Path(self.test_dir) / "test_mem")
+        mem.set_enabled(True)
+        mem.store_fact(predicate="preferred_shell", object_value="zsh", category="environment")
+        mem.store_fact(predicate="primary_monitor", object_value="DP-1", category="hardware")
+
+        with patch("actions.knowledge_base.get_memory_engine", return_value=mem):
+            res = knowledge_base.execute({"action": "search_memories", "query": "shell", "top_k": 3})
+            self.assertIn("status=done", str(res))
+            self.assertIn("preferred_shell", str(res))
+
+            # Test MemoryEngine directly with both limit and top_k
+            direct_top_k = mem.search_memories("monitor", top_k=1)
+            self.assertEqual(len(direct_top_k), 1)
+            self.assertEqual(direct_top_k[0].predicate, "primary_monitor")
+
+            direct_limit = mem.search_memories("shell", limit=1)
+            self.assertEqual(len(direct_limit), 1)
+            self.assertEqual(direct_limit[0].predicate, "preferred_shell")
+
+    # ── 9. PPTX Dynamic Content Without Template Repetition ───────────────────
+
+    def test_09_pptx_dynamic_content_no_repetition(self):
+        """Verify PPT generation reflects custom content dynamically without static hardcoded templates."""
+        from actions import creator
+        from core.doc_generator import analyze_document
+
+        # Deck 1: Placement report in markdown format
+        deck1_path = Path(self.test_dir) / "placement_report.pptx"
+        deck1_content = (
+            "# Placement Statistics 2024\n"
+            "ECE placement rate reached 94% across core semiconductor firms.\n\n"
+            "# Leading Industry Partners\n"
+            "Texas Instruments, Qualcomm, Intel, and Synopsys conducted campus visits.\n\n"
+            "# Academic Performance\n"
+            "Over 120 students secured Tier-1 research and development roles."
+        )
+        res1 = creator.execute({
+            "action": "generate_doc",
+            "output_path": str(deck1_path),
+            "title": "KLE Placement Summary 2024",
+            "content": deck1_content,
+        })
+        self.assertIn("status=done", str(res1))
+
+        analysis1 = analyze_document(deck1_path)
+        self.assertTrue(analysis1["ok"])
+        deck1_text = analysis1["text"]
+
+        # Ensure Deck 1 contains its own dynamic content and no hardcoded AMATYA test metrics
+        self.assertIn("Placement Statistics 2024", deck1_text)
+        self.assertIn("Texas Instruments", deck1_text)
+        self.assertNotIn("Executive Overview & Context", deck1_text)
+        self.assertNotIn("100% Test Suite Pass Rate", deck1_text)
+
+        # Deck 2: Low-Dropout Regulator report with structured slides parameter
+        deck2_path = Path(self.test_dir) / "ldo_report.pptx"
+        deck2_slides = [
+            {
+                "title": "Bandgap Reference Subsystem",
+                "content": "Curvature-compensated 1.2V reference operating down to 1.8V VDD.",
+            },
+            {
+                "title": "Folded Cascode Error Amplifier",
+                "content": "Delivers 78dB DC gain and 65-degree phase margin with 10pF load.",
+            },
+            {
+                "title": "Transient Response & Dropout",
+                "content": "Dropout voltage measured at 180mV under maximum 250mA output current.",
+            },
+        ]
+        res2 = creator.execute({
+            "action": "generate_doc",
+            "output_path": str(deck2_path),
+            "title": "LDO IC Final Verification",
+            "slides": deck2_slides,
+        })
+        self.assertIn("status=done", str(res2))
+
+        analysis2 = analyze_document(deck2_path)
+        self.assertTrue(analysis2["ok"])
+        deck2_text = analysis2["text"]
+
+        # Ensure Deck 2 contains its own technical content and doesn't repeat Deck 1
+        self.assertIn("Bandgap Reference Subsystem", deck2_text)
+        self.assertIn("Folded Cascode Error Amplifier", deck2_text)
+        self.assertNotIn("Placement Statistics 2024", deck2_text)
+        self.assertNotIn("Texas Instruments", deck2_text)
+        self.assertNotIn("Executive Overview & Context", deck2_text)
+
 
 if __name__ == "__main__":
     unittest.main()

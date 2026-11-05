@@ -1,3 +1,4 @@
+import json
 """
 actions/creator.py — CREATOR Autonomous Software Engineering & Document Engine for AMATYA.
 """
@@ -251,11 +252,42 @@ def execute(
         out_path = str(parameters.get("output_path") or parameters.get("file_path") or "").strip()
         if not out_path:
             return outcome.failed("creator", "Please specify 'output_path' (.pdf, .docx, .xlsx, .pptx, .csv, .md, .zip).")
+
+        raw_sections = parameters.get("sections") or parameters.get("slides")
+        if isinstance(raw_sections, str) and raw_sections.strip().startswith(("[", "{")):
+            try:
+                parsed_s = json.loads(raw_sections.strip())
+                if isinstance(parsed_s, list):
+                    raw_sections = parsed_s
+                elif isinstance(parsed_s, dict):
+                    raw_sections = parsed_s.get("slides") or parsed_s.get("sections")
+            except Exception:
+                pass
+
+        raw_content = parameters.get("content", "")
+        title_val = str(parameters.get("title", "") or "").strip()
+        if isinstance(raw_content, str) and raw_content.strip().startswith(("[", "{")):
+            try:
+                parsed_c = json.loads(raw_content.strip())
+                if isinstance(parsed_c, list) and not raw_sections:
+                    raw_sections = parsed_c
+                    raw_content = ""
+                elif isinstance(parsed_c, dict):
+                    if not raw_sections:
+                        raw_sections = parsed_c.get("slides") or parsed_c.get("sections")
+                    if not title_val and parsed_c.get("title"):
+                        title_val = str(parsed_c["title"])
+                    if parsed_c.get("content") or parsed_c.get("subtitle"):
+                        raw_content = str(parsed_c.get("content") or parsed_c.get("subtitle") or "")
+            except Exception:
+                pass
+
         res = generate_document(
             output_path=out_path,
-            title=str(parameters.get("title", "AMATYA Document")),
-            content=str(parameters.get("content", "")),
-            sections=parameters.get("sections"),
+            title=title_val or "AMATYA Document",
+            content=str(raw_content or ""),
+            sections=raw_sections,
+            slides=raw_sections,
             rows=parameters.get("rows"),
             source_paths=parameters.get("source_paths"),
             theme=str(parameters.get("theme", "navy")),
