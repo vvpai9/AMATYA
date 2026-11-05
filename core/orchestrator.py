@@ -13,6 +13,7 @@ Contextual References Resolved:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -26,7 +27,13 @@ from core.model_router import get_router
 from memory.config_manager import BASE_DIR
 
 CONTEXT_STATE_PATH = BASE_DIR / "memory" / "context_state.json"
+ACTIVE_TASKS_PATH = BASE_DIR / "memory" / "active_tasks.json"
 _LOCK = threading.RLock()
+
+
+class LoopDetectedError(RuntimeError):
+    """Raised when an orchestrator task repeats identical failing states without progress."""
+    pass
 
 
 @dataclass
@@ -39,12 +46,21 @@ class TaskRecord:
     status: str = "pending"  # pending | running | paused | completed | failed | cancelled
     steps: list[dict[str, Any]] = field(default_factory=list)
     current_step_index: int = 0
+    step_results: list[Any] = field(default_factory=list)
     result_summary: str = ""
+    retry_counts: dict[str, int] = field(default_factory=dict)
+    state_history: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def progress_pct(self) -> int:
+        if not self.steps:
+            return 100 if self.status == "completed" else 0
+        return int((self.current_step_index / len(self.steps)) * 100)
 
 
 class ContextTracker:
@@ -251,13 +267,121 @@ class ContextTracker:
         }
 
 
+def _extract_file_path(val: Any) -> str:
+    """Extract a valid file path string from arbitrary tool return values."""
+    if not val:
+        return ""
+    if isinstance(val, dict):
+        for k in ("file_path", "output_path", "path", "target_path"):
+            cand = val.get(k)
+            if isinstance(cand, str) and cand.strip():
+                return cand.strip()
+    if isinstance(val, str):
+        # Match explicit paths like /home/... or ./... or *.pdf/*.pptx/*.md
+        m = re.search(r"(/[\w\.\-]+(?:/[\w\.\-]+)+|\./[\w\.\-]+|\b[\w\-]+\.(?:pdf|pptx|docx|xlsx|md|py|json|txt)\b)", val)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _extract_summary_text(val: Any) -> str:
+    """Extract summary/content text from tool return values."""
+    if not val:
+        return ""
+    if isinstance(val, dict):
+        for k in ("summary", "content", "result", "text", "message"):
+            cand = val.get(k)
+            if isinstance(cand, str) and cand.strip():
+                return cand.strip()
+    return str(val).strip()
+
+
+def resolve_bridged_parameters(
+    params: dict[str, Any],
+    step_results: list[Any],
+    context_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Dynamically bridge parameters across multi-step plans using outputs from earlier steps."""
+    resolved = dict(params)
+    prev_result = step_results[-1] if step_results else None
+
+    for k, v in list(resolved.items()):
+        if isinstance(v, str):
+            v_str = v.strip()
+            # 1. $prev.file_path or $prev.output_path
+            if v_str in ("$prev.file_path", "$prev.output_path", "$prev.path"):
+                fp = _extract_file_path(prev_result) or context_state.get("last_file", "")
+                resolved[k] = fp
+            # 2. $prev.summary or $prev.content
+            elif v_str in ("$prev.summary", "$prev.content", "$prev.text"):
+                sum_text = _extract_summary_text(prev_result)
+                resolved[k] = sum_text or "Automated summary."
+            # 3. $prev
+            elif v_str == "$prev":
+                resolved[k] = prev_result
+            # 4. $step_N.<key>
+            elif v_str.startswith("$step_"):
+                m = re.match(r"^\$step_(\d+)(?:\.([a-zA-Z_0-9]+))?$", v_str)
+                if m:
+                    idx = int(m.group(1)) - 1
+                    prop = m.group(2)
+                    if 0 <= idx < len(step_results):
+                        sres = step_results[idx]
+                        if not prop:
+                            resolved[k] = sres
+                        elif prop in ("file_path", "output_path", "path"):
+                            resolved[k] = _extract_file_path(sres)
+                        elif prop in ("summary", "content", "text"):
+                            resolved[k] = _extract_summary_text(sres)
+                        elif isinstance(sres, dict) and prop in sres:
+                            resolved[k] = sres[prop]
+
+    # Automatic fallback for device parameter
+    if "device" in resolved and resolved["device"] in ("$prev.device", "", None):
+        resolved["device"] = context_state.get("last_device") or "phone"
+
+    # Automatic fallback if file_path is requested but still contains placeholder
+    if "file_path" in resolved and str(resolved["file_path"]).startswith("$prev"):
+        resolved["file_path"] = _extract_file_path(prev_result) or context_state.get("last_file", "")
+
+    return resolved
+
+
 class CentralOrchestrator:
-    """Decomposes, prioritizes, executes, and tracks multi-step cross-domain tasks."""
+    """Hierarchical Task Planner, Context Resolver & Multi-Step Orchestrator for AMATYA."""
 
     def __init__(self) -> None:
         self.context = ContextTracker()
         self._tasks: dict[str, TaskRecord] = {}
+        self._active_tasks_path = ACTIVE_TASKS_PATH
         self._cancel_requested = threading.Event()
+        self._load_active_tasks()
+
+    def _load_active_tasks(self) -> None:
+        with _LOCK:
+            if not self._active_tasks_path.exists():
+                return
+            try:
+                data = json.loads(self._active_tasks_path.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and item.get("task_id"):
+                            tr = TaskRecord(**{k: v for k, v in item.items() if k in TaskRecord.__dataclass_fields__})
+                            self._tasks[tr.task_id] = tr
+            except Exception:
+                pass
+
+    def _save_active_tasks(self) -> None:
+        with _LOCK:
+            try:
+                self._active_tasks_path.parent.mkdir(parents=True, exist_ok=True)
+                serialized = [t.to_dict() for t in self._tasks.values()]
+                self._active_tasks_path.write_text(
+                    json.dumps(serialized, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
     def classify_domain(self, instruction: str) -> str:
         lower = (instruction or "").lower()
@@ -269,19 +393,76 @@ class CentralOrchestrator:
             return "software_engineering"
         if any(w in lower for w in ("desktop", "window", "screen", "click", "type", "browser", "dialog")):
             return "desktop_automation"
-        if any(w in lower for w in ("pdf", "docx", "xlsx", "pptx", "spreadsheet", "presentation", "report")):
+        if any(w in lower for w in ("pdf", "docx", "xlsx", "pptx", "spreadsheet", "presentation", "report", "summarize it")):
             return "document_processing"
         return "general"
 
     def plan_workflow(self, instruction: str, priority: int = 5) -> TaskRecord:
-        """Resolve references in `instruction` and build an executable multi-step plan."""
+        """Resolve references and decompose compound multi-subsystem goals into structured tasks."""
         ref = self.context.resolve_references(instruction)
         resolved_goal = ref["resolved"]
         domain = self.classify_domain(resolved_goal)
         lower = resolved_goal.lower()
 
         steps: list[dict[str, Any]] = []
-        if ref.get("recommended_action"):
+
+        # ── 1. Compound Multi-Subsystem Workflow: Document Pipeline ───────────
+        # "find the latest PDF in my project directory, summarize it, create a presentation from it and send the presentation to my phone"
+        is_doc_pipeline = (
+            ("pdf" in lower or "document" in lower or "file" in lower)
+            and ("summarize" in lower or "analyze" in lower)
+            and ("presentation" in lower or "pptx" in lower or "slides" in lower or "report" in lower)
+            and ("phone" in lower or "device" in lower or "send" in lower)
+        )
+        if is_doc_pipeline:
+            domain = "document_processing"
+            target_ext = ".pdf" if "pdf" in lower else (".docx" if "docx" in lower else "")
+            target_format = "pptx" if ("presentation" in lower or "pptx" in lower or "slides" in lower) else "pdf"
+            proj = self.context.get_state().get("last_project") or str(BASE_DIR)
+            out_name = f"summary_presentation.{target_format}"
+
+            steps = [
+                {
+                    "step": 1,
+                    "description": f"Find latest {target_ext or 'document'} in project directory ({proj})",
+                    "tool": "file_controller",
+                    "parameters": {"action": "latest_file", "path": proj, "extension": target_ext},
+                    "status": "pending",
+                },
+                {
+                    "step": 2,
+                    "description": "Extract content and generate structured summary of the document",
+                    "tool": "creator",
+                    "parameters": {"action": "analyze_doc", "file_path": "$prev.file_path"},
+                    "status": "pending",
+                },
+                {
+                    "step": 3,
+                    "description": f"Create {target_format.upper()} presentation document from summary",
+                    "tool": "creator",
+                    "parameters": {
+                        "action": "generate_doc",
+                        "output_path": out_name,
+                        "title": "Document Summary Presentation",
+                        "content": "$prev.summary",
+                    },
+                    "status": "pending",
+                },
+                {
+                    "step": 4,
+                    "description": f"Transmit generated {target_format.upper()} presentation to authorized phone",
+                    "tool": "device_control",
+                    "parameters": {
+                        "action": "send_file",
+                        "device": "phone",
+                        "file_path": "$prev.output_path",
+                    },
+                    "status": "pending",
+                },
+            ]
+
+        # ── 2. Contextual Single-Action Shortcut ─────────────────────────────
+        elif ref.get("recommended_action"):
             act = ref["recommended_action"]
             steps.append({
                 "step": 1,
@@ -290,6 +471,8 @@ class CentralOrchestrator:
                 "parameters": act["parameters"],
                 "status": "pending",
             })
+
+        # ── 3. Software Engineering Audit ─────────────────────────────────────
         elif domain == "software_engineering":
             proj = self.context.get_state().get("last_project") or str(BASE_DIR)
             steps = [
@@ -308,6 +491,8 @@ class CentralOrchestrator:
                     "status": "pending",
                 },
             ]
+
+        # ── 4. Home Automation ────────────────────────────────────────────────
         elif domain == "home_automation":
             routine_match = None
             for rname in ("leaving_home", "returning_home", "morning", "evening", "sleep"):
@@ -334,6 +519,8 @@ class CentralOrchestrator:
                         "status": "pending",
                     }
                 ]
+
+        # ── 5. Desktop Automation ─────────────────────────────────────────────
         elif domain == "desktop_automation":
             steps = [
                 {
@@ -351,6 +538,8 @@ class CentralOrchestrator:
                     "status": "pending",
                 },
             ]
+
+        # ── 6. Default / General Reasoning ───────────────────────────────────
         else:
             steps = [
                 {
@@ -374,6 +563,7 @@ class CentralOrchestrator:
         with _LOCK:
             self._tasks[task.task_id] = task
             self.context.update_entity(last_task=task.to_dict())
+            self._save_active_tasks()
         return task
 
     def execute_task(
@@ -381,11 +571,13 @@ class CentralOrchestrator:
         task: TaskRecord,
         action_runner: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> TaskRecord:
-        """Execute a planned TaskRecord step-by-step with cancellation support."""
+        """Execute a planned TaskRecord step-by-step with parameter bridging and loop prevention."""
         self._cancel_requested.clear()
         task.status = "running"
         task.updated_at = time.time()
         summaries: list[str] = []
+
+        context_state = self.context.get_state()
 
         for idx in range(task.current_step_index, len(task.steps)):
             if self._cancel_requested.is_set():
@@ -393,36 +585,59 @@ class CentralOrchestrator:
                 task.current_step_index = idx
                 task.result_summary = "Task paused/cancelled by user."
                 self.context.update_entity(last_task=task.to_dict())
+                self._save_active_tasks()
                 return task
 
             step = task.steps[idx]
             step["status"] = "running"
             task.current_step_index = idx
             tool_name = step.get("tool", "")
-            params = step.get("parameters", {})
+            raw_params = step.get("parameters", {})
+
+            # ── Dynamic Parameter Bridging across steps ───────────────────────
+            params = resolve_bridged_parameters(raw_params, task.step_results, context_state)
+            step["resolved_parameters"] = params
+
+            # ── Loop Prevention & Cycle Detection ─────────────────────────────
+            param_key = tuple(sorted((k, str(v)) for k, v in params.items()))
+            state_sig = hashlib.sha256(f"{tool_name}:{param_key}".encode("utf-8")).hexdigest()[:12]
+            if task.state_history.count(state_sig) >= 2:
+                step["status"] = "failed"
+                step["error"] = "Loop detected: step repeated without state transition."
+                task.status = "failed"
+                task.result_summary = f"Loop detected at step {idx + 1} ({tool_name})."
+                self.context.update_entity(last_task=task.to_dict())
+                self._save_active_tasks()
+                raise LoopDetectedError(task.result_summary)
+            task.state_history.append(state_sig)
 
             try:
+                res_obj: Any = None
                 if action_runner and tool_name != "reasoning":
-                    res = action_runner(tool_name, params)
-                    res_str = str(res)
+                    res_obj = action_runner(tool_name, params)
+                    res_str = str(res_obj)
                 elif tool_name == "reasoning":
                     res_str = get_router().generate("reasoning", params.get("prompt", task.resolved_goal))
+                    res_obj = {"result": res_str}
                 else:
                     # Direct action module dispatch
                     mod = __import__(f"actions.{tool_name}", fromlist=["execute"])
-                    res = mod.execute(params)
-                    res_str = str(res)
+                    res_obj = mod.execute(params)
+                    res_str = str(res_obj)
 
                 step["status"] = "completed"
                 step["result"] = res_str[:500]
-                summaries.append(f"Step {idx + 1} ({tool_name}): {res_str[:240]}")
+                task.step_results.append(res_obj)
+                summaries.append(f"Step {idx + 1} ({tool_name}): {res_str[:200]}")
                 self.context.record_tool_call(tool_name, params)
+                self._save_active_tasks()
             except Exception as exc:
                 step["status"] = "failed"
                 step["error"] = str(exc)
                 task.status = "failed"
                 task.result_summary = f"Step {idx + 1} ({tool_name}) failed: {exc}"
                 self.context.update_entity(last_task=task.to_dict())
+                self._save_active_tasks()
                 return task
 
         task.status = "completed"
@@ -430,7 +645,61 @@ class CentralOrchestrator:
         task.result_summary = " | ".join(summaries) if summaries else "Completed."
         task.updated_at = time.time()
         self.context.update_entity(last_task=task.to_dict())
+        self._save_active_tasks()
+
+        # Acoustic notification on completed task
+        try:
+            from core.audio_cues import play_task_complete_chime
+            play_task_complete_chime()
+        except Exception:
+            pass
+
         return task
+
+    def get_active_task_summary(self) -> str:
+        """Provide a concise conversational status for 'What are you doing?'."""
+        with _LOCK:
+            active = [t for t in self._tasks.values() if t.status in ("running", "pending")]
+            if not active:
+                return "All tasks completed. Standing by for instructions, sir."
+            top = active[0]
+            step_desc = ""
+            if 0 <= top.current_step_index < len(top.steps):
+                step_desc = f": {top.steps[top.current_step_index].get('description', '')}"
+            return (
+                f"Currently working on '{top.goal}' "
+                f"[{top.progress_pct}% complete, step {top.current_step_index + 1}/{len(top.steps)}{step_desc}]."
+            )
+
+    def pause_task(self, task_id: str) -> dict[str, Any]:
+        with _LOCK:
+            task = self._tasks.get(task_id)
+            if not task:
+                return {"ok": False, "error": f"Task '{task_id}' not found."}
+            task.status = "paused"
+            task.updated_at = time.time()
+            self._save_active_tasks()
+            return {"ok": True, "message": f"Paused task '{task.goal}'.", "task": task.to_dict()}
+
+    def resume_task(self, task_id: str) -> TaskRecord:
+        with _LOCK:
+            task = self._tasks.get(task_id)
+            if not task:
+                raise KeyError(f"Task '{task_id}' not found.")
+            task.status = "pending"
+            task.updated_at = time.time()
+            self._save_active_tasks()
+        return self.execute_task(task)
+
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        with _LOCK:
+            task = self._tasks.get(task_id)
+            if not task:
+                return {"ok": False, "error": f"Task '{task_id}' not found."}
+            task.status = "cancelled"
+            task.updated_at = time.time()
+            self._save_active_tasks()
+            return {"ok": True, "message": f"Cancelled task '{task.goal}'.", "task": task.to_dict()}
 
     def cancel_all(self) -> str:
         """Emergency Stop: cancel running orchestrator tasks and DesktopAgent."""
@@ -442,6 +711,7 @@ class CentralOrchestrator:
                     t.status = "paused"
                     cancelled += 1
                     self.context.update_entity(last_task=t.to_dict())
+            self._save_active_tasks()
         try:
             from core.desktop_agent import get_desktop_agent
             da = get_desktop_agent()

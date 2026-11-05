@@ -629,17 +629,6 @@ def check_permission(
                 "requires_voice_auth": voice_auth_on,
                 "requires_pin": has_pin(),
             }
-            log_audit_event("permission_denied", operation, ptier, False, reason)
-            return {
-                "allowed": False,
-                "tier": int(ptier),
-                "tier_label": TIER_LABELS[ptier],
-                "autonomy_level": autonomy,
-                "reason": reason,
-                "requires_confirmation": True,
-                "requires_voice_auth": voice_auth_on,
-                "requires_pin": has_pin(),
-            }
 
     log_audit_event("permission_granted", operation, ptier, True, "Critical security action authorized.")
     return {
@@ -652,3 +641,234 @@ def check_permission(
         "requires_voice_auth": False,
         "requires_pin": False,
     }
+
+
+# ── Complete Tool-to-Permission Matrix (All 26 Tools) ───────────────────────
+
+TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
+    # Tier 0: General Conversation / Read-Only External / Informational
+    "web_search": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "weather_report": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "flight_finder": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "youtube_video": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "video_player": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "model_router": {"default_tier": PermissionTier.GENERAL_CONVERSATION, "set_route": PermissionTier.SENSITIVE_SYSTEM},
+    "orchestrator": {
+        "default_tier": PermissionTier.GENERAL_CONVERSATION,
+        "emergency_stop": PermissionTier.GENERAL_CONVERSATION,
+        "plan_and_execute": PermissionTier.GENERAL_CONVERSATION,
+    },
+
+    # Tier 1: Personal Information Access
+    "reminder": {
+        "default_tier": PermissionTier.GENERAL_CONVERSATION,
+        "list": PermissionTier.PERSONAL_INFO,
+        "read": PermissionTier.PERSONAL_INFO,
+        "add": PermissionTier.PERSONAL_INFO,
+    },
+    "knowledge_base": {
+        "default_tier": PermissionTier.GENERAL_CONVERSATION,
+        "read_personal": PermissionTier.PERSONAL_INFO,
+        "search_personal": PermissionTier.PERSONAL_INFO,
+    },
+    "send_message": {
+        "default_tier": PermissionTier.PERSONAL_INFO,
+        "send": PermissionTier.REMOTE_DEVICE_CONTROL,
+    },
+
+    # Tier 2: Private Files & Local Data Modification
+    "file_controller": {
+        "default_tier": PermissionTier.PRIVATE_FILES,
+        "find": PermissionTier.GENERAL_CONVERSATION,
+        "latest": PermissionTier.GENERAL_CONVERSATION,
+        "latest_file": PermissionTier.GENERAL_CONVERSATION,
+        "list": PermissionTier.GENERAL_CONVERSATION,
+        "disk_usage": PermissionTier.GENERAL_CONVERSATION,
+        "delete": PermissionTier.PRIVATE_FILES,
+        "write": PermissionTier.PRIVATE_FILES,
+    },
+    "file_processor": {
+        "default_tier": PermissionTier.PRIVATE_FILES,
+        "read": PermissionTier.GENERAL_CONVERSATION,
+        "summarize": PermissionTier.GENERAL_CONVERSATION,
+        "write": PermissionTier.PRIVATE_FILES,
+    },
+    "open_app": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+
+    # Tier 3: Remote Device Control & Interactive Desktop Manipulation
+    "device_control": {
+        "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "discover": PermissionTier.GENERAL_CONVERSATION,
+        "phone_status": PermissionTier.GENERAL_CONVERSATION,
+        "tv_status": PermissionTier.GENERAL_CONVERSATION,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+    },
+    "home_automation": {
+        "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+        "get": PermissionTier.GENERAL_CONVERSATION,
+        "info": PermissionTier.GENERAL_CONVERSATION,
+    },
+    "kwin_desktop": {
+        "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "list_windows": PermissionTier.GENERAL_CONVERSATION,
+        "get_active_window": PermissionTier.GENERAL_CONVERSATION,
+        "close_window": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "click": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "type": PermissionTier.REMOTE_DEVICE_CONTROL,
+    },
+    "desktop_control": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "desktop_agent": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "computer_control": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "dev_agent": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+
+    # Tier 4: Sensitive System Changes & Engineering Commits
+    "creator": {
+        "default_tier": PermissionTier.PRIVATE_FILES,
+        "git_status": PermissionTier.GENERAL_CONVERSATION,
+        "git_diff": PermissionTier.GENERAL_CONVERSATION,
+        "inspect_repo": PermissionTier.GENERAL_CONVERSATION,
+        "check_project": PermissionTier.GENERAL_CONVERSATION,
+        "run_tests": PermissionTier.GENERAL_CONVERSATION,
+        "search_code": PermissionTier.GENERAL_CONVERSATION,
+        "analyze_doc": PermissionTier.GENERAL_CONVERSATION,
+        "generate_doc": PermissionTier.PRIVATE_FILES,
+        "apply_edits": PermissionTier.PRIVATE_FILES,
+        "git_commit": PermissionTier.SENSITIVE_SYSTEM,
+        "run_shell": PermissionTier.SENSITIVE_SYSTEM,
+    },
+    "code_helper": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "game_updater": {"default_tier": PermissionTier.SENSITIVE_SYSTEM},
+    "computer_settings": {
+        "default_tier": PermissionTier.SENSITIVE_SYSTEM,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+        "get_volume": PermissionTier.GENERAL_CONVERSATION,
+        "get_brightness": PermissionTier.GENERAL_CONVERSATION,
+        "shutdown": PermissionTier.CRITICAL_SECURITY,
+        "restart": PermissionTier.CRITICAL_SECURITY,
+        "amatya_shutdown": PermissionTier.CRITICAL_SECURITY,
+        "amatya_sleep": PermissionTier.GENERAL_CONVERSATION,
+    },
+
+    # Tier 5: Critical Security & Authentication Operations
+    "voice_auth": {
+        "default_tier": PermissionTier.CRITICAL_SECURITY,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+        "verify": PermissionTier.PERSONAL_INFO,
+        "audit_log": PermissionTier.PERSONAL_INFO,
+        "set_pin": PermissionTier.CRITICAL_SECURITY,
+        "clear_pin": PermissionTier.CRITICAL_SECURITY,
+        "enroll": PermissionTier.CRITICAL_SECURITY,
+        "delete_profile": PermissionTier.CRITICAL_SECURITY,
+    },
+}
+
+
+def classify_tool_permission(
+    tool_name: str,
+    action: str = "",
+    parameters: dict[str, Any] | None = None,
+) -> tuple[PermissionTier, str]:
+    """Resolve the required PermissionTier for any tool and action."""
+    tool = str(tool_name or "").strip().lower()
+    act = str(action or "").strip().lower()
+
+    if not act and parameters and isinstance(parameters, dict):
+        act = str(parameters.get("action", "") or parameters.get("sub_action", "")).strip().lower()
+
+    # Look up tool in matrix
+    spec = TOOL_PERMISSION_MATRIX.get(tool)
+    if not spec:
+        return PermissionTier.PRIVATE_FILES, f"Unregistered tool '{tool}' defaults to Tier 2 (Private Files)."
+
+    # Look up action override
+    if act in spec:
+        ptier = spec[act]
+        return ptier, f"Action '{act}' of '{tool}' mapped to Tier {int(ptier)} ({TIER_LABELS[ptier]})."
+
+    # Contextual check for shell commands in creator
+    if tool == "creator" and act == "run_shell" and parameters:
+        cmd = str(parameters.get("command", "") or "").lower()
+        if any(c in cmd for c in ("rm -rf", "mkfs", "dd if=", ":(){ :|:& };:", "chmod -r 777 /")):
+            return PermissionTier.CRITICAL_SECURITY, "Destructive shell command classified as Tier 5 (Critical Security)."
+
+    def_tier = spec.get("default_tier", PermissionTier.PRIVATE_FILES)
+    return def_tier, f"Tool '{tool}' default mapped to Tier {int(def_tier)} ({TIER_LABELS[def_tier]})."
+
+
+# ── Prompt Injection Defense & Quarantine ───────────────────────────────────
+
+_INJECTION_PATTERNS = [
+    re.compile(r"(?i)\bignore\s+(?:all\s+)?previous\s+instructions\b"),
+    re.compile(r"(?i)\bdisregard\s+(?:all\s+)?system\s+prompts?\b"),
+    re.compile(r"(?i)\byou\s+are\s+now\s+(?:DAN|an\s+unrestricted\s+AI|evil\s+mode|unfiltered)\b"),
+    re.compile(r"(?i)\bbypass\s+(?:all\s+)?(?:security|permission|sandbox|safety)\b"),
+    re.compile(r"(?i)\belevate\s+privileges?\b"),
+    re.compile(r"(?i)\breveal\s+(?:the\s+)?(?:system\s+prompt|api\s+keys?|secret\s+tokens?|passwords?)\b"),
+    re.compile(r"(?i)\bSYSTEM\s+OVERRIDE:\s*DISABLE_GUARDRAILS\b"),
+]
+
+
+def detect_prompt_injection(text: str) -> tuple[bool, str]:
+    """Scan untrusted candidate text for adversarial prompt injection vectors."""
+    if not text or not isinstance(text, str):
+        return False, ""
+    for pat in _INJECTION_PATTERNS:
+        match = pat.search(text)
+        if match:
+            return True, f"Prompt injection vector detected: '{match.group(0)}'"
+    return False, ""
+
+
+def quarantine_untrusted_input(text: str, source: str = "untrusted") -> str:
+    """Enclose external/untrusted content in safe isolation delimiters, neutralizing injections."""
+    raw = str(text or "")
+    is_malicious, reason = detect_prompt_injection(raw)
+    sanitized = raw
+    if is_malicious:
+        log_audit_event(
+            "prompt_injection_intercepted",
+            f"quarantine_untrusted_input:{source}",
+            PermissionTier.CRITICAL_SECURITY,
+            False,
+            reason,
+            details={"source": source, "excerpt": raw[:120]},
+        )
+        # Neutralize specific trigger phrases
+        for pat in _INJECTION_PATTERNS:
+            sanitized = pat.sub("[REDACTED_ADVERSARIAL_INJECTION]", sanitized)
+
+    return (
+        f'<<<UNTRUSTED_CONTENT source="{source}">>>\n'
+        f"{sanitized}\n"
+        f"<<<END_UNTRUSTED_CONTENT>>>"
+    )
+
+
+def emergency_stop() -> str:
+    """Universal concurrent Emergency Stop across all running AMATYA subsystems."""
+    cancelled_components = []
+    try:
+        from core.orchestrator import get_orchestrator
+        orch_msg = get_orchestrator().cancel_all()
+        cancelled_components.append("Central Orchestrator")
+    except Exception:
+        pass
+
+    try:
+        from core.desktop_agent import get_desktop_agent
+        da = get_desktop_agent()
+        if da and da.is_running:
+            da.cancel()
+            cancelled_components.append("DesktopAgent")
+    except Exception:
+        pass
+
+    log_audit_event(
+        "emergency_stop_triggered",
+        "emergency_stop",
+        PermissionTier.CRITICAL_SECURITY,
+        True,
+        f"Emergency Stop executed across: {', '.join(cancelled_components) or 'all subsystems'}.",
+    )
+    return f"Emergency Stop executed: halted {', '.join(cancelled_components) or 'all active processes'}."

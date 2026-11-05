@@ -289,6 +289,36 @@ class CreatorEngine:
                     pass
             return {"ok": False, "error": f"Edit failed and rolled back cleanly: {exc}"}
 
+    def apply_edits_and_verify(
+        self,
+        edits: list[dict[str, str]],
+        project_path: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Apply file edits with AST checks, run test suite, and automatically rollback if tests fail."""
+        res = self.apply_edits(edits)
+        if not res.get("ok"):
+            return res
+
+        root = Path(project_path or BASE_DIR).expanduser().resolve()
+        test_res = self.run_tests(root, timeout_sec=45)
+        if not test_res.get("ok"):
+            # Post-edit test failure detected — rollback!
+            rolled_back = 0
+            for p_str, orig in self._last_backups.items():
+                try:
+                    Path(p_str).write_text(orig, encoding="utf-8")
+                    rolled_back += 1
+                except Exception:
+                    pass
+            return {
+                "ok": False,
+                "error": f"Post-edit verification failed. Automatically rolled back {rolled_back} modified file(s).",
+                "rolled_back": True,
+                "test_failure": test_res.get("stderr") or test_res.get("stdout") or "Test suite failed.",
+            }
+
+        return {"ok": True, "modified_files": res.get("modified_files", []), "tests_passed": True}
+
     def run_tests(
         self,
         project_path: str | Path | None = None,

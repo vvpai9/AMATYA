@@ -170,6 +170,11 @@ class ConnectedDeviceManager:
                     return dev
             return None
 
+    def list_registered_devices(self) -> list[dict[str, Any]]:
+        """Return a copy of all registered connected devices."""
+        with _LOCK:
+            return list(self._devices.values())
+
     # ── 8.1 Network & Device Discovery ───────────────────────────────────────
 
     def discover_devices(self) -> dict[str, Any]:
@@ -510,6 +515,8 @@ class ConnectedDeviceManager:
         # Check if local atvremote binary and pairing certs are available
         home_dir = Path.home()
         atv_bin = dev.get("atvremote_bin") or str(home_dir / "atvremote" / "atvremote")
+        if os.path.isdir(atv_bin):
+            atv_bin = str(Path(atv_bin) / "atvremote")
         atv_cert = dev.get("cert_file") or str(home_dir / "atvremote" / "cert.pem")
         atv_key = dev.get("key_file") or str(home_dir / "atvremote" / "key.pem")
         atv_ip = dev.get("ip_address") or "10.0.0.3"

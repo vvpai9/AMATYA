@@ -792,6 +792,11 @@ class AmatyaLive:
         if self._awake:
             return
         self._awake = True
+        try:
+            from core.audio_cues import play_wake_chime
+            play_wake_chime()
+        except Exception:
+            pass
         self._last_user_speech = time.monotonic()   # start the auto-sleep clock now
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
@@ -2159,9 +2164,13 @@ class AmatyaLive:
                 f" Also briefly and naturally mention that {_when}: {last['summary']}"
             )
 
+        from core.audio_cues import get_startup_speech
+        jarvis_greeting = get_startup_speech(name or "sir")
+
         p1 = (
-            f"Greet the user warmly, mention it is {time_str}, and say you are fetching today's news now.{session_clause} "
-            f"Keep it to 2 short sentences max. Do not call any tools.{lang_clause}{name_clause}"
+            f"Address the user with this dignified greeting: '{jarvis_greeting}'. "
+            f"Say you are fetching today's briefing now.{session_clause} "
+            f"Keep it to 2 short sentences max. Do not call any tools.{lang_clause}"
         )
 
         # Clear the turn-done event so we can wait for Phase 1 to finish
@@ -2729,6 +2738,14 @@ class AmatyaLive:
 
                     if self._dashboard:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
+
+                    if not getattr(self, "_init_sound_played", False):
+                        self._init_sound_played = True
+                        try:
+                            from core.audio_cues import play_initialisation_sound
+                            play_initialisation_sound(block=False)
+                        except Exception as _e:
+                            print(f"[AudioCues] Init chime error: {_e}")
 
                     self._reconnect_event.clear()  # ignore requests from before this session
                     tg.create_task(self._watch_reconnect())

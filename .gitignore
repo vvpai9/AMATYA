@@ -24,6 +24,8 @@ memory/rag_index.json
 memory/knowledge_index.json
 memory/context_state.json
 memory/security_state.json
+memory/active_tasks.json
+memory/model_benchmarks.json
 memory/audit.log
 config/voice_profiles/
 config/simulated_home_state.json

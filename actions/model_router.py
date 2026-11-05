@@ -12,10 +12,10 @@ SKILL_METADATA = {
     "name": "model_router",
     "version": "1.0.0",
     "description": "Inspect hardware capabilities, model routing table, local Ollama/llama.cpp status, and switch models per task role.",
-    "capabilities": ["model_routing", "hardware_detection", "local_inference_probe"],
+    "capabilities": ["model_routing", "hardware_detection", "local_inference_probe", "benchmarking", "multi_model_collaboration"],
     "permissions": ["config_write"],
     "dependencies": ["psutil", "numpy"],
-    "supported_actions": ["status", "probe", "set_route", "set_provider_url", "recommend"],
+    "supported_actions": ["status", "probe", "set_route", "set_provider_url", "recommend", "benchmark", "collaborate"],
     "security_level": "normal",
 }
 
@@ -24,15 +24,16 @@ TOOL = {
     "description": (
         "Inspect and configure AMATYA's multi-role AI Model Router (reasoning, "
         "planning, coding, vision, image_analysis, document_analysis, ocr, stt, "
-        "tts, embeddings, tool_orchestration). Actions: 'status', 'probe', "
-        "'set_route', 'set_provider_url', 'recommend'."
+        "tts, embeddings, tool_orchestration). Run TTFT/VRAM benchmarks and "
+        "execute 4-stage multi-model collaboration (Reasoner -> Planner -> Coder -> Verifier). "
+        "Actions: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', 'collaborate'."
     ),
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "Action: 'status', 'probe', 'set_route', 'set_provider_url', or 'recommend'.",
+                "description": "Action: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', or 'collaborate'.",
             },
             "role": {
                 "type": "STRING",
@@ -106,6 +107,30 @@ def execute(
         return outcome.done(
             "model_router",
             result=f"Recommended model size for '{role}' on this hardware: {rec} (currently routed to {router.route(role)})."
+        )
+
+    if action == "benchmark":
+        spec = str(parameters.get("model_spec", "") or "").strip()
+        prompt = str(parameters.get("prompt", "") or "").strip()
+        res = router.benchmark(spec, prompt=prompt)
+        msg = (
+            f"Benchmark for {res['model_spec']}: elapsed={res['elapsed_seconds']}s, "
+            f"TTFT={res['ttft_ms']}ms, speed={res['tokens_per_sec']} tokens/sec, "
+            f"VRAM={res['vram_used_gb']}/{res['vram_total_gb']}GB (safe={res['vram_safe']})."
+        )
+        return outcome.done("model_router", result=msg, data=res)
+
+    if action in ("collaborate", "collaborative_solve"):
+        problem = str(parameters.get("problem", "") or parameters.get("prompt", "") or "").strip()
+        if not problem:
+            return outcome.failed("model_router", "Please provide 'problem' or 'prompt' for collaborative solving.")
+        domain = str(parameters.get("domain", "coding") or "coding")
+        res = router.collaborate(problem, domain=domain)
+        status = res["stages"]["verifier"]["status"]
+        return outcome.done(
+            "model_router",
+            result=f"Multi-model collaboration pipeline completed [{status}]: Solution generated and verified.",
+            data=res,
         )
 
     return outcome.failed("model_router", f"Unknown model_router action '{action}'.")

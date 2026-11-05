@@ -201,11 +201,14 @@ def execute(
             return outcome.failed("creator", res.get("error") or res.get("stdout", "Git operation failed."), data=res)
         return outcome.done("creator", result=f"Git {op}: {res.get('stdout', '')}", data=res)
 
-    if action == "apply_edits":
+    if action in ("apply_edits", "apply_edits_and_verify"):
         edits = parameters.get("edits")
         if not isinstance(edits, list) or not edits:
             return outcome.failed("creator", "Please provide a non-empty 'edits' list.")
-        res = engine.apply_edits(edits)
+        if action == "apply_edits_and_verify" or parameters.get("verify_tests"):
+            res = engine.apply_edits_and_verify(edits, project_path=proj)
+        else:
+            res = engine.apply_edits(edits)
         if not res.get("ok"):
             return outcome.failed("creator", res.get("error", "Edit failed."), data=res)
         return outcome.done("creator", result=f"Modified {len(res['modified_files'])} file(s).", data=res)

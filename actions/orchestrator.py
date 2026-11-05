@@ -155,6 +155,20 @@ def execute(
             data=completed.to_dict(),
         )
 
+    if action in ("task_status", "what_are_you_doing", "status"):
+        summary = orch.get_active_task_summary()
+        return outcome.done("orchestrator", result=summary, data={"active_tasks": orch.list_tasks()})
+
+    if action == "pause_task":
+        tid = str(parameters.get("task_id", "") or "").strip()
+        res = orch.pause_task(tid)
+        return outcome.done("orchestrator", result=res.get("message", str(res)), data=res) if res.get("ok") else outcome.failed("orchestrator", res.get("error", "Failed to pause task."))
+
+    if action == "cancel_task":
+        tid = str(parameters.get("task_id", "") or "").strip()
+        res = orch.cancel_task(tid)
+        return outcome.done("orchestrator", result=res.get("message", str(res)), data=res) if res.get("ok") else outcome.failed("orchestrator", res.get("error", "Failed to cancel task."))
+
     if action == "list_tasks":
         tasks = orch.list_tasks()
         return outcome.done(

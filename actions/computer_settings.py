@@ -977,7 +977,9 @@ def computer_settings(
             "pyautogui is not installed, so the keyboard cannot be driven - "
             "run: pip install pyautogui")
 
-    params      = parameters or {}
+    params = dict(parameters) if isinstance(parameters, dict) else dict(kwargs)
+    if kwargs:
+        params.update(kwargs)
     raw_action  = params.get("action", "").strip()
     description = params.get("description", "").strip()
     value       = params.get("value", None)
@@ -1039,6 +1041,12 @@ def computer_settings(
             key=action, title=title, detail=detail,
             run=lambda f=func, a=action: (f(), f"{a} done.")[1],
         )
+
+    if action in ("system_hud", "telemetry", "diagnostics", "system_status"):
+        from core.diagnostics import gather_system_telemetry, format_command_centre_hud
+        tele = gather_system_telemetry()
+        hud_str = format_command_centre_hud(tele)
+        return outcome.done("computer_settings", result=hud_str, data=tele)
 
     if action == "volume_set":
         try:
@@ -1212,7 +1220,7 @@ TOOL = {
                     "undo | redo | select_all | save | enter | escape | press_key | "
                     "type_text | screenshot | lock_screen | open_settings | "
                     "file_explorer | open_run | dark_mode | toggle_wifi | "
-                    "restart | shutdown | amatya_sleep"
+                    "restart | shutdown | amatya_sleep | system_hud"
                 )
             },
             "confirmed": {
@@ -1235,3 +1243,5 @@ TOOL = {
     },
     "handler": computer_settings,
 }
+
+execute = computer_settings

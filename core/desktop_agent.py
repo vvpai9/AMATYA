@@ -683,7 +683,25 @@ class DesktopAgent:
             app = m.group(1).strip().strip('"').strip("'")
             return await asyncio.to_thread(self._kwin_close_window, app)
 
+        # kwin_dismiss_popup()
+        if plan.startswith("kwin_dismiss_popup"):
+            return await asyncio.to_thread(self._kwin_press, "Escape")
+
         return f"unrecognized action: {plan}"
+
+    def get_active_window_summary(self) -> dict[str, Any]:
+        """Return structured summary of the currently active window and open windows."""
+        try:
+            client = self._get_client()
+            windows = client.get_kwin_windows()
+            active = next((w for w in windows if w.get("active")), None)
+            return {
+                "active_window": active,
+                "window_count": len(windows),
+                "windows": windows,
+            }
+        except Exception as exc:
+            return {"active_window": None, "window_count": 0, "error": str(exc), "windows": []}
 
     # ── kwin-mcp wrappers (v0.12.0 methods) ────────────────────────────
 

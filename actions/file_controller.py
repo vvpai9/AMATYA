@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import os
 import shutil
 import platform
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 try:
     import send2trash
@@ -157,6 +160,7 @@ def _resolve_path(raw: str) -> Path:
         "music":     _get_music(),
         "videos":    _get_videos(),
         "home":      Path.home(),
+        "project":   _BASE_DIR,
     }
     raw   = raw.strip().strip('"').strip("'")
     lower = raw.lower()
@@ -490,6 +494,55 @@ def find_files(name: str = "", extension: str = "",
         return f"Search error: {e}"
 
 
+def find_latest_file(path: str = "project", extension: str = "", name: str = "") -> dict[str, Any] | str:
+    try:
+        search_path = _resolve_path(path)
+        if not _is_safe_path(search_path):
+            return f"Access denied: {search_path}"
+        if not search_path.exists():
+            return f"Path not found: {path}"
+
+        ext = extension.strip()
+        if ext and not ext.startswith("."):
+            ext = f".{ext}"
+        ext_lower = ext.lower()
+
+        candidates: list[tuple[float, Path]] = []
+        dir_count = 0
+        for item in search_path.rglob("*"):
+            if item.is_dir():
+                dir_count += 1
+                if dir_count > 600:
+                    break
+                continue
+            if not item.is_file():
+                continue
+            if ext_lower and item.suffix.lower() != ext_lower:
+                continue
+            if name and name.lower() not in item.name.lower():
+                continue
+            try:
+                candidates.append((item.stat().st_mtime, item))
+            except OSError:
+                continue
+
+        if not candidates:
+            return f"No matching files found in {search_path} with extension '{extension}'"
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        latest_mtime, latest_path = candidates[0]
+        return {
+            "status": "found",
+            "file_path": str(latest_path.resolve()),
+            "path": str(latest_path.resolve()),
+            "filename": latest_path.name,
+            "modified": latest_mtime,
+            "message": f"Found latest file: {latest_path.name} ({_format_size(latest_path.stat().st_size)}) at {latest_path.resolve()}",
+        }
+    except Exception as exc:
+        return f"Error finding latest file: {exc}"
+
+
 def get_largest_files(path: str = "downloads", count: int = 10) -> str:
     count = min(count, 50)  # maksimum 50
     try:
@@ -697,6 +750,13 @@ def file_controller(
                 extension=params.get("extension", ""),
                 path=path,
                 max_results=min(int(params.get("max_results", 20)), 50),
+            )
+
+        elif action in ("latest", "latest_file"):
+            return find_latest_file(
+                path=path,
+                extension=params.get("extension", ""),
+                name=name or params.get("name", ""),
             )
 
         elif action == "largest":

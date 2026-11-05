@@ -280,10 +280,24 @@ def execute(
         user_name = str(parameters.get("user_name", "") or "").strip()
         profiles = auth.list_profiles()
         if not user_name:
-            if len(profiles) == 1:
+            from memory.memory_manager import load_memory
+            mem_identity = load_memory().get("identity", {})
+            rem_name = (
+                mem_identity.get("name", {}).get("value")
+                if isinstance(mem_identity.get("name"), dict)
+                else str(mem_identity.get("name", ""))
+            ).strip()
+
+            matching = [p["user_name"] for p in profiles if rem_name and p["user_name"].lower() == rem_name.lower()]
+            if matching:
+                user_name = matching[0]
+            elif len(profiles) == 1:
                 user_name = profiles[0]["user_name"]
             elif len(profiles) == 0:
                 return outcome.failed("voice_auth", "No voice profiles are currently enrolled.")
+            elif confirmed:
+                # If confirmed without specific name, delete primary or latest profile
+                user_name = profiles[-1]["user_name"]
             else:
                 names = [p["user_name"] for p in profiles]
                 return outcome.ask(
