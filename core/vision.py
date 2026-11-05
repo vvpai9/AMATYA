@@ -170,6 +170,21 @@ class Vision:
         """Capture the currently focused/active window."""
         return self._capture(kind="active_window")
 
+    @staticmethod
+    def _is_completely_black(image_bytes: bytes) -> bool:
+        """Return True if image data represents an unpainted/black buffer."""
+        if not image_bytes or len(image_bytes) < 100:
+            return True
+        try:
+            import io
+            from PIL import Image
+            import numpy as np
+            im = Image.open(io.BytesIO(image_bytes))
+            arr = np.asarray(im)
+            return bool(arr.max() == 0)
+        except Exception:
+            return False
+
     def _capture(
         self,
         kind: str,
@@ -177,24 +192,35 @@ class Vision:
         region: Optional[dict[str, Any]] = None,
         window_id: Optional[Any] = None,
     ) -> CaptureResult:
-        """Internal capture dispatcher."""
-        try:
-            # 1. Prefer kwin-mcp on Wayland (native, works where mss fails).
-            if self._ensure_kwin():
+        """Internal capture dispatcher with graceful multi-tier fallback."""
+        # 1. Try kwin-mcp on Wayland (native, works where mss fails).
+        if self._ensure_kwin():
+            try:
                 res = self._capture_kwin(kind, monitor, region, window_id)
-                if res.ok and res.image_bytes:
+                if res.ok and res.image_bytes and not self._is_completely_black(res.image_bytes):
                     return res
-            # 2. Native KDE Plasma Wayland capture via spectacle
+                self._log("[Vision] kwin-mcp returned empty or black image, falling back.")
+            except Exception as e:
+                self._log(f"[Vision] kwin-mcp capture error, falling back: {e}")
+
+        # 2. Native KDE Plasma Wayland capture via spectacle
+        try:
             res_spec = self._capture_spectacle(kind, monitor, region, window_id)
-            if res_spec.ok and res_spec.image_bytes:
+            if res_spec.ok and res_spec.image_bytes and not self._is_completely_black(res_spec.image_bytes):
                 return res_spec
-            # 3. Fallback to mss (X11 or when kwin-mcp is not available).
-            res_mss = self._capture_mss(kind, monitor, region)
-            if res_mss.ok and res_mss.image_bytes:
-                return res_mss
-            return res_spec if not res_spec.ok else CaptureResult(ok=False, error="All screen capture backends failed.")
+            self._log("[Vision] spectacle returned empty or black image, falling back.")
         except Exception as e:
-            return CaptureResult(ok=False, error=str(e))
+            self._log(f"[Vision] spectacle capture error, falling back: {e}")
+
+        # 3. Fallback to mss (X11 or when kwin-mcp and spectacle fail).
+        try:
+            res_mss = self._capture_mss(kind, monitor, region)
+            if res_mss.ok and res_mss.image_bytes and not self._is_completely_black(res_mss.image_bytes):
+                return res_mss
+        except Exception as e:
+            self._log(f"[Vision] mss capture error: {e}")
+
+        return CaptureResult(ok=False, error="All screen capture backends failed or returned unpainted frames.")
 
     def _capture_spectacle(
         self,

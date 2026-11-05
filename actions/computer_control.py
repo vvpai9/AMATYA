@@ -581,14 +581,17 @@ def _screenshot(save_path: str | None = None) -> str:
         except Exception:
             pass
 
-    # 3. Fallback to PyAutoGUI
-    try:
-        _require_pyautogui()
-        img = pyautogui.screenshot()
-        img.save(str(path))
-        return f"Screenshot saved: {path}"
-    except Exception as exc:
-        return f"Failed to capture screenshot: {exc}"
+    # 3. Fallback to PyAutoGUI only when NOT on Wayland (X11 / Windows / Mac)
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        try:
+            _require_pyautogui()
+            img = pyautogui.screenshot()
+            img.save(str(path))
+            return f"Screenshot saved: {path}"
+        except Exception as exc:
+            return f"Failed to capture screenshot: {exc}"
+
+    return "Failed to capture screenshot: Wayland compositors require Spectacle or KWin screenshot interface."
 
 
 def _clear_field() -> str:

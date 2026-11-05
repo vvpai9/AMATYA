@@ -96,6 +96,11 @@ def _restore_from_trash(original: Path) -> str:
 
 _SAFE_ROOTS: list[Path] = [
     Path.home(),
+    Path("/media"),
+    Path("/run/media"),
+    Path("/mnt"),
+    Path("/tmp"),
+    _BASE_DIR,
 ]
 
 def _is_safe_path(target: Path) -> bool:
