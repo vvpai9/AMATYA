@@ -94,6 +94,9 @@ def _synthesize_task_complete_chime(sample_rate: int = SAMPLE_RATE) -> np.ndarra
 
 def play_audio_data(pcm_data: np.ndarray, sample_rate: int = SAMPLE_RATE, block: bool = False) -> None:
     """Play raw int16 PCM audio non-blockingly via sounddevice and PipeWire."""
+    if os.environ.get("AMATYA_TEST_MODE") == "1":
+        return
+
     def _worker():
         try:
             import sounddevice as sd

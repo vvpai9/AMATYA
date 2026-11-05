@@ -19,6 +19,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+os.environ["AMATYA_TEST_MODE"] = "1"
+
 from actions import computer_control, creator, file_controller, orchestrator
 from core import confirm
 from core.doc_generator import analyze_document, generate_document
