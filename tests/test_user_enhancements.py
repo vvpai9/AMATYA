@@ -390,6 +390,86 @@ class TestUserEnhancements(unittest.TestCase):
         self.assertNotIn("Texas Instruments", deck2_text)
         self.assertNotIn("Executive Overview & Context", deck2_text)
 
+    # ── 10. File Deletion Strict Confirmation ─────────────────────────────────
+
+    def test_10_file_deletion_requires_confirmation(self):
+        """Verify file_controller strictly requires confirmation before deleting any file."""
+        from actions import file_controller
+        from core import confirm
+
+        test_file = Path(self.test_dir) / "critical_document.txt"
+        test_file.write_text("Confidential project data", encoding="utf-8")
+        self.assertTrue(test_file.exists())
+
+        # Bind mock HUD interface
+        shown = []
+        spoken = []
+        confirm.bind(
+            show=lambda t, d: shown.append((t, d)),
+            hide=lambda: None,
+            log=lambda m: None,
+            speak=lambda s: spoken.append(s),
+        )
+
+        # 1. Unconfirmed delete call MUST NOT delete the file
+        res = file_controller.execute({
+            "action": "delete",
+            "path": str(test_file),
+            "confirmed": False,
+        })
+        self.assertIn("[CONFIRMATION_PENDING]", res)
+        self.assertTrue(test_file.exists(), "File was deleted without confirmation!")
+        self.assertTrue(confirm.has_pending())
+        self.assertTrue(any("delete" in s.lower() for s in spoken))
+
+        # 2. Authorizing via voice executes the deletion
+        confirm.voice_authorize("confirm delete")
+        time.sleep(0.1)
+        self.assertFalse(test_file.exists(), "File should be moved to trash after confirmation")
+
+        # 3. Direct confirmed=True parameter also allows confirmed execution
+        test_file2 = Path(self.test_dir) / "another_file.txt"
+        test_file2.write_text("Temporary file", encoding="utf-8")
+        res2 = file_controller.execute({
+            "action": "delete",
+            "path": str(test_file2),
+            "confirmed": True,
+        })
+        self.assertTrue(res2.startswith("Moved to Trash") or "Trash" in res2)
+        self.assertFalse(test_file2.exists())
+
+    # ── 11. Wayland Clipboard Plasma / wl-paste Fallback ───────────────────────
+
+    def test_11_wayland_clipboard_plasma_fallback(self):
+        """Verify clipboard_get and clipboard_paste operate cleanly without crashing on missing wl-paste."""
+        from actions import computer_control
+
+        # 1. Real end-to-end clipboard write and read via computer_control
+        test_val = "AMATYA_CLIPBOARD_TEST_VERIFICATION_889"
+        pasted = computer_control.computer_control({"action": "paste", "text": test_val})
+        self.assertIn("Pasted", pasted)
+
+        copied = computer_control.computer_control({"action": "copy"})
+        self.assertEqual(copied, test_val)
+
+        # 2. Verify fallback when client.clipboard_get raises RuntimeError (simulating missing binary)
+        mock_client = MagicMock()
+        mock_client.clipboard_get.side_effect = RuntimeError("wl-paste not found. Install wl-clipboard")
+        mock_client.clipboard_set.side_effect = RuntimeError("wl-copy not found. Install wl-clipboard")
+
+        with patch("actions.computer_control.get_client", return_value=mock_client), \
+             patch("actions.computer_control._get_plasma_clipboard", return_value="fallback_clipboard_value"), \
+             patch("actions.computer_control._set_plasma_clipboard", return_value=True):
+            fallback_copy = computer_control._computer_control_via_kwin("copy", {})
+            self.assertEqual(fallback_copy, "fallback_clipboard_value")
+
+            fallback_paste = computer_control._computer_control_via_kwin("paste", {"text": "hello"})
+            self.assertIn("Pasted", fallback_paste)
+
+        # 3. Verify user-space wl-paste / wl-copy wrapper presence
+        wl_paste = shutil.which("wl-paste")
+        self.assertIsNotNone(wl_paste, "wl-paste wrapper should be found in PATH")
+
 
 if __name__ == "__main__":
     unittest.main()

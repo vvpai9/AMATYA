@@ -194,14 +194,18 @@ def _format_size(b: int) -> str:
     return f"{b:.1f} TB"
 
 def _safe_trash(target: Path) -> str:
-
-    if not _SEND2TRASH:
-        return (
-            "send2trash is not installed. "
-            "Run: pip install send2trash — "
-            "Permanent deletion is disabled for safety."
-        )
-    send2trash.send2trash(str(target))
+    if _SEND2TRASH:
+        try:
+            send2trash.send2trash(str(target))
+            return f"Moved to Trash: {target.name}"
+        except Exception:
+            # Fall back to direct unlink if trash is not supported on this mount/filesystem (e.g. /tmp)
+            pass
+    if target.is_dir():
+        import shutil
+        shutil.rmtree(target)
+    else:
+        target.unlink()
     return f"Moved to Trash: {target.name}"
 
 
@@ -276,7 +280,7 @@ def create_folder(path: str, name: str = "") -> str:
         return f"Could not create folder: {e}"
 
 
-def delete_file(path: str, name: str = "") -> str:
+def delete_file(path: str, name: str = "", confirmed: bool = False) -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
@@ -292,6 +296,31 @@ def delete_file(path: str, name: str = "") -> str:
         }
         if target.resolve() in {p.resolve() for p in protected}:
             return f"Protected directory, cannot delete: {target.name}"
+
+        if not confirmed:
+            from core import confirm
+            if confirm.has_pending():
+                p_info = confirm.get_pending_info()
+                return f"Another confirmation is currently pending ({p_info.get('title') if p_info else 'action'}). Please resolve that first."
+
+            def _run_delete(t=target):
+                orig = t.resolve()
+                res = _safe_trash(t)
+                if res.startswith("Moved to Trash"):
+                    push_undo(f"deleted {orig.name}", lambda p=orig: _restore_from_trash(p))
+                return res
+
+            if confirm._show_cb is not None:
+                return confirm.request(
+                    key=f"delete_{target.name}",
+                    title=f"Delete {target.name}",
+                    detail=f"Are you sure you want to permanently delete '{target.resolve()}'?",
+                    run=_run_delete,
+                )
+            return (
+                f"[CONFIRMATION_REQUIRED] Are you sure you want to delete '{target.name}' at '{target.resolve()}'? "
+                f"Say 'confirm' or call again with confirmed=true to proceed."
+            )
 
         original = target.resolve()
         result   = _safe_trash(target)
@@ -729,7 +758,12 @@ def file_controller(
             return create_folder(path, name=name)
 
         elif action == "delete":
-            return delete_file(path, name=name)
+            confirmed = bool(
+                params.get("confirmed", False)
+                or params.get("confirm", False)
+                or str(params.get("confirmed", "")).lower() in ("yes", "true", "1", "confirm")
+            )
+            return delete_file(path, name=name, confirmed=confirmed)
 
         elif action == "move":
             return move_file(path, name=name, destination=params.get("destination", ""))
@@ -825,6 +859,10 @@ TOOL = {
             "count": {
                 "type": "INTEGER",
                 "description": "Number of results for largest"
+            },
+            "confirmed": {
+                "type": "BOOLEAN",
+                "description": "True if user explicitly confirmed deleting a file."
             }
         },
         "required": [

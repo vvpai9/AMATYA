@@ -329,12 +329,21 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
         return "Field cleared"
 
     if action == "copy":
-        result = client.clipboard_get()
-        return _extract_text_kwin(result) or "(copied — clipboard read via kwin-mcp)"
+        try:
+            result = client.clipboard_get()
+            return _extract_text_kwin(result) or "(copied — clipboard read via kwin-mcp)"
+        except Exception:
+            text = _get_plasma_clipboard()
+            if text is not None:
+                return text or "(copied — clipboard empty)"
+            return "(copied — clipboard read via kwin-mcp)"
 
     if action == "paste":
         text = params.get("text", "")
-        client.clipboard_set(text)
+        try:
+            client.clipboard_set(text)
+        except Exception:
+            _set_plasma_clipboard(text)
         client.keyboard_key("ctrl+v")
         return f"Pasted: {text[:60]}"
 
@@ -539,23 +548,85 @@ def _drag(x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> str:
     return f"Dragged ({x1},{y1}) → ({x2},{y2})"
 
 
+def _get_plasma_clipboard() -> str | None:
+    """Retrieve text from Plasma Klipper clipboard via D-Bus."""
+    try:
+        from gi.repository import Gio
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        proxy = Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.NONE, None, 'org.kde.klipper', '/klipper', 'org.kde.klipper.klipper', None)
+        return str(proxy.getClipboardContents() or "")
+    except Exception:
+        pass
+    try:
+        res = subprocess.run(
+            ['dbus-send', '--session', '--dest=org.kde.klipper', '--type=method_call', '--print-reply', '/klipper', 'org.kde.klipper.klipper.getClipboardContents'],
+            capture_output=True, text=True, timeout=3
+        )
+        if res.returncode == 0:
+            m = re.search(r'string\s+"(.*)"', res.stdout, re.DOTALL)
+            if m:
+                return m.group(1).encode('utf-8').decode('unicode_escape')
+    except Exception:
+        pass
+    return None
+
+
+def _set_plasma_clipboard(text: str) -> bool:
+    """Set text in Plasma Klipper clipboard via D-Bus."""
+    try:
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        proxy = Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.NONE, None, 'org.kde.klipper', '/klipper', 'org.kde.klipper.klipper', None)
+        proxy.call_sync('setClipboardContents', GLib.Variant('(s)', (str(text),)), Gio.DBusCallFlags.NONE, -1, None)
+        return True
+    except Exception:
+        pass
+    try:
+        res = subprocess.run(
+            ['dbus-send', '--session', '--dest=org.kde.klipper', '--type=method_call', '/klipper', 'org.kde.klipper.klipper.setClipboardContents', f'string:{text}'],
+            capture_output=True, timeout=3
+        )
+        return res.returncode == 0
+    except Exception:
+        pass
+    return False
+
+
 def _clipboard_get() -> str:
+    plasma_text = _get_plasma_clipboard()
+    if plasma_text is not None:
+        return plasma_text
     if _require_pyperclip():
-        return pyperclip.paste()
+        try:
+            return pyperclip.paste()
+        except Exception:
+            pass
     _hotkey("ctrl", "c")
     time.sleep(0.2)
     return "(copied — pyperclip unavailable for read)"
 
 
 def _clipboard_paste(text: str) -> str:
+    if _set_plasma_clipboard(text):
+        time.sleep(0.05)
+        try:
+            _require_pyautogui()
+            paste_key = "command" if _get_os() == "mac" else "ctrl"
+            pyautogui.hotkey(paste_key, "v")
+            return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
+        except Exception:
+            return f"Pasted (clipboard set): {text[:60]}"
     if _require_pyperclip():
-        pyperclip.copy(text)
-        time.sleep(0.1)
-        _require_pyautogui()
-        paste_key = "command" if _get_os() == "mac" else "ctrl"
-        pyautogui.hotkey(paste_key, "v")
-        return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
-    return "pyperclip not available"
+        try:
+            pyperclip.copy(text)
+            time.sleep(0.1)
+            _require_pyautogui()
+            paste_key = "command" if _get_os() == "mac" else "ctrl"
+            pyautogui.hotkey(paste_key, "v")
+            return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
+        except Exception:
+            pass
+    return "clipboard not available"
 
 
 def _screenshot(save_path: str | None = None) -> str:
