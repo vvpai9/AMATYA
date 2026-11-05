@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from core import outcome
+from core.memory_engine import get_memory_engine
 from core.rag import get_knowledge_base
 from memory.memory_manager import (
     all_entries_for_ui,
@@ -18,9 +19,9 @@ from memory.memory_manager import (
 
 SKILL_METADATA = {
     "name": "knowledge_base",
-    "version": "1.0.0",
-    "description": "Index local documents/projects into AMATYA's semantic RAG store, query knowledge, and manage/export long-term memory.",
-    "capabilities": ["rag_indexing", "semantic_search", "memory_management", "memory_export"],
+    "version": "1.2.0",
+    "description": "Index local documents/projects into AMATYA's semantic RAG store, query knowledge, and manage/export layered persistent memory.",
+    "capabilities": ["rag_indexing", "semantic_search", "memory_management", "memory_export", "layered_memory", "contradiction_detection"],
     "permissions": ["file_read", "memory_write"],
     "dependencies": ["numpy"],
     "supported_actions": [
@@ -34,6 +35,10 @@ SKILL_METADATA = {
         "list_memory",
         "delete_memory",
         "clear_memory_category",
+        "store_fact",
+        "correct_fact",
+        "search_memories",
+        "toggle_memory",
     ],
     "security_level": "normal",
 }
@@ -43,9 +48,10 @@ TOOL = {
     "description": (
         "Index and search local documents, project repositories, PDFs, DOCX, "
         "and notes using AMATYA's local semantic RAG knowledge base, or inspect/"
-        "export/delete long-term memory. Actions: 'query', 'index_path', "
+        "export/delete/correct layered personal memory. Actions: 'query', 'index_path', "
         "'index_note', 'list_sources', 'remove_source', 'clear_index', "
-        "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category'."
+        "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
+        "'store_fact', 'correct_fact', 'search_memories', 'toggle_memory'."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -55,12 +61,13 @@ TOOL = {
                 "description": (
                     "Action: 'query', 'index_path', 'index_note', 'list_sources', "
                     "'remove_source', 'clear_index', 'export_memory', 'list_memory', "
-                    "'delete_memory', 'clear_memory_category'."
+                    "'delete_memory', 'clear_memory_category', 'store_fact', "
+                    "'correct_fact', 'search_memories', 'toggle_memory'."
                 ),
             },
             "query": {
                 "type": "STRING",
-                "description": "Search query for 'query' action.",
+                "description": "Search query for 'query' or 'search_memories' action.",
             },
             "path": {
                 "type": "STRING",
@@ -80,7 +87,7 @@ TOOL = {
             },
             "top_k": {
                 "type": "INTEGER",
-                "description": "Number of RAG chunks to retrieve (default 5).",
+                "description": "Number of RAG chunks or memory results to retrieve (default 5).",
             },
             "category": {
                 "type": "STRING",
@@ -88,7 +95,19 @@ TOOL = {
             },
             "key": {
                 "type": "STRING",
-                "description": "Memory key for 'delete_memory'.",
+                "description": "Memory key for 'delete_memory', 'store_fact', or 'correct_fact'.",
+            },
+            "value": {
+                "type": "STRING",
+                "description": "Memory value for 'store_fact' or 'correct_fact'.",
+            },
+            "provenance": {
+                "type": "STRING",
+                "description": "Provenance for 'store_fact' ('user_stated', 'observed', 'inferred').",
+            },
+            "enabled": {
+                "type": "BOOLEAN",
+                "description": "Whether memory retention is enabled (for 'toggle_memory').",
             },
         },
         "required": ["action"],
@@ -176,12 +195,15 @@ def execute(
         ok, msg = export_memory(path)
         return outcome.done("knowledge_base", result=f"Memory exported to {msg}.") if ok else outcome.failed("knowledge_base", msg)
 
+    mem_engine = get_memory_engine()
+
     if action == "list_memory":
         entries = all_entries_for_ui()
+        memories = mem_engine.list_all_memories()
         return outcome.done(
             "knowledge_base",
-            result=f"Long-term memory has {len(entries)} stored item(s).",
-            data={"entries": entries},
+            result=f"Layered memory has {len(memories)} semantic item(s) and {len(entries)} legacy item(s).",
+            data={"entries": entries, "semantic_memories": memories, "memory_enabled": mem_engine.is_enabled()},
         )
 
     if action == "delete_memory":
@@ -190,7 +212,55 @@ def execute(
         if not key:
             return outcome.failed("knowledge_base", "Please provide 'key' (and optional 'category') to delete.")
         msg = forget(key, cat)
-        return outcome.done("knowledge_base", result=msg)
+        mem_engine.delete_memory(key)
+        return outcome.done("knowledge_base", result=f"{msg} (Purged from semantic and long-term stores).")
+
+    if action == "store_fact":
+        key = str(parameters.get("key", "") or "").strip()
+        val = str(parameters.get("value", "") or parameters.get("text", "") or "").strip()
+        cat = str(parameters.get("category", "notes") or "notes").strip()
+        provenance = str(parameters.get("provenance", "user_stated") or "user_stated").strip()
+        if not key or not val:
+            return outcome.failed("knowledge_base", "Both 'key' and 'value' are required to store a fact.")
+        res = mem_engine.store_fact(key=key, value=val, category=cat, provenance=provenance)
+        if not res.get("ok"):
+            return outcome.failed("knowledge_base", res.get("message", "Failed to store fact."))
+        return outcome.done("knowledge_base", result=res["message"], data=res)
+
+    if action == "correct_fact":
+        key = str(parameters.get("key", "") or "").strip()
+        val = str(parameters.get("value", "") or parameters.get("text", "") or "").strip()
+        reason = str(parameters.get("reason", "user_correction") or "user_correction").strip()
+        if not key or not val:
+            return outcome.failed("knowledge_base", "Both 'key' and 'value' are required to correct a fact.")
+        res = mem_engine.correct_fact(key=key, new_value=val, reason=reason)
+        if not res.get("ok"):
+            return outcome.failed("knowledge_base", res.get("message", "Failed to correct fact."))
+        return outcome.done("knowledge_base", result=res["message"], data=res)
+
+    if action == "search_memories":
+        q = str(parameters.get("query", "") or "").strip()
+        if not q:
+            return outcome.failed("knowledge_base", "Please provide a 'query' to search memories.")
+        top_k = int(parameters.get("top_k", 5) or 5)
+        results = mem_engine.search_memories(q, top_k=top_k)
+        if not results:
+            return outcome.done("knowledge_base", result=f"No matching memories found for '{q}'.", data={"memories": []})
+        summary_lines = [f"- [{m.category}] {m.key}: {m.value} (conf={m.confidence:.2f})" for m in results]
+        return outcome.done(
+            "knowledge_base",
+            result=f"Found {len(results)} memory match(es) for '{q}':\n" + "\n".join(summary_lines),
+            data={"memories": [m.to_dict() for m in results]},
+        )
+
+    if action == "toggle_memory":
+        enabled = parameters.get("enabled")
+        if enabled is None:
+            status_str = "enabled" if mem_engine.is_enabled() else "disabled"
+            return outcome.done("knowledge_base", result=f"Memory engine is currently {status_str}.")
+        mem_engine.set_enabled(bool(enabled))
+        new_status = "enabled" if mem_engine.is_enabled() else "disabled"
+        return outcome.done("knowledge_base", result=f"Memory engine has been {new_status}.")
 
     if action == "clear_memory_category":
         cat = str(parameters.get("category", "") or "").strip()

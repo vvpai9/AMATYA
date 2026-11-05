@@ -22,6 +22,7 @@ Implements Section 10 (Software Development, Engineering and Creation — CREATO
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import shlex
@@ -29,6 +30,8 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,11 +136,148 @@ def classify_command_risk(command: str) -> dict[str, Any]:
     }
 
 
+@dataclass
+class ProjectProfile:
+    project_id: str
+    name: str
+    path: str
+    purpose: str = ""
+    architecture: str = ""
+    tech_stack: list[str] = field(default_factory=list)
+    test_commands: list[str] = field(default_factory=list)
+    build_commands: list[str] = field(default_factory=list)
+    known_issues: list[str] = field(default_factory=list)
+    last_inspected: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProjectProfile:
+        valid_keys = cls.__dataclass_fields__.keys()
+        return cls(**{k: v for k, v in data.items() if k in valid_keys})
+
+
+class ProjectProfileManager:
+    """Persistent storage and automatic extraction of project profiles in memory/project_profiles.json."""
+
+    def __init__(self, storage_path: Path | None = None) -> None:
+        self.storage_path = storage_path or (BASE_DIR / "memory" / "project_profiles.json")
+        self._profiles: dict[str, ProjectProfile] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.storage_path.exists():
+            return
+        try:
+            with open(self.storage_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            for k, v in raw.items():
+                if isinstance(v, dict):
+                    self._profiles[k] = ProjectProfile.from_dict(v)
+        except Exception:
+            pass
+
+    def _save(self) -> None:
+        try:
+            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {k: p.to_dict() for k, p in self._profiles.items()}
+            with open(self.storage_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def get_profile(self, target: str) -> ProjectProfile | None:
+        if not target:
+            return None
+        norm = str(Path(target).expanduser().resolve()) if (Path(target).exists() or "/" in target) else target.strip().lower()
+        for k, p in self._profiles.items():
+            if k == norm or p.project_id.lower() == target.lower() or p.name.lower() == target.lower() or p.path == norm:
+                return p
+        return None
+
+    def list_profiles(self) -> list[dict[str, Any]]:
+        return [p.to_dict() for p in self._profiles.values()]
+
+    def update_profile(self, project_path_or_id: str, updates: dict[str, Any]) -> ProjectProfile:
+        p = self.get_profile(project_path_or_id)
+        if not p:
+            resolved = Path(project_path_or_id).expanduser().resolve()
+            name = resolved.name if resolved.exists() else project_path_or_id
+            pid = resolved.stem if resolved.exists() else project_path_or_id
+            p = ProjectProfile(
+                project_id=pid,
+                name=name,
+                path=str(resolved) if resolved.exists() else project_path_or_id,
+            )
+        for k, v in updates.items():
+            if hasattr(p, k):
+                setattr(p, k, v)
+        p.last_inspected = datetime.now().isoformat()
+        self._profiles[p.project_id] = p
+        self._save()
+        return p
+
+    def auto_profile(self, repo_path: str | Path) -> ProjectProfile:
+        root = Path(repo_path).expanduser().resolve()
+        pid = root.name
+        existing = self.get_profile(str(root)) or self.get_profile(pid)
+        stack = set(existing.tech_stack if existing else [])
+        test_cmds = list(existing.test_commands if existing else [])
+        build_cmds = list(existing.build_commands if existing else [])
+        purpose = existing.purpose if existing else ""
+
+        # Detect stack
+        if (root / "package.json").exists():
+            stack.add("Node.js/JavaScript")
+            if "npm test" not in test_cmds:
+                test_cmds.append("npm test")
+            if "npm install" not in build_cmds:
+                build_cmds.append("npm install")
+        if (root / "Cargo.toml").exists():
+            stack.add("Rust")
+            if "cargo test" not in test_cmds:
+                test_cmds.append("cargo test")
+            if "cargo build" not in build_cmds:
+                build_cmds.append("cargo build")
+        if any(root.glob("*.py")) or (root / "setup.py").exists() or (root / "pyproject.toml").exists():
+            stack.add("Python")
+            if "pytest" not in test_cmds:
+                test_cmds.append("pytest")
+            if (root / "requirements.txt").exists() and "pip install -r requirements.txt" not in build_cmds:
+                build_cmds.append("pip install -r requirements.txt")
+
+        # Extract purpose from README.md
+        readme = root / "README.md"
+        if readme.exists() and not purpose:
+            try:
+                txt = readme.read_text(encoding="utf-8")[:500]
+                lines = [l.strip("#* \t\r\n") for l in txt.splitlines() if l.strip("#* \t\r\n")]
+                if lines:
+                    purpose = " — ".join(lines[:2])[:200]
+            except Exception:
+                pass
+
+        if not purpose:
+            purpose = f"Project {pid}"
+
+        updates = {
+            "name": pid,
+            "path": str(root),
+            "purpose": purpose,
+            "tech_stack": sorted(list(stack)),
+            "test_commands": test_cmds,
+            "build_commands": build_cmds,
+        }
+        return self.update_profile(pid, updates)
+
+
 class CreatorEngine:
     """Autonomous software engineering, git workflow, test execution, and document creation engine."""
 
     def __init__(self) -> None:
         self._last_backups: dict[str, str] = {}
+        self.profiles = ProjectProfileManager()
 
     def inspect_repository(self, project_path: str | Path | None = None) -> dict[str, Any]:
         root = Path(project_path or BASE_DIR).expanduser().resolve()
@@ -156,6 +296,7 @@ class CreatorEngine:
                 ext_counts[ext] = ext_counts.get(ext, 0) + 1
 
         git_info = self.git_operation(root, "status")
+        profile = self.profiles.auto_profile(root)
         return {
             "ok": True,
             "project_path": str(root),
@@ -164,7 +305,19 @@ class CreatorEngine:
             "file_types": dict(sorted(ext_counts.items(), key=lambda kv: -kv[1])[:12]),
             "git_status": git_info.get("stdout", ""),
             "git_branch": git_info.get("branch", ""),
+            "profile": profile.to_dict(),
         }
+
+    def get_profile(self, target: str) -> dict[str, Any] | None:
+        p = self.profiles.get_profile(target)
+        return p.to_dict() if p else None
+
+    def update_profile(self, target: str, updates: dict[str, Any]) -> dict[str, Any]:
+        p = self.profiles.update_profile(target, updates)
+        return p.to_dict()
+
+    def list_profiles(self) -> list[dict[str, Any]]:
+        return self.profiles.list_profiles()
 
     def git_operation(
         self,

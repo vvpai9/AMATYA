@@ -203,6 +203,7 @@ class ModelRouter:
         self._log = log or (lambda m: None)
         self._hardware = detect_hardware()
         self._config = self._load_config()
+        self._privacy_mode: str = self._config.get("privacy_mode", "hybrid")  # strict_local | hybrid | cloud_enabled
         self._overrides: dict[str, str] = {}
         self._provider_urls: dict[str, str] = {
             "ollama": "http://127.0.0.1:11434",
@@ -292,6 +293,22 @@ class ModelRouter:
         _CONFIG_PATH.write_text(json.dumps(data, indent=4), encoding="utf-8")
         return True, f"Configured provider '{p}' endpoint: {url}"
 
+    def get_privacy_mode(self) -> str:
+        """Return the current privacy mode: 'strict_local' | 'hybrid' | 'cloud_enabled'."""
+        return self._privacy_mode
+
+    def set_privacy_mode(self, mode: str) -> tuple[bool, str]:
+        """Set and persist the operating privacy mode."""
+        clean = (mode or "").strip().lower()
+        if clean not in ("strict_local", "hybrid", "cloud_enabled"):
+            return False, f"Invalid privacy mode '{mode}'. Choose 'strict_local', 'hybrid', or 'cloud_enabled'."
+        self._privacy_mode = clean
+        data = self._load_config()
+        data["privacy_mode"] = clean
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        return True, f"Privacy mode updated to '{clean}'."
+
     def recommend_size(self, task_type: str) -> str:
         """Recommend a model size for a task type based on hardware."""
         return _recommend_size(self._hardware, task_type)
@@ -346,11 +363,22 @@ class ModelRouter:
         if provider in ("ollama", "llamacpp", "lmstudio") and (self._hardware.gpu_vram_gb or 0) >= 3.0:
             vram_used, vram_total = get_current_vram_gb()
             if vram_used > 3.5:
+                if self._privacy_mode == "strict_local":
+                    return (
+                        f"[ModelRouter Error] Generation blocked: Strict Local Mode is active but VRAM usage "
+                        f"({vram_used:.2f}GB) exceeds safe threshold (3.50GB)."
+                    )
                 self._log(
                     f"[ModelRouter] VRAM guard: {vram_used:.2f}GB used > 3.5GB limit on {vram_total:.1f}GB GPU. "
                     "Safely routing request to Gemini."
                 )
                 provider = "gemini"
+
+        # Check strict_local mode if provider is gemini
+        if provider == "gemini" and self._privacy_mode == "strict_local":
+            return (
+                "[ModelRouter Error] Generation blocked: Strict Local Mode is active and cloud fallback to Gemini is disabled."
+            )
 
         # 1. Try Ollama if routed to ollama and no image (or VLM)
         if provider == "ollama" and image_bytes is None:
@@ -412,6 +440,12 @@ class ModelRouter:
                     self._log(f"[ModelRouter] {provider}:{model_name} unavailable ({exc}); falling back to Gemini.")
 
         # 3. Fallback / primary Gemini execution
+        if self._privacy_mode == "strict_local":
+            return (
+                f"[ModelRouter Error] Generation blocked: Strict Local Mode is active and local model provider "
+                f"'{provider}' is unavailable."
+            )
+
         try:
             from core import gemini
             if image_bytes is not None:

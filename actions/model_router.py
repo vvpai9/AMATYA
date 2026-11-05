@@ -12,10 +12,10 @@ SKILL_METADATA = {
     "name": "model_router",
     "version": "1.0.0",
     "description": "Inspect hardware capabilities, model routing table, local Ollama/llama.cpp status, and switch models per task role.",
-    "capabilities": ["model_routing", "hardware_detection", "local_inference_probe", "benchmarking", "multi_model_collaboration"],
+    "capabilities": ["model_routing", "hardware_detection", "local_inference_probe", "benchmarking", "multi_model_collaboration", "privacy_modes"],
     "permissions": ["config_write"],
     "dependencies": ["psutil", "numpy"],
-    "supported_actions": ["status", "probe", "set_route", "set_provider_url", "recommend", "benchmark", "collaborate"],
+    "supported_actions": ["status", "probe", "set_route", "set_provider_url", "recommend", "benchmark", "collaborate", "get_privacy_mode", "set_privacy_mode"],
     "security_level": "normal",
 }
 
@@ -24,16 +24,17 @@ TOOL = {
     "description": (
         "Inspect and configure AMATYA's multi-role AI Model Router (reasoning, "
         "planning, coding, vision, image_analysis, document_analysis, ocr, stt, "
-        "tts, embeddings, tool_orchestration). Run TTFT/VRAM benchmarks and "
-        "execute 4-stage multi-model collaboration (Reasoner -> Planner -> Coder -> Verifier). "
-        "Actions: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', 'collaborate'."
+        "tts, embeddings, tool_orchestration). Run TTFT/VRAM benchmarks, "
+        "execute 4-stage multi-model collaboration (Reasoner -> Planner -> Coder -> Verifier), "
+        "and configure privacy modes ('strict_local', 'hybrid', 'cloud_enabled'). "
+        "Actions: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', 'collaborate', 'get_privacy_mode', 'set_privacy_mode'."
     ),
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "Action: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', or 'collaborate'.",
+                "description": "Action: 'status', 'probe', 'set_route', 'set_provider_url', 'recommend', 'benchmark', 'collaborate', 'get_privacy_mode', or 'set_privacy_mode'.",
             },
             "role": {
                 "type": "STRING",
@@ -50,6 +51,10 @@ TOOL = {
             "base_url": {
                 "type": "STRING",
                 "description": "Endpoint URL for the provider (e.g. 'http://192.168.1.200:11434').",
+            },
+            "privacy_mode": {
+                "type": "STRING",
+                "description": "Privacy mode ('strict_local', 'hybrid', 'cloud_enabled').",
             },
         },
         "required": ["action"],
@@ -132,6 +137,21 @@ def execute(
             result=f"Multi-model collaboration pipeline completed [{status}]: Solution generated and verified.",
             data=res,
         )
+
+    if action == "get_privacy_mode":
+        mode = router.get_privacy_mode()
+        return outcome.done(
+            "model_router",
+            result=f"Current AI privacy mode: '{mode}'.",
+            data={"privacy_mode": mode},
+        )
+
+    if action == "set_privacy_mode":
+        mode = str(parameters.get("privacy_mode", "") or parameters.get("mode", "") or "").strip().lower()
+        if not mode:
+            return outcome.failed("model_router", "Parameter 'privacy_mode' is required ('strict_local', 'hybrid', 'cloud_enabled').")
+        ok, msg = router.set_privacy_mode(mode)
+        return outcome.done("model_router", result=msg) if ok else outcome.failed("model_router", msg)
 
     return outcome.failed("model_router", f"Unknown model_router action '{action}'.")
 

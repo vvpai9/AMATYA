@@ -30,6 +30,7 @@ import socket
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -142,14 +143,22 @@ class ConnectedDeviceManager:
 
     def _load_devices(self) -> dict[str, dict[str, Any]]:
         with _LOCK:
+            devs: dict[str, dict[str, Any]] = {}
             if CONNECTED_DEVICES_FILE.exists():
                 try:
                     data = json.loads(CONNECTED_DEVICES_FILE.read_text(encoding="utf-8"))
                     if isinstance(data, dict) and data:
-                        return data
+                        devs = data
                 except Exception:
                     pass
-            devs = json.loads(json.dumps(DEFAULT_CONNECTED_DEVICES))
+            if not devs:
+                devs = json.loads(json.dumps(DEFAULT_CONNECTED_DEVICES))
+
+            # Ensure persistent UUID for all devices
+            for did, dev in devs.items():
+                if isinstance(dev, dict) and "uuid" not in dev:
+                    dev["uuid"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"amatya.device.{did}"))
+
             CONNECTED_DEVICES_FILE.write_text(json.dumps(devs, indent=2), encoding="utf-8")
             return devs
 
@@ -165,10 +174,47 @@ class ConnectedDeviceManager:
             if q in self._devices:
                 return self._devices[q]
             for did, dev in self._devices.items():
-                hay = f"{did} {dev.get('name', '')} {dev.get('type', '')} {dev.get('ip_address', '')}".lower()
+                hay = f"{did} {dev.get('name', '')} {dev.get('type', '')} {dev.get('ip_address', '')} {dev.get('uuid', '')}".lower()
                 if q in hay:
                     return dev
             return None
+
+    def resolve_device_ip(self, query: str) -> str | None:
+        """Resolve current IP of a device, checking reachability or ARP if IP drifted."""
+        dev = self.resolve_device(query)
+        if not dev:
+            return None
+        current_ip = dev.get("ip_address", "")
+        # Quick socket check
+        if current_ip:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.4)
+                probe_port = 5555 if dev.get("transport") in ("atvremote", "adb") else (dev.get("ssh_port", 22) if dev.get("transport") == "ssh" else 1716)
+                res = s.connect_ex((current_ip, probe_port))
+                s.close()
+                if res == 0:
+                    return current_ip
+            except Exception:
+                pass
+        # Check lan_neighbors if MAC address is known
+        mac = dev.get("mac_address", "").lower()
+        if mac and shutil.which("ip"):
+            try:
+                r = subprocess.run(["ip", "neigh"], capture_output=True, text=True, timeout=2)
+                for line in (r.stdout or "").splitlines():
+                    if mac in line.lower():
+                        parts = line.split()
+                        if parts and len(parts) >= 1:
+                            new_ip = parts[0]
+                            if new_ip != current_ip:
+                                with _LOCK:
+                                    dev["ip_address"] = new_ip
+                                    self._save_devices()
+                            return new_ip
+            except Exception:
+                pass
+        return current_ip
 
     def list_registered_devices(self) -> list[dict[str, Any]]:
         """Return a copy of all registered connected devices."""

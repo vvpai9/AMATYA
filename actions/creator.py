@@ -40,6 +40,9 @@ SKILL_METADATA = {
         "generate_doc",
         "analyze_doc",
         "code_assist",
+        "get_profile",
+        "update_profile",
+        "list_profiles",
     ],
     "security_level": "high",
 }
@@ -51,7 +54,8 @@ TOOL = {
         "Inspect repositories, check whether changes broke anything ('check_project'), "
         "search code ('search_code'), run test suites ('run_tests'), manage Git "
         "('git_status', 'git_diff', 'git_log', 'git_commit'), apply multi-file edits "
-        "('apply_edits'), run risk-classified terminal commands ('run_shell'), and "
+        "('apply_edits'), run risk-classified terminal commands ('run_shell'), "
+        "manage project profiles ('get_profile', 'update_profile', 'list_profiles'), and "
         "generate or analyze PDF, DOCX, XLSX, PPTX, CSV, Markdown, and ZIP files "
         "('generate_doc', 'analyze_doc')."
     ),
@@ -64,7 +68,7 @@ TOOL = {
                     "Action: 'check_project', 'inspect_repo', 'search_code', "
                     "'run_tests', 'git_status', 'git_diff', 'git_log', 'git_commit', "
                     "'apply_edits', 'run_shell', 'classify_command', 'generate_doc', "
-                    "'analyze_doc', 'code_assist'."
+                    "'analyze_doc', 'code_assist', 'get_profile', 'update_profile', 'list_profiles'."
                 ),
             },
             "project_path": {
@@ -281,6 +285,32 @@ def execute(
             return outcome.failed("creator", "Please provide 'prompt' for code_assist.")
         ans = engine.analyze_or_generate_code(prompt, str(parameters.get("content", "") or ""))
         return outcome.done("creator", result=ans)
+
+    if action == "get_profile":
+        proj = str(parameters.get("project_path") or parameters.get("project_id") or "").strip()
+        prof = engine.get_profile(proj)
+        if not prof:
+            return outcome.failed("creator", f"No project profile found for '{proj}'.")
+        return outcome.done("creator", result=f"Profile for {prof['name']}: {prof['purpose']}", data=prof)
+
+    if action == "update_profile":
+        proj = str(parameters.get("project_path") or parameters.get("project_id") or "").strip()
+        if not proj:
+            return outcome.failed("creator", "Please provide 'project_path' or 'project_id' to update profile.")
+        updates = parameters.get("updates") or {}
+        if not isinstance(updates, dict):
+            updates = {
+                "purpose": str(parameters.get("purpose", "")),
+                "architecture": str(parameters.get("architecture", "")),
+            }
+        prof = engine.update_profile(proj, updates)
+        return outcome.done("creator", result=f"Updated profile for '{prof['name']}'.", data=prof)
+
+    if action == "list_profiles":
+        profs = engine.list_profiles()
+        lines = [f"- [{p['project_id']}] {p['name']} ({', '.join(p['tech_stack'])}): {p['purpose']}" for p in profs]
+        summary = "\n".join(lines) if lines else "No project profiles registered yet."
+        return outcome.done("creator", result=f"Stored Project Profiles ({len(profs)}):\n{summary}", data={"profiles": profs})
 
     return outcome.failed("creator", f"Unknown creator action '{action}'.")
 

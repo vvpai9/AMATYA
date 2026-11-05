@@ -14,17 +14,129 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 import psutil
 
 from core.device_manager import get_device_manager
+from core.memory_engine import get_memory_engine
 from core.model_router import get_current_vram_gb, get_router
 from core.orchestrator import get_orchestrator
+from core.proactive_engine import get_proactive_engine
 from core.security import get_session_auth_status
-from memory.config_manager import get_autonomy_level, get_input_device, get_output_device
+from core.workflow_engine import get_workflow_engine
+from memory.config_manager import (
+    get_autonomy_level,
+    get_input_device,
+    get_output_device,
+    load_api_keys,
+)
+
+
+def diagnose_all_subsystems() -> dict[str, dict[str, Any]]:
+    """Evaluate health states across all core AMATYA subsystems.
+
+    States: Healthy, Degraded, Unavailable, Simulated, Not Configured.
+    """
+    subsystems: dict[str, dict[str, Any]] = {}
+
+    # 1. Audio Pipeline
+    in_dev = get_input_device()
+    out_dev = get_output_device()
+    has_pipewire = shutil.which("pipewire") is not None or shutil.which("pw-dump") is not None
+    if has_pipewire or in_dev or out_dev:
+        subsystems["audio"] = {
+            "status": "Healthy",
+            "details": f"Subsystem: PipeWire. In: {in_dev or 'default'}, Out: {out_dev or 'default'}",
+        }
+    else:
+        subsystems["audio"] = {
+            "status": "Degraded",
+            "details": "Audio server not detected or running in fallback audio mode.",
+        }
+
+    # 2. AI Model Router & Local Models
+    router = get_router()
+    probed = router.probe_providers()
+    local_online = any(v.get("online") for v in probed.values())
+    gemini_key = load_api_keys().get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    privacy = router.get_privacy_mode()
+
+    if local_online and gemini_key:
+        subsystems["models"] = {
+            "status": "Healthy",
+            "details": f"Hybrid active. Local providers online; Gemini fallback available. Privacy: {privacy}",
+        }
+    elif local_online and not gemini_key:
+        subsystems["models"] = {
+            "status": "Healthy" if privacy == "strict_local" else "Degraded",
+            "details": f"Local provider online. No Gemini key set. Privacy: {privacy}",
+        }
+    elif not local_online and gemini_key:
+        subsystems["models"] = {
+            "status": "Unavailable" if privacy == "strict_local" else "Degraded",
+            "details": f"Local inference offline; routing requests to cloud. Privacy: {privacy}",
+        }
+    else:
+        subsystems["models"] = {
+            "status": "Unavailable",
+            "details": "Neither local model provider nor cloud Gemini API key configured.",
+        }
+
+    # 3. Layered Memory Engine
+    mem = get_memory_engine()
+    if mem.is_enabled():
+        subsystems["memory"] = {
+            "status": "Healthy",
+            "details": f"Layered memory active. {len(mem.list_all_memories())} semantic facts stored.",
+        }
+    else:
+        subsystems["memory"] = {
+            "status": "Degraded",
+            "details": "Memory engine is disabled by user policy.",
+        }
+
+    # 4. Wayland Desktop & KWin
+    wayland_display = os.environ.get("WAYLAND_DISPLAY")
+    xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
+    if wayland_display or xdg_session.lower() == "wayland":
+        subsystems["desktop"] = {
+            "status": "Healthy",
+            "details": f"Wayland display active ({wayland_display or 'wayland-0'}). KWin integration ready.",
+        }
+    elif os.environ.get("DISPLAY"):
+        subsystems["desktop"] = {
+            "status": "Degraded",
+            "details": f"Running under X11/XWayland ({os.environ.get('DISPLAY')}).",
+        }
+    else:
+        subsystems["desktop"] = {
+            "status": "Unavailable",
+            "details": "No graphical desktop session detected.",
+        }
+
+    # 5. Connected Devices
+    dm = get_device_manager()
+    registered = dm.list_registered_devices()
+    tv = dm.resolve_device("redmi_tv") or dm.resolve_device("10.0.0.3")
+    tv_real = tv and (Path(tv.get("atvremote_bin", "")).exists() if tv.get("atvremote_bin") else False)
+    subsystems["devices"] = {
+        "status": "Healthy" if tv_real else "Simulated",
+        "details": f"{len(registered)} devices registered. TV at {tv.get('ip_address', '10.0.0.3') if tv else 'unknown'} (atvremote={'present' if tv_real else 'missing'}).",
+    }
+
+    # 6. Security Subsystem
+    sec_status = get_session_auth_status()
+    subsystems["security"] = {
+        "status": "Healthy" if sec_status.get("pin_configured") else "Degraded",
+        "details": f"Autonomy: {get_autonomy_level()}, Voice active: {sec_status.get('voice_session_active', False)}, PIN set: {sec_status.get('pin_configured', False)}",
+    }
+
+    return subsystems
 
 
 def gather_system_telemetry() -> dict[str, Any]:
@@ -106,6 +218,18 @@ def gather_system_telemetry() -> dict[str, Any]:
             "reasoning": router.route("reasoning"),
             "planning": router.route("planning"),
             "coding": router.route("coding"),
+            "privacy_mode": router.get_privacy_mode(),
+        },
+        "subsystems": diagnose_all_subsystems(),
+        "memory": {
+            "enabled": get_memory_engine().is_enabled(),
+            "facts_count": len(get_memory_engine().list_all_memories()),
+        },
+        "workflows": {
+            "count": len(get_workflow_engine().list_workflows()),
+        },
+        "proactive": {
+            "active_alerts": len(get_proactive_engine().get_active_alerts()),
         },
     }
 
@@ -117,10 +241,15 @@ def format_command_centre_hud(telemetry: dict[str, Any] | None = None) -> str:
     sec = data["security"]
     tasks = data["tasks"]
     devs = data["devices"]
+    subs = data.get("subsystems", {})
+    sub_lines = [f"{k.capitalize()}:{v.get('status')[:3]}" for k, v in subs.items()]
+    sub_str = " | ".join(sub_lines) if sub_lines else "All Systems Nominal"
 
     dev_lines = []
     for d in devs[:4]:
         dev_lines.append(f"  • {d['name']} ({d['type']}): {d['connectivity'].upper()}")
+
+    privacy = data.get("model_router", {}).get("privacy_mode", "hybrid").upper()
 
     return (
         "╔══════════════════════════════════════════════════════════════════╗\n"
@@ -129,7 +258,8 @@ def format_command_centre_hud(telemetry: dict[str, Any] | None = None) -> str:
         f"║ CPU : {hw['cpu_percent']:>5.1f}% [{hw['cpu_cores']} Cores]       RAM : {hw['ram_used_gb']:>4.1f}/{hw['ram_total_gb']:<4.1f} GB ({hw['ram_percent']:>4.1f}%) ║\n"
         f"║ GPU : {hw['vram_used_gb']:>5.2f}/{hw['vram_total_gb']:<4.1f} GB VRAM     SAFE: {'YES' if hw['vram_safe'] else 'GUARDED!':<8}                     ║\n"
         "╠──────────────────────────────────────────────────────────────────╣\n"
-        f"║ AUTONOMY: {sec['autonomy_level'].upper():<20} VOICE VERIFIED: {'YES' if sec['voice_verified'] else 'NO':<13}  ║\n"
+        f"║ PRIVACY: {privacy:<15} AUTONOMY: {sec['autonomy_level'].upper():<20} VOICE: {'VERIFIED' if sec['voice_verified'] else 'GUEST':<8} ║\n"
+        f"║ HEALTH : {sub_str:<55} ║\n"
         f"║ ACTIVE TASK: {tasks['summary'][:49]:<51} ║\n"
         "╠──────────────────────────────────────────────────────────────────╣\n"
         "║ CONNECTED DEVICES:                                               ║\n"
