@@ -140,6 +140,10 @@ pyswisseph>=2.10.0
 chess>=1.11.0
 agentring @ git+https://github.com/mutonby/agentring.git#subdirectory=daemon
 
+# ── Scientific Computation, Simulation & Symbolic Mathematics ────────────────
+scipy>=1.12.0
+sympy>=1.12.0
+
 # ── Optional: local wake word ("Hey Amatya") ──────────────────────────────────
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
 # the tiny model) with one click from ⚙ → WAKE WORD in the app, or install it
