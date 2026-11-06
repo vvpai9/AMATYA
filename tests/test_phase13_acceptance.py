@@ -26,6 +26,13 @@ from pathlib import Path
 from PIL import Image
 
 from actions import knowledge_base
+from core.document_intelligence import (
+    DocumentParser,
+    DocumentReasoningEngine,
+    DocumentTable,
+    export_table_csv,
+    export_tables_xlsx,
+)
 from core.ingestion import (
     IngestionRegistry,
     IngestionStatus,
@@ -286,6 +293,203 @@ class TestPhase13Acceptance(unittest.TestCase):
         sync_prev = knowledge_base.execute({"action": "sync_incremental", "path": str(self.test_dir), "preview": True})
         self.assertIn("status=done", sync_prev)
         self.assertIn("Incremental preview", sync_prev)
+
+    def test_11_structural_document_parsing(self):
+        """Verifies hierarchical heading recognition, breadcrumbs, figures, and footnotes."""
+        doc_path = self.test_dir / "architecture_report.md"
+        content = (
+            "# 1. System Overview\n\n"
+            "This report outlines the hardware topology.\n\n"
+            "## 1.1 Compute Subsystem\n\n"
+            "Intel i5 processor with 16GB memory.\n\n"
+            "![System Block Diagram](block_diagram.png)\n\n"
+            "### 1.1.1 Memory Controller\n\n"
+            "DDR4 3200MHz bus architecture.\n\n"
+            "[^1]: Memory timings verified at 1.2V.\n"
+        )
+        doc_path.write_text(content, encoding="utf-8")
+        parsed = DocumentParser.parse(doc_path)
+        self.assertIsNone(parsed.error)
+        self.assertEqual(len(parsed.headings), 3)
+
+        # Check levels and breadcrumbs
+        self.assertEqual(parsed.headings[0].level, 1)
+        self.assertEqual(parsed.headings[0].text, "1. System Overview")
+
+        self.assertEqual(parsed.headings[1].level, 2)
+        self.assertEqual(parsed.headings[1].breadcrumb, "1. System Overview > 1.1 Compute Subsystem")
+
+        self.assertEqual(parsed.headings[2].level, 3)
+        self.assertEqual(parsed.headings[2].breadcrumb, "1. System Overview > 1.1 Compute Subsystem > 1.1.1 Memory Controller")
+
+        # Check figures and footnotes
+        self.assertEqual(len(parsed.figures), 1)
+        self.assertIn("System Block Diagram", parsed.figures[0].caption)
+        self.assertEqual(len(parsed.references), 1)
+        self.assertIn("Memory timings verified", parsed.references[0].text)
+
+    def test_12_table_extraction_and_missing_values(self):
+        """Verifies table parsing without silent zero-coercion, CSV/Markdown export, and Excel generation."""
+        md_table_path = self.test_dir / "specs_table.md"
+        content = (
+            "# Hardware Specifications\n\n"
+            "| Component | Operating Voltage | Current | Status |\n"
+            "|---|---|---|---|\n"
+            "| CPU Core | 1.2 V | 15.0 A | Active |\n"
+            "| GPU Core | 0.95 V |  | Standby |\n"
+            "| DRAM Bus | 1.2 V | 2.5 A |  |\n"
+        )
+        md_table_path.write_text(content, encoding="utf-8")
+        parsed = DocumentParser.parse(md_table_path)
+        self.assertEqual(len(parsed.tables), 1)
+
+        tbl = parsed.tables[0]
+        self.assertEqual(tbl.row_count, 3)
+        self.assertEqual(tbl.col_count, 4)
+
+        # Verify missing values are None (NOT converted to 0)
+        self.assertIsNone(tbl.rows[1][2])  # GPU Current is missing
+        self.assertIsNone(tbl.rows[2][3])  # DRAM Status is missing
+
+        # Verify CSV export
+        csv_str = tbl.to_csv()
+        self.assertIn("CPU Core,1.2 V,15.0 A,Active", csv_str)
+        self.assertIn("GPU Core,0.95 V,,Standby", csv_str)
+
+        # Verify Excel multi-sheet export
+        xlsx_path = self.test_dir / "exported_tables.xlsx"
+        export_tables_xlsx(parsed.tables, xlsx_path)
+        self.assertTrue(xlsx_path.exists())
+        self.assertGreater(xlsx_path.stat().st_size, 100)
+
+    def test_13_cross_reference_resolution(self):
+        """Verifies in-text cross-reference linking to figures, tables, and sections."""
+        doc_path = self.test_dir / "cross_ref_test.md"
+        content = (
+            "# Power Analysis\n\n"
+            "The regulator parameters are defined as shown in Table 1 below.\n\n"
+            "| Rail | Voltage |\n"
+            "|---|---|\n"
+            "| VCC | 3.3 V |\n\n"
+            "For routing topologies, see Figure 2 on layout.\n"
+        )
+        doc_path.write_text(content, encoding="utf-8")
+        parsed = DocumentParser.parse(doc_path)
+        self.assertGreaterEqual(len(parsed.cross_references), 2)
+        ref_types = [cr["type"] for cr in parsed.cross_references]
+        self.assertIn("Table", ref_types)
+        self.assertIn("Figure", ref_types)
+
+    def test_14_document_reasoning_and_conclusions(self):
+        """Verifies structural summarization, conclusion identification, and section finding."""
+        doc_path = self.test_dir / "research_paper.md"
+        content = (
+            "# 1. Background\n\n"
+            "Initial research into low-power IoT architectures.\n\n"
+            "# 2. Power Consumption\n\n"
+            "Under full load, power consumption peaks at 4.2 W.\n\n"
+            "# 3. Conclusions\n\n"
+            "The proposed regulator reduces static leakage by 35%.\n"
+            "Thermal margins remain acceptable across ambient conditions.\n"
+        )
+        doc_path.write_text(content, encoding="utf-8")
+        parsed = DocumentParser.parse(doc_path)
+
+        # 1. Summarize
+        summary = DocumentReasoningEngine.summarize(parsed)
+        self.assertEqual(summary["total_headings"], 3)
+        self.assertGreaterEqual(len(summary["conclusions"]), 1)
+        self.assertIn("reduces static leakage", summary["conclusions"][0]["point"])
+        self.assertIn("Conclusions", summary["conclusions"][0]["source_section"])
+
+        # 2. Find Section
+        matches = DocumentReasoningEngine.find_section(parsed, "power consumption")
+        self.assertGreaterEqual(len(matches), 1)
+        self.assertIn("Power Consumption", matches[0]["section_title"])
+
+    def test_15_cross_document_comparison_and_discrepancies(self):
+        """Verifies multi-document comparison detecting common parameters, agreements, and discrepancies."""
+        doc_a_path = self.test_dir / "spec_revision_a.md"
+        doc_a_path.write_text(
+            "# Revision A Specifications\n\n"
+            "Peak Power: 12.0 W\n"
+            "Supply Voltage: 3.3 V\n"
+            "Operating Temp: 70 C\n",
+            encoding="utf-8",
+        )
+
+        doc_b_path = self.test_dir / "spec_revision_b.md"
+        doc_b_path.write_text(
+            "# Revision B Specifications\n\n"
+            "Peak Power: 15.5 W\n"
+            "Supply Voltage: 3.3 V\n"
+            "Clock Rate: 4.0 GHz\n",
+            encoding="utf-8",
+        )
+
+        doc_a = DocumentParser.parse(doc_a_path)
+        doc_b = DocumentParser.parse(doc_b_path)
+
+        comp = DocumentReasoningEngine.compare_documents(doc_a, doc_b)
+        self.assertEqual(comp["common_parameters_count"], 2)
+
+        # Agreement: Supply Voltage = 3.3 V
+        self.assertEqual(len(comp["agreements"]), 1)
+        self.assertEqual(comp["agreements"][0]["parameter"], "Supply Voltage")
+
+        # Discrepancy: Peak Power = 12.0 W vs 15.5 W
+        self.assertEqual(len(comp["discrepancies"]), 1)
+        self.assertEqual(comp["discrepancies"][0]["parameter"], "Peak Power")
+
+        # Unique parameters
+        self.assertIn("Operating Temp", comp["unique_to_a"])
+        self.assertIn("Clock Rate", comp["unique_to_b"])
+
+    def test_16_document_intelligence_actions(self):
+        """Verifies tool actions for parse_document, extract_tables, compare_documents, document_summary, find_section."""
+        doc_path = self.test_dir / "system_guide.md"
+        doc_path.write_text(
+            "# System Operating Guide\n\n"
+            "## 1. Power Guidelines\n\n"
+            "System voltage must remain between 3.1 V and 3.5 V.\n\n"
+            "| Rail | Nominal |\n"
+            "|---|---|\n"
+            "| VDD | 3.3 V |\n\n"
+            "## 2. Conclusions\n\n"
+            "All power rails operate within safety limits.\n",
+            encoding="utf-8",
+        )
+
+        # 1. Action: parse_document
+        res_parse = knowledge_base.execute({"action": "parse_document", "path": str(doc_path)})
+        self.assertIn("status=done", res_parse)
+        self.assertIn("Parsed 'system_guide.md'", res_parse)
+
+        # 2. Action: extract_tables with CSV export
+        csv_out = self.test_dir / "table_out.csv"
+        res_tables = knowledge_base.execute({
+            "action": "extract_tables",
+            "path": str(doc_path),
+            "output_path": str(csv_out),
+        })
+        self.assertIn("status=done", res_tables)
+        self.assertIn("Extracted 1 table(s)", res_tables)
+        self.assertTrue(csv_out.exists())
+
+        # 3. Action: document_summary
+        res_summary = knowledge_base.execute({"action": "document_summary", "path": str(doc_path)})
+        self.assertIn("status=done", res_summary)
+        self.assertIn("Document Summary", res_summary)
+        self.assertIn("safety limits", res_summary)
+
+        # 4. Action: find_section
+        res_find = knowledge_base.execute({
+            "action": "find_section",
+            "path": str(doc_path),
+            "query": "power guidelines",
+        })
+        self.assertIn("status=done", res_find)
+        self.assertIn("Found 1 section match(es)", res_find)
 
 
 if __name__ == "__main__":

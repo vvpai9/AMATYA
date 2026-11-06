@@ -165,3 +165,4 @@ res = action_loader.run("knowledge_base", {"action": "ingestion_status"})
 preview = action_loader.run("knowledge_base", {"action": "sync_incremental", "path": "./docs", "preview": True})
 sync = action_loader.run("knowledge_base", {"action": "sync_incremental", "path": "./docs"})
 ```
+

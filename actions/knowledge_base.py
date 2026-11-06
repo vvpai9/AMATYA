@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from core import outcome
+from core.document_intelligence import (
+    DocumentParser,
+    DocumentReasoningEngine,
+    export_table_csv,
+    export_tables_xlsx,
+)
 from core.ingestion import get_ingestion_engine, Modality, SourceType
 from core.memory_engine import get_memory_engine
 from core.rag import get_knowledge_base
@@ -26,6 +32,9 @@ SKILL_METADATA = {
     "capabilities": [
         "universal_ingestion",
         "multimodal_extraction",
+        "document_intelligence",
+        "table_extraction",
+        "cross_document_comparison",
         "incremental_sync",
         "rag_indexing",
         "semantic_search",
@@ -41,6 +50,11 @@ SKILL_METADATA = {
         "ingest",
         "ingestion_status",
         "sync_incremental",
+        "parse_document",
+        "extract_tables",
+        "compare_documents",
+        "document_summary",
+        "find_section",
         "index_path",
         "index_note",
         "list_sources",
@@ -61,11 +75,12 @@ SKILL_METADATA = {
 TOOL = {
     "name": "knowledge_base",
     "description": (
-        "Universal multimodal ingestion and search across local documents (PDF, DOCX, XLSX, PPTX, CSV), "
-        "code, web URLs, images, audio/video, and notes using AMATYA's Phase 13 Ingestion Framework and RAG store, "
-        "or inspect/export/delete/correct layered personal memory. Actions: 'query', 'ingest', 'ingestion_status', "
-        "'sync_incremental', 'index_path', 'index_note', 'list_sources', 'remove_source', 'clear_index', "
-        "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
+        "Universal multimodal ingestion, document intelligence (tables, headings, comparisons, summaries), "
+        "and search across local documents (PDF, DOCX, XLSX, PPTX, CSV), code, web URLs, images, and notes "
+        "using AMATYA's Phase 13 Ingestion & Document Intelligence Engines. Actions: 'query', 'ingest', "
+        "'ingestion_status', 'sync_incremental', 'parse_document', 'extract_tables', 'compare_documents', "
+        "'document_summary', 'find_section', 'index_path', 'index_note', 'list_sources', 'remove_source', "
+        "'clear_index', 'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
         "'store_fact', 'correct_fact', 'search_memories', 'toggle_memory'."
     ),
     "parameters": {
@@ -75,6 +90,7 @@ TOOL = {
                 "type": "STRING",
                 "description": (
                     "Action: 'query', 'ingest', 'ingestion_status', 'sync_incremental', "
+                    "'parse_document', 'extract_tables', 'compare_documents', 'document_summary', 'find_section', "
                     "'index_path', 'index_note', 'list_sources', 'remove_source', 'clear_index', "
                     "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
                     "'store_fact', 'correct_fact', 'search_memories', 'toggle_memory'."
@@ -82,11 +98,19 @@ TOOL = {
             },
             "query": {
                 "type": "STRING",
-                "description": "Search query for 'query' or 'search_memories' action.",
+                "description": "Search query for 'query', 'find_section', or 'search_memories' action.",
             },
             "path": {
                 "type": "STRING",
-                "description": "File or directory path for 'ingest', 'sync_incremental', 'index_path', or 'export_memory'.",
+                "description": "File or directory path for 'ingest', 'sync_incremental', 'parse_document', 'extract_tables', 'compare_documents', 'document_summary', 'find_section', 'index_path', or 'export_memory'.",
+            },
+            "path_b": {
+                "type": "STRING",
+                "description": "Second document path for 'compare_documents' action.",
+            },
+            "output_path": {
+                "type": "STRING",
+                "description": "Optional file path to export tables (.csv or .xlsx) in 'extract_tables'.",
             },
             "url": {
                 "type": "STRING",
@@ -267,6 +291,102 @@ def execute(
             skipped = res.metadata.get("skipped", False)
             msg = f"Incremental sync for '{p.name}': File was unchanged." if skipped else f"Incremental sync for '{p.name}': Ingested {len(res.chunks)} chunks."
             return outcome.done("knowledge_base", result=msg, data={"chunks": len(res.chunks), "skipped": skipped})
+
+    if action == "parse_document":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' to parse.")
+        parsed = DocumentParser.parse(path_str)
+        if parsed.error:
+            return outcome.failed("knowledge_base", parsed.error)
+        summary = (
+            f"Parsed '{parsed.title}': {parsed.page_count} page(s), {len(parsed.headings)} heading(s), "
+            f"{len(parsed.tables)} table(s), {len(parsed.figures)} figure(s), {len(parsed.references)} reference(s)."
+        )
+        return outcome.done("knowledge_base", result=summary, data=parsed.to_dict())
+
+    if action == "extract_tables":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' to extract tables from.")
+        parsed = DocumentParser.parse(path_str)
+        if parsed.error:
+            return outcome.failed("knowledge_base", parsed.error)
+        if not parsed.tables:
+            return outcome.done("knowledge_base", result=f"No structured tables found in '{parsed.title}'.", data={"tables": []})
+
+        out_path = parameters.get("output_path")
+        exported_msg = ""
+        if out_path:
+            out_p = Path(out_path).expanduser().resolve()
+            if out_p.suffix.lower() == ".csv":
+                export_table_csv(parsed.tables[0], out_p)
+                exported_msg = f" Exported primary table to {out_p}."
+            elif out_p.suffix.lower() == ".xlsx":
+                export_tables_xlsx(parsed.tables, out_p)
+                exported_msg = f" Exported {len(parsed.tables)} tables to {out_p}."
+
+        table_summaries = [f"Table {t.table_id} (Page {t.page_number}): {t.row_count} rows x {t.col_count} cols" for t in parsed.tables]
+        result_text = f"Extracted {len(parsed.tables)} table(s) from '{parsed.title}'.{exported_msg}\n" + "\n".join(table_summaries)
+        return outcome.done(
+            "knowledge_base",
+            result=result_text,
+            data={"tables": [t.to_dict() for t in parsed.tables]},
+        )
+
+    if action == "compare_documents":
+        path_a = str(parameters.get("path", "") or "").strip()
+        path_b = str(parameters.get("path_b", "") or "").strip()
+        if not path_a or not path_b:
+            return outcome.failed("knowledge_base", "Both 'path' and 'path_b' are required to compare documents.")
+        doc_a = DocumentParser.parse(path_a)
+        doc_b = DocumentParser.parse(path_b)
+        if doc_a.error:
+            return outcome.failed("knowledge_base", f"Error in document A ({path_a}): {doc_a.error}")
+        if doc_b.error:
+            return outcome.failed("knowledge_base", f"Error in document B ({path_b}): {doc_b.error}")
+
+        comp = DocumentReasoningEngine.compare_documents(doc_a, doc_b)
+        disc_count = len(comp["discrepancies"])
+        summary = (
+            f"Comparison between '{doc_a.title}' and '{doc_b.title}': "
+            f"{comp['common_parameters_count']} common parameter(s), {disc_count} discrepancy(ies), "
+            f"{len(comp['agreements'])} agreement(s)."
+        )
+        return outcome.done("knowledge_base", result=summary, data=comp)
+
+    if action == "document_summary":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' for document summary.")
+        parsed = DocumentParser.parse(path_str)
+        if parsed.error:
+            return outcome.failed("knowledge_base", parsed.error)
+        summary = DocumentReasoningEngine.summarize(parsed)
+        conc_lines = [f"- {c['point']} (Section: {c['source_section']}, Page: {c['page']})" for c in summary["conclusions"]]
+        result_text = (
+            f"Document Summary for '{parsed.title}' ({summary['page_count']} pages, {summary['total_headings']} sections):\n"
+            f"Key Conclusions:\n" + ("\n".join(conc_lines) if conc_lines else "No explicit conclusion section found.")
+        )
+        return outcome.done("knowledge_base", result=result_text, data=summary)
+
+    if action == "find_section":
+        path_str = str(parameters.get("path", "") or "").strip()
+        query = str(parameters.get("query", "") or "").strip()
+        if not path_str or not query:
+            return outcome.failed("knowledge_base", "Both 'path' and 'query' are required for 'find_section'.")
+        parsed = DocumentParser.parse(path_str)
+        if parsed.error:
+            return outcome.failed("knowledge_base", parsed.error)
+        matches = DocumentReasoningEngine.find_section(parsed, query)
+        if not matches:
+            return outcome.done("knowledge_base", result=f"No sections matching '{query}' found in '{parsed.title}'.", data={"matches": []})
+        lines = [f"- [{m['breadcrumb']} (Page {m['page']})]: {m['preview']}" for m in matches[:5]]
+        return outcome.done(
+            "knowledge_base",
+            result=f"Found {len(matches)} section match(es) for '{query}' in '{parsed.title}':\n" + "\n".join(lines),
+            data={"matches": matches},
+        )
 
     if action == "index_path":
         path = str(parameters.get("path", "") or "").strip()
