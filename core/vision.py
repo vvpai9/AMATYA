@@ -243,11 +243,17 @@ class Vision:
             cmd.append("-m")
         else:
             cmd.append("-f")
-        cmd.extend(["-o", str(tmp_file)])
-
         for attempt in range(2):
+            tmp_file = Path(_tmp.gettempdir()) / f"amatya_spec_{int(time.time() * 1000)}_{attempt}.png"
+            cmd_run = list(cmd) + ["-o", str(tmp_file)]
             try:
-                p = _sp.run(cmd, capture_output=True, timeout=8)
+                p = _sp.run(cmd_run, capture_output=True, timeout=8)
+                # Spectacle can flush file asynchronously right before/after exit
+                for _ in range(12):
+                    if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                        break
+                    time.sleep(0.1)
+
                 if tmp_file.exists() and tmp_file.stat().st_size > 0:
                     img_bytes = tmp_file.read_bytes()
                     tmp_file.unlink(missing_ok=True)
