@@ -58,7 +58,20 @@ AMATYA controls KDE Plasma 6 Wayland natively through `kwin-mcp` (KWin EIS libei
 - **Synthesized Readings & Upayas:** Generates structured analyses covering personality, career (D10), marriage (D9), wealth (D2), Maandi harmonization, and classical Vedic remedies.
 - **Western Astrology Mode:** Seamlessly switches to Western Tropical astrology (Sayana coordinates, Placidus houses, Big Three, and major aspects) ONLY when explicitly requested.
 
-### 8. Futuristic Command-Centre HUD (`ui.py`, `dashboard/server.py`)
+### 8. Mobile Calling, Phone Ringing & Cross-Platform Parity (`core/phone_ring.py`, `actions/phone_ring.py`)
+- **AgentRing VoIP Integration ([mutonby/agentring](https://github.com/mutonby/agentring)):**
+  - Lets AMATYA call your phone over self-hosted VoIP when tasks complete or urgent input is needed, with real-time AI voice bridging and zero carrier/Twilio fees.
+  - Supports `--urgent` calling to wake phones from Doze mode and bypass Do Not Disturb, plus interactive messaging (`agentring msg`) and QR pairing (`agentring pair`).
+- **Free Open-Source Alternatives:**
+  - **KDE Connect:** Direct local Wi-Fi / LAN phone ringing at maximum volume across Linux, Windows, and macOS without cloud dependency.
+  - **ADB over Wi-Fi / USB:** Direct Android audio stream boosting and native alarm/ringtone intent execution.
+  - **Ntfy.sh (Open-Source HTTP Push):** Zero-dependency pure Python push notifications with priority=urgent and telephone/alarm tags to ring devices even when muted.
+- **Windows & macOS Parity:**
+  - Native clipboard fallbacks (`pbcopy`/`pbpaste` on macOS; PowerShell `Get-Clipboard`/`Set-Clipboard` on Windows).
+  - Native screen capture backends (`screencapture -x` on macOS; `ImageGrab`/`mss` on Windows).
+  - Executable path resolution for `kdeconnect-cli` (`.exe` on Windows, `.app` bundle on macOS) and `adb`.
+
+### 9. Futuristic Command-Centre HUD (`ui.py`, `dashboard/server.py`)
 - Holographic rotating globe with real-time audio-reactive lip-sync, plus:
   - **`⊞ COMMAND CENTRE`:** Live telemetry overlay displaying security tier, voice auth status, GPU/RAM model router status, connected devices, smart home summary, and active tasks.
   - **`🛡 AUTONOMY`:** One-click cycling across all 5 autonomy levels (`L0 OBSERVE` → `L4 FULL AUTO`).
@@ -83,6 +96,7 @@ AMATYA is a fork and evolution of **[Mark-LVI by FatihMakes](https://github.com/
 | Connected Devices (KDE Connect, ADB, Redmi TV, SSH, LAN) | ✅ Complete & verified live |
 | CREATOR Coding Agent + PDF/DOCX/XLSX/PPTX/CSV/MD/ZIP Engine | ✅ Complete & verified |
 | Vedic Jyotisha Engine (Shodashavarga D1..D60, Shadbala, Dashas) | ✅ Complete & verified |
+| Phone Ring & AgentRing VoIP (Linux, Windows, macOS) | ✅ Complete & verified |
 | Command-Centre HUD + Emergency Stop | ✅ Complete & verified |
 
 ---

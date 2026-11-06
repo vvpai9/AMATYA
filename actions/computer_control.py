@@ -601,32 +601,104 @@ def _clipboard_get() -> str:
             return pyperclip.paste()
         except Exception:
             pass
-    _hotkey("ctrl", "c")
+
+    # Native macOS fallback
+    if _SYSTEM == "Darwin" or _get_os() == "mac":
+        try:
+            p = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=3)
+            if p.returncode == 0:
+                return p.stdout
+        except Exception:
+            pass
+
+    # Native Windows fallback
+    if _SYSTEM == "Windows" or _get_os() == "windows":
+        try:
+            p = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                capture_output=True, text=True, timeout=4, **_WIN_HIDE
+            )
+            if p.returncode == 0:
+                return p.stdout.rstrip("\r\n")
+        except Exception:
+            pass
+
+    # Native Linux wl-paste / xclip fallback
+    if _SYSTEM == "Linux":
+        if shutil.which("wl-paste"):
+            try:
+                p = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, text=True, timeout=3)
+                if p.returncode == 0:
+                    return p.stdout
+            except Exception:
+                pass
+        if shutil.which("xclip"):
+            try:
+                p = subprocess.run(["xclip", "-selection", "clipboard", "-o"], capture_output=True, text=True, timeout=3)
+                if p.returncode == 0:
+                    return p.stdout
+            except Exception:
+                pass
+
+    _hotkey("command" if _get_os() == "mac" else "ctrl", "c")
     time.sleep(0.2)
-    return "(copied — pyperclip unavailable for read)"
+    return "(copied — clipboard unavailable for read)"
 
 
 def _clipboard_paste(text: str) -> str:
+    set_ok = False
     if _set_plasma_clipboard(text):
-        time.sleep(0.05)
-        try:
-            _require_pyautogui()
-            paste_key = "command" if _get_os() == "mac" else "ctrl"
-            pyautogui.hotkey(paste_key, "v")
-            return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
-        except Exception:
-            return f"Pasted (clipboard set): {text[:60]}"
-    if _require_pyperclip():
+        set_ok = True
+    elif _require_pyperclip():
         try:
             pyperclip.copy(text)
-            time.sleep(0.1)
-            _require_pyautogui()
-            paste_key = "command" if _get_os() == "mac" else "ctrl"
-            pyautogui.hotkey(paste_key, "v")
-            return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
+            set_ok = True
         except Exception:
             pass
-    return "clipboard not available"
+
+    if not set_ok:
+        # Native macOS fallback
+        if _SYSTEM == "Darwin" or _get_os() == "mac":
+            try:
+                subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=3)
+                set_ok = True
+            except Exception:
+                pass
+        # Native Windows fallback
+        elif _SYSTEM == "Windows" or _get_os() == "windows":
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"],
+                    input=text, text=True, timeout=4, **_WIN_HIDE
+                )
+                set_ok = True
+            except Exception:
+                pass
+        # Native Linux fallback
+        elif _SYSTEM == "Linux":
+            if shutil.which("wl-copy"):
+                try:
+                    subprocess.run(["wl-copy"], input=text, text=True, timeout=3)
+                    set_ok = True
+                except Exception:
+                    pass
+            elif shutil.which("xclip"):
+                try:
+                    subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, timeout=3)
+                    set_ok = True
+                except Exception:
+                    pass
+
+    time.sleep(0.05)
+    paste_key = "command" if _get_os() == "mac" else "ctrl"
+    try:
+        _require_pyautogui()
+        pyautogui.hotkey(paste_key, "v")
+        return f"Pasted: {text[:60]}{'…' if len(text) > 60 else ''}"
+    except Exception:
+        if set_ok:
+            return f"Pasted (clipboard set): {text[:60]}"
+        return "clipboard not available"
 
 
 def _screenshot(save_path: str | None = None) -> str:

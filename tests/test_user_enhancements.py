@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ["AMATYA_TEST_MODE"] = "1"
 
-from actions import computer_control, creator, file_controller, jyotisha, orchestrator
+from actions import computer_control, creator, file_controller, jyotisha, orchestrator, phone_ring
 from core import confirm
 from core.doc_generator import analyze_document, generate_document
 from core.orchestrator import CentralOrchestrator, TaskRecord, get_orchestrator
@@ -204,8 +204,14 @@ class TestUserEnhancements(unittest.TestCase):
     def test_04_wayland_spectacle_screenshot(self):
         """Directive 4: Vision subsystem captures desktop screen cleanly using Spectacle."""
         v = get_vision()
-        cap = v.capture_full()
-        self.assertTrue(cap.ok, f"Capture failed: {cap.error}")
+        cap = None
+        for _ in range(3):
+            cap = v.capture_full()
+            if cap and cap.ok:
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(cap)
+        self.assertTrue(cap.ok, f"Capture failed: {cap.error if cap else 'No result'}")
         self.assertGreater(len(cap.image_bytes), 1000, "Screenshot data is suspiciously small")
         self.assertEqual(cap.mime_type, "image/png")
 
@@ -634,6 +640,154 @@ class TestUserEnhancements(unittest.TestCase):
         self.assertIn("Rising Sign (Ascendant): Virgo", res_w)
         self.assertIn("Placidus Houses", res_w)
         self.assertIn("Major Aspects", res_w)
+
+    # ── 15. Phone Ring Capabilities & AgentRing Integration ───────────────────
+
+    def test_15_phone_ring_capabilities_and_agentring_integration(self):
+        """Verify phone ring capabilities: AgentRing (VoIP), KDE Connect, ADB, and Ntfy."""
+        from core.phone_ring import (
+            find_agentring_cli,
+            find_kdeconnect_cli,
+            get_agentring_status,
+            get_phone_ringer,
+            kdeconnect_ring,
+            ntfy_ring,
+        )
+
+        # 1. AgentRing discovery & status
+        agentring_bin = find_agentring_cli()
+        self.assertIsNotNone(agentring_bin, "agentring executable should be discoverable")
+
+        ar_st = get_agentring_status()
+        self.assertTrue(ar_st.installed, "AgentRing should be identified as installed")
+        self.assertIsInstance(ar_st.configured, bool)
+
+        # 2. Unified PhoneRinger status
+        ringer = get_phone_ringer()
+        diag = ringer.status()
+        self.assertIn("os", diag)
+        self.assertIn("agentring", diag)
+        self.assertIn("kdeconnect", diag)
+        self.assertIn("adb", diag)
+        self.assertIn("ntfy", diag)
+        self.assertTrue(diag["agentring"]["available"])
+        self.assertTrue(diag["kdeconnect"]["available"])
+        self.assertIn("amatya_", diag["ntfy"]["topic"])
+
+        # 3. Action tool execution for status
+        res_st = phone_ring.execute({"action": "status"})
+        self.assertIn("status=done", res_st)
+        self.assertIn("AMATYA PHONE RING SUBSYSTEM STATUS", res_st)
+        self.assertIn("AgentRing (VoIP)", res_st)
+        self.assertIn("KDE Connect", res_st)
+
+        # 4. Action tool execution for ring (auto chooses reachable KDE Connect or push)
+        with patch("subprocess.run") as mock_sp:
+            mock_sp.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
+            res_ring = phone_ring.execute({"action": "ring", "reason": "Test Ring Alert", "backend": "kdeconnect"})
+            self.assertIn("status=done", res_ring)
+            self.assertIn("Ringing", res_ring)
+
+        # 5. Ntfy universal push fallback test
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.getcode.return_value = 200
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            res_ntfy = ntfy_ring(topic="amatya_test_topic", reason="Urgent Alert")
+            self.assertTrue(res_ntfy["ok"])
+            self.assertEqual(res_ntfy["backend"], "ntfy")
+            self.assertEqual(res_ntfy["topic"], "amatya_test_topic")
+
+        # 6. AgentRing VoIP call dispatch test
+        with patch("subprocess.run") as mock_sp:
+            mock_sp.return_value = MagicMock(returncode=0, stdout="Call connected", stderr="")
+            with patch("core.phone_ring.get_agentring_status") as mock_ar_st:
+                mock_ar_st.return_value = MagicMock(configured=True, devices=[{"name": "Pixel"}])
+                res_call = phone_ring.execute({"action": "call", "reason": "System offline alert"})
+                self.assertIn("status=done", res_call)
+                self.assertIn("AgentRing", res_call)
+
+    # ── 16. Windows & macOS Cross-Platform Compatibility ──────────────────────
+
+    def test_16_windows_and_macos_cross_platform_compatibility(self):
+        """Verify Windows and macOS compatibility across platform support, vision, and clipboard."""
+        from core import platform_support
+        from core.phone_ring import find_kdeconnect_cli, find_adb_cli
+
+        # 1. Platform support detection on Windows & macOS
+        with patch("platform.system", return_value="Windows"):
+            supp_win = platform_support.detect()
+            self.assertEqual(supp_win.os_name, "Windows")
+            self.assertTrue(supp_win.can_control_input)
+            self.assertTrue(supp_win.can_capture_screen)
+            self.assertTrue(any("Windows native session" in n for n in supp_win.notes))
+
+        with patch("platform.system", return_value="Darwin"):
+            supp_mac = platform_support.detect()
+            self.assertEqual(supp_mac.os_name, "macOS")
+            self.assertTrue(any("macOS native session" in n for n in supp_mac.notes))
+
+        # 2. Cross-platform executable discovery on Windows
+        with patch("platform.system", return_value="Windows"), \
+             patch("shutil.which", return_value=None), \
+             patch("pathlib.Path.is_file", return_value=True):
+            kde_win = find_kdeconnect_cli()
+            self.assertIsNotNone(kde_win)
+            self.assertTrue(str(kde_win).endswith("kdeconnect-cli.exe"))
+
+            adb_win = find_adb_cli()
+            self.assertIsNotNone(adb_win)
+            self.assertTrue(str(adb_win).endswith("adb.exe"))
+
+        # 3. Cross-platform executable discovery on macOS
+        with patch("platform.system", return_value="Darwin"), \
+             patch("shutil.which", return_value=None), \
+             patch("pathlib.Path.is_file", return_value=True):
+            kde_mac = find_kdeconnect_cli()
+            self.assertIsNotNone(kde_mac)
+            self.assertIn("KDE Connect.app", str(kde_mac))
+
+            adb_mac = find_adb_cli()
+            self.assertIsNotNone(adb_mac)
+            self.assertIn("Android", str(adb_mac))
+
+        # 4. macOS & Windows native clipboard fallbacks in computer_control
+        with patch("actions.computer_control._SYSTEM", "Darwin"), \
+             patch("actions.computer_control._require_pyperclip", return_value=False), \
+             patch("actions.computer_control._get_plasma_clipboard", return_value=None), \
+             patch("subprocess.run") as mock_sp:
+            mock_sp.return_value = MagicMock(returncode=0, stdout="macOS Clipboard Text")
+            cb_text = computer_control._clipboard_get()
+            self.assertEqual(cb_text, "macOS Clipboard Text")
+
+        with patch("actions.computer_control._SYSTEM", "Windows"), \
+             patch("actions.computer_control._require_pyperclip", return_value=False), \
+             patch("actions.computer_control._get_plasma_clipboard", return_value=None), \
+             patch("subprocess.run") as mock_sp:
+            mock_sp.return_value = MagicMock(returncode=0, stdout="Windows Clipboard Text\r\n")
+            cb_text_win = computer_control._clipboard_get()
+            self.assertEqual(cb_text_win, "Windows Clipboard Text")
+
+        # 5. Vision macOS & Windows capture backends
+        v = get_vision()
+        with patch("shutil.which", return_value="/usr/bin/screencapture"), \
+             patch("subprocess.run") as mock_sp, \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.stat") as mock_stat, \
+             patch("pathlib.Path.read_bytes", return_value=b"\x89PNG\r\n\x1a\nfakeimagebytes" * 50), \
+             patch("pathlib.Path.unlink"):
+            mock_stat.return_value.st_size = 800
+            cap_mac = v._capture_macos_screencapture(kind="full")
+            self.assertTrue(cap_mac.ok)
+
+        with patch("PIL.ImageGrab.grab") as mock_grab:
+            import io
+            from PIL import Image
+            mock_img = Image.new("RGB", (100, 100), color=(100, 150, 200))
+            mock_grab.return_value = mock_img
+            cap_win = v._capture_windows_imagegrab(kind="full")
+            self.assertTrue(cap_win.ok)
 
 
 if __name__ == "__main__":

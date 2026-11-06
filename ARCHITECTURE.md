@@ -19,11 +19,11 @@ Mark-LVI/
 ├── ARCHITECTURE.md              # Architecture map & phase plan (this file)
 ├── DEVELOPMENT_LOG.md           # Engineering audit, bug fixes, implementation & verification log
 ├── requirements.txt             # Dependencies
-├── actions/                     # 27 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
+├── actions/                     # 28 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
 │   ├── browser_control.py       # Playwright web automation
 │   ├── cmd_control.py           # Terminal / bash automation
 │   ├── code_helper.py           # Code generation & Wayland-safe clipboard fallback
-│   ├── computer_control.py      # Keyboard/mouse/clipboard/screenshot with kwin-mcp fallback
+│   ├── computer_control.py      # Keyboard/mouse/clipboard/screenshot with kwin-mcp & cross-platform fallbacks
 │   ├── computer_settings.py     # Brightness/volume/window ops with kwin-mcp fallback
 │   ├── creator.py               # CREATOR software engineering & document generation action
 │   ├── desktop_agent.py         # Autonomous observe→plan→act→verify Wayland agent action
@@ -38,6 +38,7 @@ Mark-LVI/
 │   ├── model_router.py          # 11-role local/cloud AI model router action
 │   ├── open_app.py              # App launcher & process controller
 │   ├── orchestrator.py          # CentralOrchestrator & contextual pronoun resolution action
+│   ├── phone_ring.py            # Phone ringing & VoIP calling (AgentRing, KDE Connect, ADB, Ntfy.sh)
 │   ├── reminder.py              # Scheduled reminders with Linux notify-send support
 │   ├── screen_processor.py      # Vision analysis of screen / camera
 │   ├── send_message.py          # Messaging automation
@@ -61,6 +62,7 @@ Mark-LVI/
 │   ├── kwin_mcp_client.py       # MCP stdio client for kwin-mcp v0.12.0 (session-isolated)
 │   ├── model_router.py          # 11-role hardware-aware model router (GTX 1650 4GB + 16GB RAM aware)
 │   ├── orchestrator.py          # CentralOrchestrator, ContextTracker & pronoun/reference resolution
+│   ├── phone_ring.py            # Cross-platform phone ringing engine (AgentRing VoIP, KDE Connect, ADB, Ntfy.sh)
 │   ├── platform_support.py      # OS, Wayland, kwin-mcp & PipeWire capability probe
 │   ├── plugin_loader.py         # Auto-discovers plugins/*.py + validates SKILL_METADATA
 │   ├── prompt.txt               # AMATYA system prompt
@@ -139,6 +141,9 @@ Mark-LVI/
   - **Android Phone Control:** File transfer (`--share` / `adb push`), Find-My-Phone ring (`--ring`), clipboard sync, app launch, and battery check.
   - **Redmi Android TV Control:** Power toggle, volume/mute, D-Pad navigation, direct launch of YouTube, Netflix, Prime Video, Disney+ Hotstar, VLC, Kodi, and URL casting via ADB over LAN.
   - **Remote Computers:** Non-interactive SSH command execution, remote resource inspection, and SCP file transfer.
+- **Universal Phone Ring & VoIP Calling Engine (`core/phone_ring.py`, `actions/phone_ring.py`):**
+  - Multi-tier phone ringing cascade: **AgentRing** (open-source WebRTC/LiveKit VoIP audio calls with AI voice), **KDE Connect** (LAN Wi-Fi ring bypassing silent mode), **ADB** (volume boost to max + alarm audio intent), and **Ntfy.sh** (zero-dependency remote push notification with `Priority: urgent` overriding DND).
+  - Cross-platform binary resolution and fallback execution across **Linux**, **Windows** (`kdeconnect-cli.exe`, `adb.exe`, PowerShell clipboard `Get-Clipboard`/`Set-Clipboard`, `ImageGrab.grab`), and **macOS** (`kdeconnect-cli`, `pbcopy`/`pbpaste`, native `screencapture -x`).
 
 ### Phase 7 — CREATOR Software Engineering & Document Engine (COMPLETE & VERIFIED)
 - **CREATOR Engine (`core/creator.py`, `actions/creator.py`):**

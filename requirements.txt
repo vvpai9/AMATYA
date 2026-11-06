@@ -58,6 +58,9 @@ cryptography>=42,<50
 python-multipart>=0.0.9,<1
 qrcode[pil]>=7,<9
 
+# ── Phone Ring & VoIP ─────────────────────────────────────────────────────────
+agentring @ git+https://github.com/mutonby/agentring.git#subdirectory=daemon
+
 # ── Plugin extras ─────────────────────────────────────────────────────────────
 # Plugins are downloaded one file at a time from the community, so their
 # dependencies are installed UP FRONT: dropping a .py into plugins/ should make

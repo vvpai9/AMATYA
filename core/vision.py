@@ -37,6 +37,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 import sys
 import time
 from dataclasses import dataclass, field
@@ -203,16 +204,35 @@ class Vision:
             except Exception as e:
                 self._log(f"[Vision] kwin-mcp capture error, falling back: {e}")
 
-        # 2. Native KDE Plasma Wayland capture via spectacle
-        try:
-            res_spec = self._capture_spectacle(kind, monitor, region, window_id)
-            if res_spec.ok and res_spec.image_bytes and not self._is_completely_black(res_spec.image_bytes):
-                return res_spec
-            self._log("[Vision] spectacle returned empty or black image, falling back.")
-        except Exception as e:
-            self._log(f"[Vision] spectacle capture error, falling back: {e}")
+        # 2. Native KDE Plasma Wayland capture via spectacle (Linux)
+        if platform.system() == "Linux":
+            try:
+                res_spec = self._capture_spectacle(kind, monitor, region, window_id)
+                if res_spec.ok and res_spec.image_bytes and not self._is_completely_black(res_spec.image_bytes):
+                    return res_spec
+                self._log("[Vision] spectacle returned empty or black image, falling back.")
+            except Exception as e:
+                self._log(f"[Vision] spectacle capture error, falling back: {e}")
 
-        # 3. Fallback to mss (X11 or when kwin-mcp and spectacle fail).
+        # 3. Native macOS screencapture
+        if platform.system() == "Darwin":
+            try:
+                res_mac = self._capture_macos_screencapture(kind, monitor, region, window_id)
+                if res_mac.ok and res_mac.image_bytes and not self._is_completely_black(res_mac.image_bytes):
+                    return res_mac
+            except Exception as e:
+                self._log(f"[Vision] macOS screencapture error: {e}")
+
+        # 4. Native Windows ImageGrab
+        if platform.system() == "Windows":
+            try:
+                res_win = self._capture_windows_imagegrab(kind, monitor, region)
+                if res_win.ok and res_win.image_bytes and not self._is_completely_black(res_win.image_bytes):
+                    return res_win
+            except Exception as e:
+                self._log(f"[Vision] Windows ImageGrab error: {e}")
+
+        # 5. Fallback to mss (X11, Windows, macOS, or when other backends fail).
         try:
             res_mss = self._capture_mss(kind, monitor, region)
             if res_mss.ok and res_mss.image_bytes and not self._is_completely_black(res_mss.image_bytes):
@@ -281,6 +301,62 @@ class Vision:
 
         err_msg = p.stderr.decode("utf-8", errors="ignore") if p.stderr else "unknown error"
         return CaptureResult(ok=False, error=f"spectacle failed: {err_msg}")
+
+    def _capture_macos_screencapture(
+        self,
+        kind: str,
+        monitor: int = 1,
+        region: Optional[dict[str, Any]] = None,
+        window_id: Optional[Any] = None,
+    ) -> CaptureResult:
+        """Capture via macOS native screencapture tool."""
+        import subprocess as _sp
+        import tempfile as _tmp
+        import shutil as _shutil
+
+        if not _shutil.which("screencapture"):
+            return CaptureResult(ok=False, error="screencapture not available")
+
+        tmp_file = Path(_tmp.gettempdir()) / f"amatya_mac_{int(time.time() * 1000)}.png"
+        cmd = ["screencapture", "-x"]  # -x = silent, no sound
+        if kind in ("window", "active_window"):
+            cmd.append("-w")
+        elif kind == "region" and region:
+            cmd.extend(["-R", f"{region['x']},{region['y']},{region['width']},{region['height']}"])
+
+        cmd.append(str(tmp_file))
+
+        try:
+            p = _sp.run(cmd, capture_output=True, timeout=6)
+            if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                img_bytes = tmp_file.read_bytes()
+                tmp_file.unlink(missing_ok=True)
+                return self._finalize_capture(img_bytes, "image/png", kind, monitor, region, window_id, None, None)
+            return CaptureResult(ok=False, error="screencapture produced no output")
+        except Exception as exc:
+            return CaptureResult(ok=False, error=f"screencapture error: {exc}")
+
+    def _capture_windows_imagegrab(
+        self,
+        kind: str,
+        monitor: int = 1,
+        region: Optional[dict[str, Any]] = None,
+    ) -> CaptureResult:
+        """Capture via PIL.ImageGrab on Windows."""
+        try:
+            from PIL import ImageGrab
+            import io
+            if kind == "region" and region:
+                bbox = (region["x"], region["y"], region["x"] + region["width"], region["y"] + region["height"])
+                im = ImageGrab.grab(bbox=bbox, all_screens=True)
+            else:
+                im = ImageGrab.grab(all_screens=True)
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+            return self._finalize_capture(img_bytes, "image/png", kind, monitor, region, None, None, None)
+        except Exception as exc:
+            return CaptureResult(ok=False, error=f"Windows ImageGrab error: {exc}")
 
     def _get_monitor_region(self, monitor: int) -> Optional[dict[str, int]]:
         """Query KDE kscreen-doctor JSON for monitor geometry (1-based index)."""

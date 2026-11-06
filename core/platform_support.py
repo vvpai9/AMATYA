@@ -107,19 +107,22 @@ def detect() -> Support:
     system = platform.system()
 
     if system == "Windows":
-        return Support(os_name="Windows")
+        support = Support(os_name="Windows")
+        support.notes.append(
+            "Windows native session: PyAutoGUI input, ImageGrab/MSS vision, "
+            "PowerShell clipboard, and KDE Connect/ADB phone ringing available."
+        )
+        return support
 
     if system == "Darwin":
         support = Support(os_name="macOS")
-        # There is no reliable way to READ the Accessibility permission without
-        # a native extension, so this cannot be a hard answer — it is a warning
-        # attached to the thing people actually get wrong.
+        has_screencapture = bool(shutil.which("screencapture"))
+        has_pbcopy = bool(shutil.which("pbcopy"))
         support.notes.append(
-            "macOS asks for two permissions before an assistant can drive the "
-            "computer: Accessibility (to type and click) and Screen Recording "
-            "(to see the screen), both under System Settings > Privacy & "
-            "Security. Until they are granted, those actions appear to succeed "
-            "and do nothing."
+            f"macOS native session (screencapture={'available' if has_screencapture else 'missing'}, "
+            f"pbcopy={'available' if has_pbcopy else 'missing'}). "
+            "Ensure Accessibility (to type and click) and Screen Recording (to capture screen) "
+            "are granted under System Settings > Privacy & Security."
         )
         return support
 

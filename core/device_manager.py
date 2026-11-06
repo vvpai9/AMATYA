@@ -407,8 +407,11 @@ class ConnectedDeviceManager:
 
         kde_id = str(dev.get("kdeconnect_id", "") or "").strip()
         adb_serial = str(dev.get("adb_serial", "") or "").strip()
-        has_kde = bool(kde_id and shutil.which("kdeconnect-cli"))
-        has_adb = bool(adb_serial and shutil.which("adb"))
+        from core.phone_ring import find_kdeconnect_cli, find_adb_cli, get_phone_ringer
+        kde_bin = find_kdeconnect_cli()
+        adb_bin = find_adb_cli()
+        has_kde = bool(kde_id and kde_bin)
+        has_adb = bool(adb_serial and adb_bin)
 
         # 1. File Transfer ("Send that file to my phone")
         if act in ("send_file", "share_file"):
@@ -464,24 +467,26 @@ class ConnectedDeviceManager:
             }
 
         # 2. Ring / Find My Phone
-        if act in ("ring", "find_phone"):
-            if has_kde:
-                r = subprocess.run(
-                    ["kdeconnect-cli", "-d", kde_id, "--ring"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if r.returncode == 0:
-                    return {
-                        "ok": True,
-                        "simulated": False,
-                        "mode_label": "[LIVE KDE CONNECT]",
-                        "message": f"Ringing {dev['name']} via KDE Connect.",
-                    }
+        if act in ("ring", "find_phone", "call_phone"):
+            ringer = get_phone_ringer()
+            ring_res = ringer.ring(
+                target=kde_id or dev.get("device_id") or dev.get("name"),
+                reason="AMATYA Find My Phone alert",
+                urgent=True,
+            )
+            if ring_res.get("ok"):
+                return {
+                    "ok": True,
+                    "simulated": False,
+                    "backend": ring_res.get("backend", "kdeconnect"),
+                    "mode_label": f"[LIVE {ring_res.get('backend', 'PHONE').upper()}]",
+                    "device": dev.get("name", "Phone"),
+                    "message": ring_res.get("message", f"Ringing {dev['name']}."),
+                }
             return {
-                "ok": True,
-                "simulated": True,
-                "mode_label": "[SIMULATED PHONE]",
-                "message": f"[SIMULATED PHONE] Triggered ring alert on {dev['name']}.",
+                "ok": False,
+                "error": ring_res.get("error", f"Could not ring {dev['name']}."),
+                "pairing_instructions": ring_res.get("pairing_instructions", ""),
             }
 
         # 3. Clipboard Share

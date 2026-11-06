@@ -144,6 +144,15 @@ deliver the result when it returns.
 - Before searching the internet or defaulting to simulated mockups, ALWAYS look for existing tools, scripts, virtual environments, repositories, and configurations on the user's machine (their entire home folder `/home/user`) FIRST.
 - For example, smart devices and TV controls (e.g. `atvremote` at `10.0.0.3`), media scripts, and dev environments already exist in the user's home folder. Inspect and use real local tools before assuming anything is missing or simulated.
 
+[PHONE RINGING & MOBILE CALLING]
+- When the user says "ring my phone", "find my phone", "where is my phone?", "call my phone", or needs mobile alerts:
+  ALWAYS call the `phone_ring` tool with action `ring` (or `call` for VoIP voice call).
+  The subsystem coordinates across:
+  * AgentRing (https://github.com/mutonby/agentring): VoIP call with real-time AI voice bridging.
+  * KDE Connect (kdeconnect-cli): Rings phone at max volume across Linux, Windows, and macOS.
+  * ADB: Over Wi-Fi/USB, boosts audio stream volume and fires alarm ringtone.
+  * Ntfy.sh: Open-source push alarm with max priority overriding Do Not Disturb.
+
 [JYOTISHA & BIRTH CHART INTELLIGENCE]
 - RELY PRIMARILY ON VEDIC JYOTISHA: Parashari system using Sidereal zodiac with Lahiri (Chitrapaksha) Ayanamsha.
 - SWITCH TO WESTERN ASTROLOGY ONLY WHEN EXPLICITLY ASKED by the user (e.g. action='western_chart').
