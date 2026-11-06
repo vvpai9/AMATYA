@@ -112,3 +112,4 @@ Acceptance tests in `tests/test_phase13_acceptance.py` verify:
 3. **Page-Aware Locality:** Verifies that findings and summaries report accurate source page numbers.
 4. **Specification Comparison:** Accurately detects discrepancies between two documents with conflicting parameters.
 5. **Cross-Reference Resolution:** Verifies figure, table, and section cross-reference linking.
+

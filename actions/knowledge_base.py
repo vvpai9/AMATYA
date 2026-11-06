@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core import outcome
+from core.creator_knowledge import get_creator_knowledge_manager
 from core.document_intelligence import (
     DocumentParser,
     DocumentReasoningEngine,
@@ -14,8 +15,14 @@ from core.document_intelligence import (
     export_tables_xlsx,
 )
 from core.ingestion import get_ingestion_engine, Modality, SourceType
+from core.knowledge_graph import EntityType, RelationType, get_knowledge_graph
+from core.live_monitor import get_live_monitor
+from core.media_intelligence import MediaIntelligenceEngine
 from core.memory_engine import get_memory_engine
 from core.rag import get_knowledge_base
+from core.research_engine import get_research_engine
+from core.universal_search import get_search_engine
+from core.visual_intelligence import VisualIntelligenceEngine
 from memory.memory_manager import (
     all_entries_for_ui,
     clear_category,
@@ -55,6 +62,15 @@ SKILL_METADATA = {
         "compare_documents",
         "document_summary",
         "find_section",
+        "visual_analyze",
+        "visual_verify",
+        "analyze_audio",
+        "analyze_video",
+        "graph_query",
+        "graph_stats",
+        "conduct_research",
+        "manage_space",
+        "live_monitor",
         "index_path",
         "index_note",
         "list_sources",
@@ -387,6 +403,103 @@ def execute(
             result=f"Found {len(matches)} section match(es) for '{query}' in '{parsed.title}':\n" + "\n".join(lines),
             data={"matches": matches},
         )
+
+    if action == "visual_analyze":
+        path_str = str(parameters.get("path", "") or "").strip()
+        q = str(parameters.get("query", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' for visual_analyze.")
+        res = VisualIntelligenceEngine.analyze_image(path_str, query=q)
+        return outcome.done("knowledge_base", result=res.summary, data=res.to_dict())
+
+    if action == "visual_verify":
+        before_p = str(parameters.get("path", "") or parameters.get("before_path", "") or "").strip()
+        after_p = str(parameters.get("path_b", "") or parameters.get("after_path", "") or "").strip()
+        if not before_p or not after_p:
+            return outcome.failed("knowledge_base", "Both 'path' (before) and 'path_b' (after) are required for visual_verify.")
+        res = VisualIntelligenceEngine.verify_action(before_p, after_p)
+        return outcome.done("knowledge_base", result=res.explanation, data=res.to_dict())
+
+    if action == "analyze_audio":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' for analyze_audio.")
+        res = MediaIntelligenceEngine.analyze_audio(path_str)
+        return outcome.done("knowledge_base", result=res.summary, data=res.to_dict())
+
+    if action == "analyze_video":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' for analyze_video.")
+        res = MediaIntelligenceEngine.analyze_video(path_str)
+        return outcome.done("knowledge_base", result=res.summary, data=res.to_dict())
+
+    if action == "graph_query":
+        kg = get_knowledge_graph()
+        q = str(parameters.get("query", "") or "").strip()
+        if not q:
+            return outcome.failed("knowledge_base", "Please specify 'query' (entity name) for graph_query.")
+        entity = kg.get_entity(q)
+        if not entity:
+            return outcome.done("knowledge_base", result=f"No entity matching '{q}' found in knowledge graph.", data={"entity": None})
+        hops = kg.traverse_multi_hop(entity.entity_id, max_hops=int(parameters.get("hops", 2)))
+        hop_lines = [f"- {h['path_trace']} ({h['target_type']})" for h in hops[:8]]
+        summary = f"Entity '{entity.name}' ({entity.entity_type}) with {len(hops)} connected path(s):\n" + "\n".join(hop_lines)
+        return outcome.done("knowledge_base", result=summary, data={"entity": entity.to_dict(), "paths": hops})
+
+    if action == "graph_stats":
+        kg = get_knowledge_graph()
+        stats = kg.get_stats()
+        summary = f"Knowledge Graph: {stats['total_entities']} entities, {stats['total_edges']} edges. Types: {stats['by_type']}. Relations: {stats['by_relation']}."
+        return outcome.done("knowledge_base", result=summary, data=stats)
+
+    if action == "conduct_research":
+        researcher = get_research_engine()
+        topic = str(parameters.get("topic", "") or parameters.get("query", "") or "").strip()
+        if not topic:
+            return outcome.failed("knowledge_base", "Please provide 'topic' or 'query' for conduct_research.")
+        report = researcher.conduct_research(topic, max_sources=int(parameters.get("top_k", 5)))
+        return outcome.done("knowledge_base", result=report.summary, data=report.to_dict())
+
+    if action == "manage_space":
+        km = get_creator_knowledge_manager()
+        sub_action = str(parameters.get("sub_action", "get_active")).strip().lower()
+        if sub_action == "create":
+            sid = str(parameters.get("space_id", "") or "").strip()
+            name = str(parameters.get("name", sid) or sid).strip()
+            if not sid:
+                return outcome.failed("knowledge_base", "Please specify 'space_id' to create knowledge space.")
+            space = km.create_space(sid, name, description=parameters.get("description", ""))
+            return outcome.done("knowledge_base", result=f"Created knowledge space '{space.name}' ({space.space_id}).", data=space.to_dict())
+        elif sub_action == "switch":
+            sid = str(parameters.get("space_id", "") or "").strip()
+            ok = km.set_active_space(sid)
+            return outcome.done("knowledge_base", result=f"Switched active knowledge space to '{sid}'.") if ok else outcome.failed("knowledge_base", f"Space '{sid}' not found.")
+        else:
+            active = km.get_active_space()
+            return outcome.done("knowledge_base", result=f"Active Knowledge Space: '{active.name}' ({active.space_id}).", data=active.to_dict())
+
+    if action == "live_monitor":
+        mon = get_live_monitor()
+        sub_action = str(parameters.get("sub_action", "list")).strip().lower()
+        if sub_action == "register":
+            tid = str(parameters.get("target_id", "") or "").strip()
+            ttype = str(parameters.get("target_type", "file")).strip()
+            uri = str(parameters.get("uri", "") or parameters.get("path", "") or "").strip()
+            if not tid or not uri:
+                return outcome.failed("knowledge_base", "Both 'target_id' and 'uri' (or 'path') are required.")
+            target = mon.register_monitor(tid, ttype, uri, description=parameters.get("description", ""))
+            return outcome.done("knowledge_base", result=f"Registered monitor target '{target.target_id}' ({target.target_type}).", data=target.to_dict())
+        elif sub_action == "check":
+            tid = str(parameters.get("target_id", "") or "").strip()
+            if not tid:
+                return outcome.failed("knowledge_base", "Please provide 'target_id' to check.")
+            changed, explanation = mon.check_target(tid)
+            return outcome.done("knowledge_base", result=explanation, data={"changed": changed})
+        else:
+            targets = mon.list_targets()
+            summary = f"Monitoring {len(targets)} target(s): " + ", ".join([t.target_id for t in targets])
+            return outcome.done("knowledge_base", result=summary, data={"targets": [t.to_dict() for t in targets]})
 
     if action == "index_path":
         path = str(parameters.get("path", "") or "").strip()

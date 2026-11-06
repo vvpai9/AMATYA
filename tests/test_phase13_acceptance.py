@@ -26,6 +26,7 @@ from pathlib import Path
 from PIL import Image
 
 from actions import knowledge_base
+from core.creator_knowledge import CreatorKnowledgeManager, get_creator_knowledge_manager
 from core.document_intelligence import (
     DocumentParser,
     DocumentReasoningEngine,
@@ -45,7 +46,18 @@ from core.ingestion import (
     UniversalIngestionEngine,
     get_ingestion_engine,
 )
+from core.knowledge_graph import (
+    EntityType,
+    PersonalKnowledgeGraph,
+    RelationType,
+    get_knowledge_graph,
+)
+from core.live_monitor import LiveInformationMonitor, get_live_monitor
+from core.media_intelligence import MediaIntelligenceEngine
 from core.rag import get_knowledge_base
+from core.research_engine import ResearchIntelligenceEngine, get_research_engine
+from core.universal_search import UniversalSearchEngine, get_search_engine
+from core.visual_intelligence import VisualIntelligenceEngine
 
 
 class TestPhase13Acceptance(unittest.TestCase):
@@ -490,6 +502,175 @@ class TestPhase13Acceptance(unittest.TestCase):
         })
         self.assertIn("status=done", res_find)
         self.assertIn("Found 1 section match(es)", res_find)
+
+    def test_17_visual_intelligence_analysis(self):
+        """Verifies visual image analysis, classification, and element detection."""
+        img_path = self.test_dir / "schematic_diagram.png"
+        img = Image.new("RGB", (800, 600), color=(250, 250, 250))
+        img.save(img_path, format="PNG")
+
+        res = VisualIntelligenceEngine.analyze_image(img_path)
+        self.assertEqual(res.image_type, "schematic")
+        self.assertEqual(res.dimensions, (800, 600))
+        self.assertGreaterEqual(res.confidence, 0.7)
+        self.assertGreaterEqual(len(res.elements), 1)
+
+    def test_18_visual_verification_of_desktop_action(self):
+        """Verifies pre- and post-action visual change detection and bounding box isolation."""
+        before_path = self.test_dir / "screen_before.png"
+        after_path = self.test_dir / "screen_after.png"
+
+        img_before = Image.new("RGB", (400, 300), color="white")
+        img_before.save(before_path, format="PNG")
+
+        img_after = Image.new("RGB", (400, 300), color="white")
+        # Draw a small blue box simulating a clicked button state change
+        for x in range(50, 150):
+            for y in range(50, 100):
+                img_after.putpixel((x, y), (0, 0, 255))
+        img_after.save(after_path, format="PNG")
+
+        # 1. Action with changes -> verified True
+        verif = VisualIntelligenceEngine.verify_action(
+            before_path,
+            after_path,
+            expected_change_region=(40, 40, 160, 110),
+        )
+        self.assertTrue(verif.verified)
+        self.assertGreater(verif.change_ratio, 0.0)
+        self.assertGreaterEqual(len(verif.changed_boxes), 1)
+
+        # 2. Identical images -> verified False
+        verif_same = VisualIntelligenceEngine.verify_action(before_path, before_path)
+        self.assertFalse(verif_same.verified)
+        self.assertEqual(verif_same.change_ratio, 0.0)
+
+    def test_19_media_intelligence_audio_and_action_items(self):
+        """Verifies timestamped audio transcription, speaker turns, and action item detection."""
+        audio_path = self.test_dir / "standup_meeting.wav"
+        with wave.open(str(audio_path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 32000)  # 2.0s audio
+
+        transcript = (
+            "Good morning team. We need to deploy the new voltage regulator module by Friday. "
+            "Please ensure the tests are passing. I will check the telemetry graphs."
+        )
+        res = MediaIntelligenceEngine.analyze_audio(audio_path, simulated_transcript=transcript)
+        self.assertEqual(len(res.transcript_chunks), 4)
+        self.assertGreaterEqual(len(res.action_items), 2)
+        self.assertIn("Speaker 1", res.speakers_detected)
+        self.assertGreater(res.duration_seconds, 0)
+
+    def test_20_knowledge_graph_multi_hop_and_contradictions(self):
+        """Verifies entity creation, 2-hop graph traversal, contradiction detection, and deletion cascading."""
+        kg_file = self.test_dir / "test_kg.json"
+        kg = PersonalKnowledgeGraph(storage_path=kg_file)
+
+        # Add nodes
+        p_node = kg.add_entity("Mark-LVI", EntityType.PROJECT)
+        c_node = kg.add_entity("Phase 13", EntityType.CONCEPT)
+        d_node = kg.add_entity("Android Phone", EntityType.DEVICE)
+
+        # Add edges: Mark-LVI -> Phase 13 -> Android Phone
+        kg.add_relationship(p_node.entity_id, RelationType.IMPLEMENTS, c_node.entity_id)
+        kg.add_relationship(c_node.entity_id, RelationType.CONNECTED_TO, d_node.entity_id)
+
+        # Multi-hop traversal: 2 hops from Mark-LVI should reach Android Phone
+        hops = kg.traverse_multi_hop(p_node.entity_id, max_hops=2)
+        target_names = [h["target_name"] for h in hops]
+        self.assertIn("Phase 13", target_names)
+        self.assertIn("Android Phone", target_names)
+
+        # Contradiction detection
+        node_a = kg.add_entity("Spec Alpha", EntityType.DOCUMENT)
+        node_b = kg.add_entity("Spec Beta", EntityType.DOCUMENT)
+        kg.add_relationship(node_a.entity_id, RelationType.CONTRADICTS, node_b.entity_id, source_context="Voltage conflict")
+        contra = kg.detect_contradictions()
+        self.assertEqual(len(contra), 1)
+        self.assertEqual(contra[0]["source"], "Spec Alpha")
+
+        # Deletion cascading
+        del_count = kg.propagate_deletion(p_node.entity_id)
+        self.assertGreater(del_count, 0)
+        self.assertIsNone(kg.get_entity(p_node.entity_id))
+
+    def test_21_universal_semantic_search(self):
+        """Verifies hybrid search over RAG text chunks and knowledge graph entities."""
+        searcher = UniversalSearchEngine()
+        # Seed an entity in the graph
+        kg = get_knowledge_graph()
+        kg.add_entity("SearchTestEntity", EntityType.PROJECT, properties={"focus": "Multimodal"})
+
+        hits = searcher.search("SearchTestEntity", top_k=5)
+        self.assertGreaterEqual(len(hits), 1)
+        self.assertEqual(hits[0].retrieval_method, "knowledge_graph")
+
+    def test_22_source_grounded_research_engine(self):
+        """Verifies multi-step research workflow, evidence collection, and citation formatting."""
+        researcher = ResearchIntelligenceEngine()
+        report = researcher.conduct_research("Universal Ingestion architecture", max_sources=3)
+        self.assertGreaterEqual(len(report.plan_steps), 5)
+        self.assertEqual(report.topic, "Universal Ingestion architecture")
+        md = report.to_markdown()
+        self.assertIn("# Research Report:", md)
+        self.assertIn("Executive Summary", md)
+
+    def test_23_creator_knowledge_spaces(self):
+        """Verifies isolated project knowledge spaces and context assembly."""
+        spaces_file = self.test_dir / "test_spaces.json"
+        km = CreatorKnowledgeManager(storage_path=spaces_file)
+
+        space = km.create_space("iot_space", "IoT Project Space", description="Embedded IoT telemetry")
+        self.assertEqual(space.space_id, "iot_space")
+
+        switched = km.set_active_space("iot_space")
+        self.assertTrue(switched)
+        self.assertEqual(km.get_active_space().space_id, "iot_space")
+
+        ctx = km.assemble_creator_context("Power regulation schematic")
+        self.assertEqual(ctx["active_space"]["space_id"], "iot_space")
+        self.assertIn("grounding_confidence", ctx)
+
+    def test_24_live_information_monitor(self):
+        """Verifies file change detection and baseline tracking."""
+        mon_file = self.test_dir / "test_monitors.json"
+        mon = LiveInformationMonitor(config_path=mon_file)
+
+        watched_file = self.test_dir / "watched_log.txt"
+        watched_file.write_text("Log line 1\n", encoding="utf-8")
+
+        target = mon.register_monitor("log_target", "file", str(watched_file))
+        self.assertEqual(target.target_id, "log_target")
+
+        # Baseline check -> No change
+        changed_1, _ = mon.check_target("log_target")
+        self.assertFalse(changed_1)
+
+        # Modify file -> Change detected
+        time.sleep(0.05)
+        watched_file.write_text("Log line 1\nLog line 2\n", encoding="utf-8")
+        changed_2, explanation = mon.check_target("log_target")
+        self.assertTrue(changed_2)
+        self.assertIn("State change detected", explanation)
+
+    def test_25_extended_knowledge_base_actions(self):
+        """Verifies tool actions for graph_stats, graph_query, conduct_research, manage_space, live_monitor."""
+        # 1. Action: graph_stats
+        res_stats = knowledge_base.execute({"action": "graph_stats"})
+        self.assertIn("status=done", res_stats)
+        self.assertIn("Knowledge Graph:", res_stats)
+
+        # 2. Action: conduct_research
+        res_research = knowledge_base.execute({"action": "conduct_research", "topic": "AMATYA Architecture"})
+        self.assertIn("status=done", res_research)
+
+        # 3. Action: manage_space
+        res_space = knowledge_base.execute({"action": "manage_space", "sub_action": "get_active"})
+        self.assertIn("status=done", res_space)
+        self.assertIn("Active Knowledge Space", res_space)
 
 
 if __name__ == "__main__":
