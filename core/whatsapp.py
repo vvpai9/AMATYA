@@ -64,3 +64,4 @@ def get_whatsapp_manager() -> WhatsAppManager:
     if _WA_MGR is None:
         _WA_MGR = WhatsAppManager()
     return _WA_MGR
+

@@ -3,9 +3,11 @@ actions/knowledge_base.py — Semantic RAG Knowledge Base & Memory Controls for 
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from core import outcome
+from core.ingestion import get_ingestion_engine, Modality, SourceType
 from core.memory_engine import get_memory_engine
 from core.rag import get_knowledge_base
 from memory.memory_manager import (
@@ -19,13 +21,26 @@ from memory.memory_manager import (
 
 SKILL_METADATA = {
     "name": "knowledge_base",
-    "version": "1.2.0",
-    "description": "Index local documents/projects into AMATYA's semantic RAG store, query knowledge, and manage/export layered persistent memory.",
-    "capabilities": ["rag_indexing", "semantic_search", "memory_management", "memory_export", "layered_memory", "contradiction_detection"],
+    "version": "13.2.0",
+    "description": "Universal Multimodal Ingestion, semantic RAG knowledge base, and layered persistent memory management for AMATYA.",
+    "capabilities": [
+        "universal_ingestion",
+        "multimodal_extraction",
+        "incremental_sync",
+        "rag_indexing",
+        "semantic_search",
+        "memory_management",
+        "memory_export",
+        "layered_memory",
+        "contradiction_detection",
+    ],
     "permissions": ["file_read", "memory_write"],
     "dependencies": ["numpy"],
     "supported_actions": [
         "query",
+        "ingest",
+        "ingestion_status",
+        "sync_incremental",
         "index_path",
         "index_note",
         "list_sources",
@@ -46,10 +61,10 @@ SKILL_METADATA = {
 TOOL = {
     "name": "knowledge_base",
     "description": (
-        "Index and search local documents, project repositories, PDFs, DOCX, "
-        "and notes using AMATYA's local semantic RAG knowledge base, or inspect/"
-        "export/delete/correct layered personal memory. Actions: 'query', 'index_path', "
-        "'index_note', 'list_sources', 'remove_source', 'clear_index', "
+        "Universal multimodal ingestion and search across local documents (PDF, DOCX, XLSX, PPTX, CSV), "
+        "code, web URLs, images, audio/video, and notes using AMATYA's Phase 13 Ingestion Framework and RAG store, "
+        "or inspect/export/delete/correct layered personal memory. Actions: 'query', 'ingest', 'ingestion_status', "
+        "'sync_incremental', 'index_path', 'index_note', 'list_sources', 'remove_source', 'clear_index', "
         "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
         "'store_fact', 'correct_fact', 'search_memories', 'toggle_memory'."
     ),
@@ -59,10 +74,10 @@ TOOL = {
             "action": {
                 "type": "STRING",
                 "description": (
-                    "Action: 'query', 'index_path', 'index_note', 'list_sources', "
-                    "'remove_source', 'clear_index', 'export_memory', 'list_memory', "
-                    "'delete_memory', 'clear_memory_category', 'store_fact', "
-                    "'correct_fact', 'search_memories', 'toggle_memory'."
+                    "Action: 'query', 'ingest', 'ingestion_status', 'sync_incremental', "
+                    "'index_path', 'index_note', 'list_sources', 'remove_source', 'clear_index', "
+                    "'export_memory', 'list_memory', 'delete_memory', 'clear_memory_category', "
+                    "'store_fact', 'correct_fact', 'search_memories', 'toggle_memory'."
                 ),
             },
             "query": {
@@ -71,19 +86,31 @@ TOOL = {
             },
             "path": {
                 "type": "STRING",
-                "description": "File or directory path for 'index_path' or 'export_memory'.",
+                "description": "File or directory path for 'ingest', 'sync_incremental', 'index_path', or 'export_memory'.",
+            },
+            "url": {
+                "type": "STRING",
+                "description": "Web URL to safely ingest for 'ingest' action.",
             },
             "source_id": {
                 "type": "STRING",
-                "description": "Source identifier for 'index_note' or 'remove_source'.",
+                "description": "Source identifier for 'index_note', 'remove_source', or 'ingestion_status'.",
             },
             "title": {
                 "type": "STRING",
-                "description": "Document or note title for 'index_note'.",
+                "description": "Document or note title for 'index_note' or 'ingest'.",
             },
             "text": {
                 "type": "STRING",
-                "description": "Text content for 'index_note'.",
+                "description": "Text content for 'index_note' or raw text 'ingest'.",
+            },
+            "force_reindex": {
+                "type": "BOOLEAN",
+                "description": "Force re-extraction and indexing even if unchanged.",
+            },
+            "preview": {
+                "type": "BOOLEAN",
+                "description": "Preview incremental changes (new, modified, unchanged) without indexing.",
             },
             "top_k": {
                 "type": "INTEGER",
@@ -145,6 +172,102 @@ def execute(
             data={"rag_hits": hits, "memory_summary": mem_hits},
         )
 
+    engine = get_ingestion_engine()
+
+    if action == "ingest":
+        path_str = str(parameters.get("path", "") or "").strip()
+        url_str = str(parameters.get("url", "") or "").strip()
+        text_str = str(parameters.get("text", "") or "").strip()
+        title_str = str(parameters.get("title", "") or "").strip()
+        force_reindex = bool(parameters.get("force_reindex", False))
+
+        if url_str:
+            res = engine.ingest_url(url_str, force_reindex=force_reindex)
+            if not res.is_success and res.error:
+                return outcome.failed("knowledge_base", f"Failed to ingest URL: {res.error}")
+            return outcome.done(
+                "knowledge_base",
+                result=f"Successfully ingested URL '{res.title}' ({len(res.chunks)} chunk(s)).",
+                data={"source_id": res.source_id, "chunks": len(res.chunks), "metadata": res.metadata},
+            )
+
+        if text_str:
+            res = engine.ingest_text(text_str, title=title_str or "Untitled Note")
+            return outcome.done(
+                "knowledge_base",
+                result=f"Successfully ingested note '{res.title}' ({len(res.chunks)} chunk(s)).",
+                data={"source_id": res.source_id, "chunks": len(res.chunks)},
+            )
+
+        if path_str:
+            p = Path(path_str).expanduser().resolve()
+            if not p.exists():
+                return outcome.failed("knowledge_base", f"Path not found: {p}")
+            if p.is_file():
+                res = engine.ingest_file(p, force_reindex=force_reindex)
+                if not res.is_success and res.error:
+                    return outcome.failed("knowledge_base", f"Failed to ingest file: {res.error}")
+                skipped = res.metadata.get("skipped", False)
+                msg = f"Source '{p.name}' unchanged, skipped re-indexing." if skipped else f"Successfully ingested file '{p.name}' ({len(res.chunks)} chunk(s), modality={res.modality.value})."
+                return outcome.done(
+                    "knowledge_base",
+                    result=msg,
+                    data={"source_id": res.source_id, "chunks": len(res.chunks), "modality": res.modality.value, "metadata": res.metadata},
+                )
+            else:
+                dir_res = engine.ingest_directory(p, force_reindex=force_reindex)
+                if not dir_res.get("ok"):
+                    return outcome.failed("knowledge_base", dir_res.get("error", "Failed to ingest directory."))
+                stats = dir_res["stats"]
+                summary = f"Directory '{p.name}' ingested: {stats['new']} new, {stats['modified']} modified, {stats['unchanged']} unchanged ({stats['chunks_created']} chunks)."
+                return outcome.done("knowledge_base", result=summary, data=dir_res)
+
+        return outcome.failed("knowledge_base", "Please provide 'path', 'url', or 'text' to ingest.")
+
+    if action == "ingestion_status":
+        sid = str(parameters.get("source_id", "") or "").strip()
+        if sid:
+            rec = engine.registry.get(sid)
+            if not rec:
+                return outcome.failed("knowledge_base", f"No ingestion record found for source '{sid}'.")
+            return outcome.done(
+                "knowledge_base",
+                result=f"Source [{rec.source_id}] {rec.uri}: Status={rec.status}, Modality={rec.modality}, Chunks={rec.chunk_count}.",
+                data=rec.to_dict(),
+            )
+        stats = engine.get_stats()
+        summary = (
+            f"Ingestion Registry: {stats['total_sources']} total sources, {stats['total_chunks']} chunks, "
+            f"{stats['total_bytes']} bytes. Modalities: {stats['by_modality']}. Status: {stats['by_status']}."
+        )
+        return outcome.done("knowledge_base", result=summary, data=stats)
+
+    if action == "sync_incremental":
+        path_str = str(parameters.get("path", "") or "").strip()
+        if not path_str:
+            return outcome.failed("knowledge_base", "Please specify 'path' for incremental sync.")
+        p = Path(path_str).expanduser().resolve()
+        if not p.exists():
+            return outcome.failed("knowledge_base", f"Path not found: {p}")
+
+        preview = bool(parameters.get("preview", False))
+        if preview:
+            files = [item for item in p.rglob("*") if item.is_file()][:100] if p.is_dir() else [p]
+            categorized = engine.check_incremental(files)
+            summary = f"Incremental preview for '{p.name}': {len(categorized['new'])} new, {len(categorized['modified'])} modified, {len(categorized['unchanged'])} unchanged."
+            return outcome.done("knowledge_base", result=summary, data=categorized)
+
+        if p.is_dir():
+            res = engine.ingest_directory(p, recursive=True)
+            stats = res.get("stats", {})
+            summary = f"Incremental sync for '{p.name}': {stats.get('new', 0)} new, {stats.get('modified', 0)} modified, {stats.get('unchanged', 0)} unchanged."
+            return outcome.done("knowledge_base", result=summary, data=res)
+        else:
+            res = engine.ingest_file(p)
+            skipped = res.metadata.get("skipped", False)
+            msg = f"Incremental sync for '{p.name}': File was unchanged." if skipped else f"Incremental sync for '{p.name}': Ingested {len(res.chunks)} chunks."
+            return outcome.done("knowledge_base", result=msg, data={"chunks": len(res.chunks), "skipped": skipped})
+
     if action == "index_path":
         path = str(parameters.get("path", "") or "").strip()
         if not path:
@@ -183,6 +306,7 @@ def execute(
         sid = str(parameters.get("source_id", "") or "").strip()
         if not sid:
             return outcome.failed("knowledge_base", "Please specify 'source_id' to remove.")
+        engine.propagate_deletion(sid)
         ok, msg = kb.remove_source(sid)
         return outcome.done("knowledge_base", result=msg) if ok else outcome.failed("knowledge_base", msg)
 

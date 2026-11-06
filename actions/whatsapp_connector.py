@@ -122,3 +122,4 @@ def whatsapp_connector(parameters: dict[str, Any] | None = None, **kwargs: Any) 
 
 
 TOOL["handler"] = whatsapp_connector
+

@@ -191,3 +191,4 @@ def autonomous_agent(parameters: dict[str, Any] | None = None, **kwargs: Any) ->
 
 
 TOOL["handler"] = autonomous_agent
+

@@ -526,3 +526,4 @@ class GitHubRepoAuditor:
             "risks": reasons_negative,
             "recommendation": recommendation,
         }
+
