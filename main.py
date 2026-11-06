@@ -990,6 +990,20 @@ class AmatyaLive:
                 f"Desktop control may be limited."
             )
 
+    def _ensure_executor(self):
+        """Give the loop a working thread pool before every connect. Sized so slow tools cannot starve address lookups."""
+        from concurrent.futures import ThreadPoolExecutor
+        loop = asyncio.get_running_loop()
+        ex = getattr(loop, "_default_executor", None)
+        dead = ex is not None and (getattr(ex, "_shutdown", False) or getattr(ex, "_broken", False))
+        if ex is None or dead or getattr(loop, "_executor_shutdown_called", False):
+            if dead:
+                print("[AMATYA] ⚠️  Thread pool was shut down — replacing it")
+                self.ui.write_log("SYS: Recovered from a stopped worker pool.")
+            if getattr(loop, "_executor_shutdown_called", False):
+                loop._executor_shutdown_called = False
+            loop.set_default_executor(ThreadPoolExecutor(max_workers=32, thread_name_prefix="amatya"))
+
     async def _watch_reconnect(self):
         """Session-scoped task: when a voluntary reconnect is requested, raise a
         signal that unwinds the TaskGroup so the run loop rebuilds the session."""
@@ -2606,6 +2620,7 @@ class AmatyaLive:
 
         while True:
             try:
+                self._ensure_executor()
                 print("[AMATYA] Connecting...")
                 self.ui.set_state("THINKING")
                 # Pick the rung to open the conversation on. A model resting

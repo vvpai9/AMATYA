@@ -88,6 +88,10 @@ def _scrape_first_video_url(query: str) -> str | None:
         r    = requests.get(search_url, headers=HEADERS, timeout=10)
         html = r.text
 
+        _BLOCKED_MEMES = {"dQw4w9WgXcQ", "oHg5SJYRHA0", "cvh0nX08nRw", "xfr64zoBTAQ", "2qBlE2-DU60"}
+        user_query_lower = query.lower()
+        wants_meme = any(k in user_query_lower for k in ("rick", "astley", "never gonna give you up", "rickroll"))
+
         video_ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
 
         seen = set()
@@ -95,6 +99,9 @@ def _scrape_first_video_url(query: str) -> str | None:
             if vid in seen:
                 continue
             seen.add(vid)
+
+            if not wants_meme and vid in _BLOCKED_MEMES:
+                continue
 
             if f'/shorts/{vid}' in html:
                 continue

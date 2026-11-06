@@ -19,7 +19,8 @@ Mark-LVI/
 ├── ARCHITECTURE.md              # Architecture map & phase plan (this file)
 ├── DEVELOPMENT_LOG.md           # Engineering audit, bug fixes, implementation & verification log
 ├── requirements.txt             # Dependencies
-├── actions/                     # 28 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
+├── actions/                     # 31 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
+│   ├── autonomous_agent.py      # Complete autonomy: visual chess player, mouse moves, GitHub repo audit
 │   ├── browser_control.py       # Playwright web automation
 │   ├── cmd_control.py           # Terminal / bash automation
 │   ├── code_helper.py           # Code generation & Wayland-safe clipboard fallback
@@ -27,12 +28,14 @@ Mark-LVI/
 │   ├── computer_settings.py     # Brightness/volume/window ops with kwin-mcp fallback
 │   ├── creator.py               # CREATOR software engineering & document generation action
 │   ├── desktop_agent.py         # Autonomous observe→plan→act→verify Wayland agent action
-│   ├── device_control.py        # Connected devices: KDE Connect, ADB, Redmi TV, SSH, LAN discovery
+│   ├── dev_agent.py             # Autonomous coding, bugfixing & project architecture improvements
+│   ├── device_control.py        # Connected devices: dynamic nmap LAN scan, Tailscale, KDE Connect, ADB, TV
 │   ├── file_controller.py       # File management
-│   ├── finder.py                # File search
+│   ├── file_processor.py        # Local multi-format file parser
 │   ├── flight_finder.py         # Travel flight lookup
+│   ├── game_updater.py          # Game & application update tracking
 │   ├── home_automation.py       # Smart home devices, routines, camera privacy gate, simulated home
-│   ├── jyotisha.py              # Vedic Jyotisha birth chart computation, Shodashavarga D1..D60, Shadbala, Dashas
+│   ├── jyotisha.py              # Vedic Jyotisha, visual Kundali image generation (North/South), Shadbala
 │   ├── knowledge_base.py        # Hybrid semantic + lexical RAG knowledge base action
 │   ├── kwin_desktop.py          # Wayland-native KWin / AT-SPI2 / EIS desktop automation
 │   ├── model_router.py          # 11-role local/cloud AI model router action
@@ -43,28 +46,40 @@ Mark-LVI/
 │   ├── screen_processor.py      # Vision analysis of screen / camera
 │   ├── send_message.py          # Messaging automation
 │   ├── system_monitor.py        # System telemetry
+│   ├── video_player.py          # In-HUD video playback with rickroll/meme filtering
 │   ├── voice_auth.py            # Speaker enrollment, verification, anti-spoofing, PIN & autonomy control
 │   ├── weather_report.py        # Weather report
 │   ├── web_search.py            # DuckDuckGo / search integration
-│   ├── whatsapp_connector.py    # WhatsApp Web integration
+│   ├── whatsapp_connector.py    # WhatsApp Web & Desktop automation & autonomous notifications
+│   ├── workflow_engine.py       # Reusable multi-step macro workflow execution
 │   └── youtube_video.py         # YouTube playback & summarization
 ├── core/                        # Core infrastructure & intelligence engines
+│   ├── _smoke_harness.py        # Isolated subprocess code execution & plugin smoke harness
 │   ├── action_loader.py         # Auto-discovers actions/*.py + validates SKILL_METADATA
+│   ├── autonomous_agent.py      # Autonomous chess engine (minimax PST) & GitHub repository auditor
+│   ├── code_checks.py           # Multi-language static code analysis, syntax validator & test runner
 │   ├── confirm.py               # UI confirmation gate
 │   ├── creator.py               # CREATOR software engineering engine + Command Risk Classification
 │   ├── desktop_agent.py         # Observe→plan→act→verify autonomous desktop agent (AT-SPI2 first)
-│   ├── device_manager.py        # Multi-protocol discovery & control (KDE Connect, ADB, Redmi TV, SSH, Tailscale, ARP)
+│   ├── device_manager.py        # Multi-protocol discovery: nmap, IPv6 neighbors, Tailscale, KDE Connect, ADB
 │   ├── doc_generator.py         # Document creation & parsing (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ZIP)
 │   ├── echo_guard.py            # Self-echo acoustic guard
-│   ├── gemini.py                # Gemini model ladder & cooldowns
+│   ├── gemini.py                # Gemini model ladder, provider routing, parse_json & cooldowns
 │   ├── home_automation.py       # Home Assistant REST/WS, MQTT, routines, state verification & simulator
-│   ├── jyotisha.py              # Swiss Ephemeris astronomical engine, Sidereal Lahiri & Tropical Western calculators
+│   ├── jyotisha.py              # Swiss Ephemeris astronomical engine, Lahiri & Western, Visual Kundali PNG/SVG
 │   ├── kwin_mcp_client.py       # MCP stdio client for kwin-mcp v0.12.0 (session-isolated)
 │   ├── model_router.py          # 11-role hardware-aware model router (GTX 1650 4GB + 16GB RAM aware)
 │   ├── orchestrator.py          # CentralOrchestrator, ContextTracker & pronoun/reference resolution
 │   ├── phone_ring.py            # Cross-platform phone ringing engine (AgentRing VoIP, KDE Connect, ADB, Ntfy.sh)
 │   ├── platform_support.py      # OS, Wayland, kwin-mcp & PipeWire capability probe
 │   ├── plugin_loader.py         # Auto-discovers plugins/*.py + validates SKILL_METADATA
+│   ├── prompt.txt               # AMATYA system prompt
+│   ├── rag.py                   # Local hybrid semantic + lexical BM25 RAG store
+│   ├── screen_automation.py     # Multi-monitor discovery, continuous observation, before/after verification
+│   ├── security.py              # 6 Permission Tiers, 5 Autonomy Levels, PBKDF2 PIN auth, secret redaction & audit log
+│   ├── undo.py                  # Shared reversible operation stack
+│   ├── vision.py                # Multi-backend screen capture (KWin, Spectacle, screencapture, ImageGrab, MSS)
+│   └── whatsapp.py              # Autonomous WhatsApp message dispatcher & file sharing engine
 │   ├── prompt.txt               # AMATYA system prompt
 │   ├── rag.py                   # Local hybrid semantic + lexical BM25 RAG store
 │   ├── screen_automation.py     # Multi-monitor discovery, continuous observation, before/after verification

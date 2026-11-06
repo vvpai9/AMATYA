@@ -136,6 +136,10 @@ pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 # ── Vedic Jyotisha & Astrological Ephemeris ──────────────────────────────────
 pyswisseph>=2.10.0
 
+# ── Autonomous Chess Engine & Mobile VoIP ─────────────────────────────────────
+chess>=1.11.0
+agentring @ git+https://github.com/mutonby/agentring.git#subdirectory=daemon
+
 # ── Optional: local wake word ("Hey Amatya") ──────────────────────────────────
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
 # the tiny model) with one click from ⚙ → WAKE WORD in the app, or install it

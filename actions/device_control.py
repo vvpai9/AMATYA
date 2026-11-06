@@ -118,17 +118,14 @@ def execute(
     mgr = get_device_manager()
     dev_target = str(parameters.get("device", "") or "").strip()
 
-    if action == "discover":
+    if action in ("discover", "scan", "list_network", "scan_network"):
         res = mgr.discover_devices()
-        reg_names = [f"{d['name']} ({d['device_id']}: {d['connectivity']})" for d in res["registered_devices"]]
-        lan_cnt = len(res["discovered"]["lan_neighbors"])
-        kde_cnt = len(res["discovered"]["kdeconnect"])
-        adb_cnt = len(res["discovered"]["adb"])
-        return outcome.done(
-            f"Discovered {lan_cnt} LAN neighbor(s), {kde_cnt} KDE Connect device(s), "
-            f"{adb_cnt} ADB device(s). Registered devices: {', '.join(reg_names)}.",
-            data=res,
-        )
+        dev_table = res.get("device_table", [])
+        if dev_table:
+            table_str = "\n".join(dev_table)
+        else:
+            table_str = "No dynamic devices discovered."
+        return outcome.done("device_control", result=table_str, data=res)
 
     if action == "register":
         did = dev_target or str(parameters.get("device_id", "") or "").strip()

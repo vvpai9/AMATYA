@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import time
 import threading
@@ -652,7 +653,8 @@ def _provider_call(model: str, contents, config, timeout_ms: int):
 
 
 def call(contents, tier: str = FAST, config=None,
-         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = ""):
+         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "",
+         provider: str = ""):
     """Run one generation, walking the ladder until one answers.
 
     Returns the SDK's own response object, so callers that need more than the
@@ -661,11 +663,6 @@ def call(contents, tier: str = FAST, config=None,
     a silent None during a session nobody can debug is how the original problem
     stayed hidden.
     """
-    # `tier` is normally FAST or SMART. Anything else is taken to be an explicit
-    # model name — screen_agent lets the user pick one in its settings — and it
-    # is tried first, with the reasoning ladder behind it. So a user's choice is
-    # honoured, and a user's choice that is having an outage still degrades to
-    # something that answers instead of to nothing.
     ladder = _LADDERS.get(tier)
     if ladder is None:
         ladder = (tier,) + tuple(m for m in _LADDERS[SMART] if m != tier)
@@ -677,6 +674,11 @@ def call(contents, tier: str = FAST, config=None,
     if rungs:
         ladder = (rungs + tuple(ladder)) if _provider_first() \
             else (tuple(ladder) + rungs)
+
+    if provider:
+        chosen = PROVIDER_PREFIX + provider
+        rungs = (chosen,) + tuple(r for r in rungs if r != chosen)
+        ladder = (chosen,) + tuple(m for m in ladder if m != chosen)
 
     resolved_key = key or api_key()
     if not resolved_key:
@@ -745,19 +747,44 @@ def text(contents, tier: str = FAST, config=None,
     return (getattr(resp, "text", None) or "").strip() or default
 
 
+_THINK_RE = re.compile(r"(?is)<think(?:ing)?>.*?</think(?:ing)?>")
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.S)
+
+
+def parse_json(raw: str, default=None):
+    """The JSON value in a model's reply, wherever it sits in the text."""
+    if not raw:
+        return default
+    body = _THINK_RE.sub("", raw)
+    candidates = [m.group(1) for m in _FENCE_RE.finditer(body)] + [body]
+    decoder = json.JSONDecoder()
+    for cand in candidates:
+        tried = 0
+        for i, ch in enumerate(cand):
+            if ch not in "[{":
+                continue
+            try:
+                value, _end = decoder.raw_decode(cand, i)
+            except ValueError:
+                tried += 1
+                if tried > 200:
+                    break
+                continue
+            return value
+    return default
+
+
 def as_json(contents, tier: str = FAST, config=None,
             timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "", default=None):
-    """`text`, parsed as JSON, tolerating the fences and prose a model wraps it
-    in. `default` when nothing answered or the answer would not parse."""
+    """`text`, parsed as JSON, tolerating fences and reasoning prose."""
     raw = text(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=key)
     if not raw:
         return default
-    if "{" in raw and "}" in raw:
-        raw = raw[raw.find("{"): raw.rfind("}") + 1]
-    elif "[" in raw and "]" in raw:
-        raw = raw[raw.find("["): raw.rfind("]") + 1]
-    try:
-        return json.loads(raw)
-    except Exception as e:
-        print(f"[Gemini] reply was not JSON: {e}")
+    value = parse_json(raw, default=_MISSING)
+    if value is _MISSING:
+        print(f"[Gemini] reply was not JSON: {raw[:160]!r}")
         return default
+    return value
+
+
+_MISSING = object()

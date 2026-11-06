@@ -114,8 +114,11 @@ def unverified(action: str, reason: str = "", /, **facts: Any) -> str:
     happening, which is why the sentence spells out what may not be said.
     """
     if not reason:
-        reason = action
-        action = str(facts.pop("action", "action"))
+        if "reason" in facts:
+            reason = str(facts.pop("reason"))
+        else:
+            reason = action
+            action = str(facts.pop("action", "action"))
     return _line(UNVERIFIED, action, {**facts, "reason": reason}) + (
         " -- NOT confirmed. Tell the user plainly that you asked and cannot "
         "confirm it worked, and say what they can check. Do NOT say it is done."
@@ -130,8 +133,11 @@ def failed(action: str, reason: str = "", /, **facts: Any) -> str:
     "returncode 1".
     """
     if not reason:
-        reason = action
-        action = str(facts.pop("action", "action"))
+        if "reason" in facts:
+            reason = str(facts.pop("reason"))
+        else:
+            reason = action
+            action = str(facts.pop("action", "action"))
     return _line(FAILED, action, {**facts, "reason": reason}) + (
         " -- This did NOT happen. Tell the user so in their own language, with "
         "the reason. Do not claim any part of it succeeded."

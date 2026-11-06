@@ -22,8 +22,10 @@ from core import outcome
 from core.jyotisha import (
     calculate_vedic_chart,
     calculate_western_chart,
-    synthesize_vedic_analysis,
+    render_kundali_image,
     resolve_location,
+    synthesize_vedic_analysis,
+    synthesize_voice_summary,
 )
 
 SKILL_METADATA = {
@@ -215,9 +217,53 @@ def jyotisha(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
         )
         return outcome.done("jyotisha", result=result_text, data=chart.to_dict())
 
+    style = str(params.get("style", "north") or "north").strip().lower()
+
+    if action in ("render_chart", "kundali_image", "chart_image", "draw_chart", "image"):
+        try:
+            img_path = render_kundali_image(chart, style=style)
+            player = kwargs.get("player")
+            if player and hasattr(player, "show_content"):
+                player.show_content(f"VEDIC KUNDALI ({style.upper()})", f"Kundali chart rendered to:\n{img_path}")
+            return outcome.done(
+                "jyotisha",
+                result=f"Kundali ({style.upper()} Indian style) generated successfully for {chart.name}.\nSaved to: {img_path}",
+                data={"image_path": img_path, "style": style, "chart": chart.to_dict()},
+            )
+        except Exception as exc:
+            return outcome.failed("jyotisha", f"Failed to generate Kundali image: {exc}")
+
     if action in ("read_chart", "analyze_chart", "reading", "interpret"):
         reading_text = synthesize_vedic_analysis(chart)
-        return outcome.done("jyotisha", result=reading_text, data=chart.to_dict())
+        try:
+            img_path = render_kundali_image(chart, style=style)
+        except Exception:
+            img_path = ""
+
+        # Persist comprehensive reading to reports
+        try:
+            from pathlib import Path
+            import re
+            r_dir = Path.home() / "Projects/Mark-LVI/reports/kundali"
+            r_dir.mkdir(parents=True, exist_ok=True)
+            clean_name = re.sub(r"[^\w\-]", "_", chart.name.lower())
+            r_file = r_dir / f"reading_{clean_name}_{chart.date_str}.txt"
+            r_file.write_text(reading_text, encoding="utf-8")
+        except Exception:
+            pass
+
+        # Display on UI HUD if player is available
+        player = kwargs.get("player")
+        if player and hasattr(player, "show_content"):
+            player.show_content(f"VEDIC JYOTISHA — {chart.name.upper()}", reading_text)
+
+        # Generate concise spoken summary so Gemini Live never hangs or stalls
+        voice_summary = synthesize_voice_summary(chart)
+        return outcome.done(
+            "jyotisha",
+            result=voice_summary,
+            data={**chart.to_dict(), "reading_text": reading_text, "image_path": img_path},
+        )
 
     if action in ("divisional_charts", "vargas", "shodashavarga"):
         target_varga = str(params.get("varga", "all") or "all").upper().strip()

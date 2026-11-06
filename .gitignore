@@ -40,6 +40,10 @@ dist/
 *.egg-info/
 .eggs/
 
+# ── Local logs, reports and artifacts ─────────────────────────────────────────
+reports/
+session_errors*.txt
+
 # ── Virtual environments ──────────────────────────────────────────────────────
 .venv/
 venv/

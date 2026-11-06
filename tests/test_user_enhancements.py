@@ -789,6 +789,144 @@ class TestUserEnhancements(unittest.TestCase):
             cap_win = v._capture_windows_imagegrab(kind="full")
             self.assertTrue(cap_win.ok)
 
+    # ── 17. ModelRouter 'reasoning' Role & Planner Execution ──────────────────
+
+    def test_17_model_router_reasoning_role_and_planner_execution(self):
+        """Directive 17: ModelRouter generate with role 'reasoning' constructs config without 'system' kwarg error."""
+        from core.model_router import get_router
+        router = get_router()
+
+        with patch("core.gemini.text", return_value="Calculated 4") as mock_text:
+            res = router.generate("reasoning", "Calculate 2+2", system="You are an expert.")
+            self.assertEqual(res, "Calculated 4")
+            # Verify system instruction was passed in config dict, not as keyword argument
+            mock_text.assert_called_once()
+            _, kwargs = mock_text.call_args
+            self.assertIn("config", kwargs)
+            self.assertEqual(kwargs["config"].get("system_instruction"), "You are an expert.")
+
+    # ── 18. Phone Calling Fallback & AgentRing Pairing Diagnostics ────────────
+
+    def test_18_phone_ring_call_fallback_and_agentring_diagnostics(self):
+        """Directive 18: Phone calling automatically rings phone if VoIP unconfigured; pairing gives clear instructions."""
+        from actions.phone_ring import phone_ring
+
+        # 1. Pairing when unconfigured returns actionable guidance rather than crash
+        res_pair = phone_ring({"action": "pair_agentring"})
+        self.assertIn("AgentRing is installed but requires a relay connection", res_pair)
+
+        # 2. Call automatically triggers phone ring fallback when AgentRing is unconfigured
+        with patch("core.phone_ring.PhoneRinger.ring", return_value={"ok": True, "backend": "kdeconnect", "device": "Android Phone"}) as mock_ring:
+            res_call = phone_ring({"action": "call", "reason": "Emergency task finished"})
+            self.assertIn("✦ AMATYA PHONE CALL ALERT ✦", res_call)
+            self.assertIn("Rang phone immediately via kdeconnect", res_call)
+            mock_ring.assert_called_once()
+
+    # ── 19. Video Player Rickroll & Meme Prevention ───────────────────────────
+
+    def test_19_video_player_rickroll_and_meme_prevention(self):
+        """Directive 19: Video player strictly filters out rickroll and meme videos when query doesn't ask for them."""
+        from actions.video_player import _resolve_youtube
+
+        # Mock yt_dlp extract_info with both a meme entry and a genuine tutorial entry
+        fake_entries = [
+            {"id": "dQw4w9WgXcQ", "title": "Rick Astley - Never Gonna Give You Up (Official Music Video)"},
+            {"id": "abc123Tutorial", "title": "AgentRing VoIP Setup Tutorial Guide", "formats": [
+                {"protocol": "https", "url": "https://example.com/stream.mp4", "vcodec": "avc1", "acodec": "mp4a", "language_preference": 10, "tbr": 1200}
+            ]},
+        ]
+        with patch("yt_dlp.YoutubeDL") as mock_ydl_cls:
+            mock_ydl = MagicMock()
+            mock_ydl.extract_info.return_value = {"entries": fake_entries}
+            mock_ydl_cls.return_value.__enter__.return_value = mock_ydl
+
+            v_url, a_url, title, err = _resolve_youtube("How to setup voice calls")
+            self.assertEqual(title, "AgentRing VoIP Setup Tutorial Guide")
+            self.assertEqual(v_url, "https://example.com/stream.mp4")
+
+    # ── 20. Keyboard Typing Multi-Tier Fallback ────────────────────────────────
+
+    def test_20_keyboard_typing_multi_tier_resilience(self):
+        """Directive 20: computer_control typing succeeds via kwin-mcp and clipboard paste fallback."""
+        from actions.computer_control import computer_control
+
+        # Test synonym recognition and execution
+        with patch("actions.computer_control._on_wayland_with_kwin", return_value=False), \
+             patch("actions.computer_control._clipboard_paste") as mock_paste, \
+             patch("pyautogui.hotkey") as mock_hk:
+            res_type = computer_control({"action": "write", "text": "AMATYA Automation Test"})
+            self.assertIn("Typed", res_type)
+
+    # ── 21. Dynamic Network Scan with nmap and Tailscale ───────────────────────
+
+    def test_21_network_discovery_nmap_ipv6_and_tailscale_strict_format(self):
+        """Directive 21: Network discovery uses nmap/tailscale with strict format 'Name, IPv4 address, IPv6 address'."""
+        from actions.device_control import execute as dev_execute
+        res = dev_execute({"action": "discover"})
+        self.assertIn("status=done", res)
+        # Verify lines contain comma-separated format
+        self.assertIn("192.168.1.1", res)
+        self.assertIn("Tailscale", res)
+        # Ensure no simulated entry remains
+        self.assertNotIn("simulated", res.lower())
+
+    # ── 22. Jyotisha Visual Kundali (North & South) & Voice Summary ───────────
+
+    def test_22_jyotisha_voice_summary_and_visual_kundali_rendering(self):
+        """Directive 22: Generates North and South Kundali images and returns non-blocking voice summary."""
+        from actions.jyotisha import jyotisha
+        from pathlib import Path
+
+        # 1. Render North Indian diamond chart
+        res_north = jyotisha({"action": "render_chart", "style": "north", "name": "TestJataka", "date": "1998-10-24", "time": "08:15:00"})
+        self.assertIn("NORTH Indian style", res_north)
+        self.assertIn("Saved to:", res_north)
+
+        # 2. Render South Indian square grid chart
+        res_south = jyotisha({"action": "render_chart", "style": "south", "name": "TestJataka", "date": "1998-10-24", "time": "08:15:00"})
+        self.assertIn("SOUTH Indian style", res_south)
+        self.assertIn("Saved to:", res_south)
+
+        # 3. Reading returns crisp voice summary and does not freeze
+        res_read = jyotisha({"action": "read_chart", "name": "TestJataka", "date": "1998-10-24", "time": "08:15:00"})
+        self.assertIn("Chart reading complete for TestJataka", res_read)
+        self.assertIn("Your Janma Lagna is", res_read)
+
+    # ── 23. Complete Autonomy: Chess Agent & GitHub Repo Auditor ──────────────
+
+    def test_23_complete_autonomy_chess_agent_and_github_repo_auditor(self):
+        """Directive 23: Complete autonomy: chess move computation/mouse execution and GitHub repo audit."""
+        from actions.autonomous_agent import autonomous_agent
+
+        # 1. Chess reset & move execution
+        res_reset = autonomous_agent({"action": "chess_reset", "player_color": "white"})
+        self.assertIn("Playing as WHITE", res_reset)
+
+        with patch("actions.computer_control.computer_control") as mock_ctrl:
+            res_play = autonomous_agent({"action": "chess_play", "depth": 1})
+            self.assertIn("✦ AUTONOMOUS CHESS MOVE EXECUTED ✦", res_play)
+            self.assertTrue(mock_ctrl.called)
+
+        # 2. GitHub repository auditing
+        res_audit = autonomous_agent({"action": "audit_repo", "repo": "."})
+        self.assertIn("AUTONOMOUS REPOSITORY AUDIT", res_audit)
+        self.assertIn("HIGHLY USEFUL", res_audit)
+
+    # ── 24. WhatsApp Integration & Verified Transport ─────────────────────────
+
+    def test_24_whatsapp_connector_and_verified_driver(self):
+        """Directive 24: WhatsApp integration provides verified driver and notification action."""
+        from actions.whatsapp_connector import whatsapp_connector
+        from actions.send_message import _send_whatsapp
+
+        with patch("webbrowser.open", return_value=True):
+            res_notify = whatsapp_connector({"action": "notify", "title": "Autonomous Alert", "message": "Task Finished"})
+            self.assertIn("Autonomous notification sent via WhatsApp", res_notify)
+
+            res_send = _send_whatsapp("+919876543210", "Automated ping")
+            self.assertIn("status=done", res_send)
+            self.assertIn("verified=true", res_send)
+
 
 if __name__ == "__main__":
     unittest.main()

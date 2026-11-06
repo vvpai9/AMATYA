@@ -169,23 +169,42 @@ def _computer_control_via_kwin(action: str, params: dict) -> str:
     client = get_client()
     client.ensure_started()
 
-    if action == "type":
-        result = client.keyboard_type(params.get("text", ""), method="unicode")
-        return f"Typed: {str(params.get('text', ''))[:60]}"
+    if action in ("type", "write", "keyboard", "text_input", "type_text"):
+        text = str(params.get("text") or params.get("value") or params.get("content") or "")
+        try:
+            result = client.keyboard_type(text, method="unicode")
+            if not isinstance(result, dict) or not result.get("isError"):
+                return f"Typed: {text[:60]}"
+        except Exception:
+            pass
+        # Fallback to clipboard injection + ctrl+v
+        try:
+            _clipboard_paste(text)
+            client.keyboard_key("ctrl+v")
+            return f"Typed (via clipboard): {text[:60]}"
+        except Exception as exc:
+            return f"Typing failed: {exc}"
 
-    if action == "smart_type":
-        text = params.get("text", "")
+    if action in ("smart_type", "smart_write"):
+        text = str(params.get("text") or params.get("value") or params.get("content") or "")
         clear_first = params.get("clear_first", True)
         if clear_first:
-            client.keyboard_key("ctrl+a")
-            client.keyboard_key("Delete")
-            time.sleep(0.1)
-        if len(text) > 20:
-            client.clipboard_set(text)
+            try:
+                client.keyboard_key("ctrl+a")
+                client.keyboard_key("Delete")
+                time.sleep(0.1)
+            except Exception:
+                pass
+        try:
+            _clipboard_paste(text)
             client.keyboard_key("ctrl+v")
             return f"Smart-typed (clipboard): {text[:60]}"
-        result = client.keyboard_type(text, method="unicode")
-        return f"Smart-typed: {text[:60]}"
+        except Exception:
+            try:
+                client.keyboard_type(text, method="unicode")
+                return f"Smart-typed: {text[:60]}"
+            except Exception as exc:
+                return f"Smart-typing failed: {exc}"
 
     if action in ("click", "left_click"):
         x, y = params.get("x"), params.get("y")
@@ -484,8 +503,21 @@ def _user_profile() -> dict:
 
 def _type(text: str, interval: float = 0.03) -> str:
     _require_pyautogui()
-    time.sleep(0.3)
-    pyautogui.typewrite(text, interval=interval)
+    time.sleep(0.1)
+    if os.environ.get("WAYLAND_DISPLAY"):
+        try:
+            _clipboard_paste(text)
+            paste_key = "command" if _get_os() == "mac" else "ctrl"
+            pyautogui.hotkey(paste_key, "v")
+            return f"Typed: {text[:60]}{'…' if len(text) > 60 else ''}"
+        except Exception:
+            pass
+    try:
+        pyautogui.typewrite(text, interval=interval)
+    except Exception:
+        _clipboard_paste(text)
+        paste_key = "command" if _get_os() == "mac" else "ctrl"
+        pyautogui.hotkey(paste_key, "v")
     return f"Typed: {text[:60]}{'…' if len(text) > 60 else ''}"
 
 
@@ -1049,12 +1081,14 @@ def computer_control(
         ):
             return _computer_control_via_kwin(action, params)
 
-        if action == "type":
-            return _type(params.get("text", ""))
+        if action in ("type", "write", "keyboard", "text_input", "type_text"):
+            text = str(params.get("text") or params.get("value") or params.get("content") or "")
+            return _type(text)
 
-        if action == "smart_type":
+        if action in ("smart_type", "smart_write"):
+            text = str(params.get("text") or params.get("value") or params.get("content") or "")
             return _smart_type(
-                params.get("text", ""),
+                text,
                 clear_first=params.get("clear_first", True),
             )
 

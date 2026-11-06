@@ -132,7 +132,23 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
 
         return outcome.done("phone_ring", result="\n".join(summary_lines), data=st)
 
-    # 2. Pair AgentRing
+    # 2. Pair / Init AgentRing
+    if action in ("init_agentring", "configure_agentring"):
+        relay = str(params.get("relay") or params.get("relay_url") or "").strip()
+        api_key = str(params.get("api_key") or params.get("key") or "").strip()
+        if not relay or not api_key:
+            return outcome.failed(
+                "phone_ring",
+                "Please provide both 'relay' (URL) and 'api_key' to configure AgentRing.",
+            )
+        from core.phone_ring import agentring_init
+        res_init = agentring_init(relay, api_key)
+        if res_init.get("ok"):
+            res_pair = agentring_pair()
+            msg = f"AgentRing configured successfully with relay {relay}.\n{res_pair.get('instructions', '')}"
+            return outcome.done("phone_ring", result=msg, data=res_pair)
+        return outcome.failed("phone_ring", reason=res_init.get("error", "AgentRing init failed"))
+
     if action in ("pair_agentring", "agentring_pair", "pair"):
         res_pair = agentring_pair()
         if res_pair.get("ok"):
@@ -147,15 +163,27 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
             reason=res_pair.get("error", "Failed to initiate AgentRing pairing. Make sure relay is configured: agentring init"),
         )
 
-    # 3. Direct VoIP Call via AgentRing
+    # 3. Direct VoIP Call via AgentRing with Automatic Phone Ring Fallback
     if action in ("call", "voip_call", "agentring_call"):
         res_call = agentring_call(reason=reason, urgent=urgent, ai=True)
         if res_call.get("ok"):
             return outcome.done("phone_ring", result=res_call["message"], data=res_call)
-        # If AgentRing fails, offer fallback
+
+        # AgentRing VoIP is unavailable/unconfigured: automatically cascade to ringing the phone
+        # via KDE Connect or Ntfy so the user's phone ACTUALLY rings and the alert is received!
+        res_ring = ringer.ring(reason=f"Call Request: {reason}", backend="auto", target=target)
+        if res_ring.get("ok"):
+            call_msg = (
+                f"✦ AMATYA PHONE CALL ALERT ✦\n"
+                f"• AgentRing VoIP: {res_call.get('error', 'Unconfigured')}\n"
+                f"• Fallback: Rang phone immediately via {res_ring.get('backend', 'KDE Connect')} "
+                f"({res_ring.get('device', 'Android Phone')}) at max volume so you do not miss this alert!"
+            )
+            return outcome.done("phone_ring", result=call_msg, data={"call_attempt": res_call, "ring_fallback": res_ring})
+
         return outcome.failed(
             "phone_ring",
-            reason=f"AgentRing call failed: {res_call.get('error')}. You can use 'ring' action to sound KDE Connect instead.",
+            reason=f"AgentRing call failed ({res_call.get('error')}) and ring fallback failed ({res_ring.get('error')}).",
         )
 
     # 4. Send Message via AgentRing or Ntfy
@@ -197,3 +225,4 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
 
 TOOL["handler"] = phone_ring
 execute = phone_ring
+

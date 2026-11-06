@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import datetime
 import math
+import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 import swisseph as swe
@@ -1124,3 +1126,253 @@ def synthesize_vedic_analysis(chart: BirthChart) -> str:
     ])
 
     return "\n".join(lines)
+
+
+def synthesize_voice_summary(chart: BirthChart) -> str:
+    """Produce a concise, natural spoken executive summary (3-4 sentences)
+    so Gemini Live communicates effortlessly without overwhelming the audio WebSocket stream."""
+    lagna = chart.lagna_sign
+    lagna_lord = chart.bhavas[1].lord
+    moon_sign = chart.grahas["Chandra"].sign_name
+    moon_nak = chart.grahas["Chandra"].nakshatra
+    sun_sign = chart.grahas["Surya"].sign_name
+    active_dasha = f"{chart.active_dasha.get('mahadasha', '')} Mahadasha"
+    if chart.active_dasha.get("antardasha"):
+        active_dasha += f" and {chart.active_dasha['antardasha']} Antardasha"
+
+    ak = chart.chara_karakas.get("AK", "Surya")
+
+    return (
+        f"Chart reading complete for {chart.name}. Your Janma Lagna is {lagna} with lord {lagna_lord}, "
+        f"Chandra Rashi is {moon_sign} in {moon_nak} Nakshatra, and Surya is in {sun_sign}. "
+        f"Your Atmakaraka soul indicator is {ak}, and you are currently running {active_dasha}. "
+        f"The comprehensive Shodashavarga analysis and Kundali chart image have been rendered on your screen and saved to file."
+    )
+
+
+# ── 12. Visual Kundali Image & SVG Generation ─────────────────────────────────
+
+_ABBR_MAP = {
+    "Surya": "Su",
+    "Chandra": "Mo",
+    "Mangala": "Ma",
+    "Budha": "Me",
+    "Guru": "Ju",
+    "Shukra": "Ve",
+    "Shani": "Sa",
+    "Rahu": "Ra",
+    "Ketu": "Ke",
+    "Harshal (Uranus)": "Ur",
+    "Varun (Neptune)": "Ne",
+    "Yama (Pluto)": "Pl",
+    "Maandi": "Mnd",
+    "Gulika": "Glk",
+}
+
+
+def render_kundali_image(
+    chart: BirthChart,
+    style: str = "north",
+    output_path: Optional[str] = None,
+) -> str:
+    """Render a high-resolution Kundali image (North Indian diamond or South Indian box).
+    Returns the absolute path to the generated PNG file."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        raise RuntimeError("Pillow is required for Kundali image generation: pip install Pillow")
+
+    style_clean = (style or "north").strip().lower()
+    is_north = "south" not in style_clean
+
+    size = (900, 900)
+    bg_color = (253, 250, 243)      # warm cream parchment
+    primary_line = (140, 35, 35)    # traditional Vedic terracotta crimson
+    border_gold = (195, 145, 55)    # golden border accent
+    text_dark = (25, 25, 30)        # deep slate
+    text_rashi = (150, 80, 25)      # burnt orange for sign numbers
+    text_graha = (10, 45, 105)      # royal navy for planets
+    header_color = (130, 20, 20)
+
+    im = Image.new("RGB", size, color=bg_color)
+    draw = ImageDraw.Draw(im)
+
+    try:
+        font_large = ImageFont.truetype("DejaVuSans-Bold.ttf", 20)
+        font_med = ImageFont.truetype("DejaVuSans-Bold.ttf", 15)
+        font_small = ImageFont.truetype("DejaVuSans.ttf", 13)
+        font_num = ImageFont.truetype("DejaVuSans-Bold.ttf", 14)
+    except Exception:
+        font_large = ImageFont.load_default()
+        font_med = font_large
+        font_small = font_large
+        font_num = font_large
+
+    # Title & Subtitle header
+    title_str = f"✦ VEDIC KUNDALI ({style_clean.upper()} STYLE) — {chart.name.upper()} ✦"
+    draw.text((450, 28), title_str, fill=header_color, font=font_large, anchor="mm")
+    sub_str = f"Lagna: {chart.lagna_sign} ({chart.lagna_deg % 30:.1f}°) | Nakshatra: {chart.lagna_nakshatra} (Pada {chart.lagna_pada}) | {chart.date_str} {chart.time_str}"
+    draw.text((450, 52), sub_str, fill=text_dark, font=font_small, anchor="mm")
+
+    # Geometry bounds: 80 to 860
+    left, top, right, bottom = 70, 75, 830, 835
+    w = right - left
+    h = bottom - top
+    cx = (left + right) // 2
+    cy = (top + bottom) // 2
+
+    # Double decorative outer frame
+    draw.rectangle([left - 6, top - 6, right + 6, bottom + 6], outline=border_gold, width=2)
+    draw.rectangle([left, top, right, bottom], outline=primary_line, width=4)
+
+    if is_north:
+        # ── North Indian Diamond Kundali ──
+        # Diagonals
+        draw.line([(left, top), (right, bottom)], fill=primary_line, width=2)
+        draw.line([(right, top), (left, bottom)], fill=primary_line, width=2)
+        # Inner diamond
+        draw.line([(cx, top), (right, cy), (cx, bottom), (left, cy), (cx, top)], fill=primary_line, width=3)
+
+        # Center points for the 12 houses in North style
+        # House 1 is top center diamond
+        house_centers = {
+            1: (cx, top + int(h * 0.22)),
+            2: (left + int(w * 0.23), top + int(h * 0.10)),
+            3: (left + int(w * 0.10), top + int(h * 0.23)),
+            4: (left + int(w * 0.22), cy),
+            5: (left + int(w * 0.10), bottom - int(h * 0.23)),
+            6: (left + int(w * 0.23), bottom - int(h * 0.10)),
+            7: (cx, bottom - int(h * 0.22)),
+            8: (right - int(w * 0.23), bottom - int(h * 0.10)),
+            9: (right - int(w * 0.10), bottom - int(h * 0.23)),
+            10: (right - int(w * 0.22), cy),
+            11: (right - int(w * 0.10), top + int(h * 0.23)),
+            12: (right - int(w * 0.23), top + int(h * 0.10)),
+        }
+
+        # Sign number positions (slightly offset from center)
+        num_offsets = {
+            1: (cx, top + int(h * 0.33)),
+            2: (left + int(w * 0.29), top + int(h * 0.16)),
+            3: (left + int(w * 0.16), top + int(h * 0.29)),
+            4: (left + int(w * 0.33), cy),
+            5: (left + int(w * 0.16), bottom - int(h * 0.29)),
+            6: (left + int(w * 0.29), bottom - int(h * 0.16)),
+            7: (cx, bottom - int(h * 0.33)),
+            8: (right - int(w * 0.29), bottom - int(h * 0.16)),
+            9: (right - int(w * 0.16), bottom - int(h * 0.29)),
+            10: (right - int(w * 0.33), cy),
+            11: (right - int(w * 0.16), top + int(h * 0.29)),
+            12: (right - int(w * 0.29), top + int(h * 0.16)),
+        }
+
+        for h_num in range(1, 13):
+            b_info = chart.bhavas[h_num]
+            r_num = b_info.rashi_index + 1
+            # Draw sign number
+            nx, ny = num_offsets[h_num]
+            draw.text((nx, ny), str(r_num), fill=text_rashi, font=font_num, anchor="mm")
+
+            # Draw grahas in this house
+            hx, hy = house_centers[h_num]
+            planets = []
+            for gname in b_info.occupants:
+                abbr = _ABBR_MAP.get(gname, gname[:2])
+                g_obj = chart.grahas.get(gname)
+                if g_obj and g_obj.is_retrograde:
+                    abbr += "®"
+                planets.append(abbr)
+
+            if planets:
+                p_str = " ".join(planets)
+                draw.text((hx, hy), p_str, fill=text_graha, font=font_med, anchor="mm")
+
+    else:
+        # ── South Indian Box Kundali ──
+        # 4 rows, 4 columns
+        col_w = w // 4
+        row_h = h // 4
+        for r_idx in range(5):
+            y_line = top + r_idx * row_h
+            draw.line([(left, y_line), (right, y_line)], fill=primary_line, width=2)
+        for c_idx in range(5):
+            x_line = left + c_idx * col_w
+            draw.line([(x_line, top), (x_line, bottom)], fill=primary_line, width=2)
+
+        # Clear center 2x2 box for chart metadata
+        draw.rectangle([left + col_w, top + row_h, left + col_w * 3, top + row_h * 3], fill=bg_color, outline=border_gold, width=2)
+
+        # Fixed signs arrangement in South Indian format:
+        # (row, col) -> sign_index (0 = Mesha, 1 = Vrishabha, ... 11 = Meena)
+        south_sign_map = {
+            (0, 0): 11,  # Meena (Pisces)
+            (0, 1): 0,   # Mesha (Aries)
+            (0, 2): 1,   # Vrishabha (Taurus)
+            (0, 3): 2,   # Mithuna (Gemini)
+            (1, 3): 3,   # Karka (Cancer)
+            (2, 3): 4,   # Simha (Leo)
+            (3, 3): 5,   # Kanya (Virgo)
+            (3, 2): 6,   # Tula (Libra)
+            (3, 1): 7,   # Vrishchika (Scorpio)
+            (3, 0): 8,   # Dhanu (Sagittarius)
+            (2, 0): 9,   # Makara (Capricorn)
+            (1, 0): 10,  # Kumbha (Aquarius)
+        }
+
+        # Lagna sign index
+        lagna_sign_idx = int(chart.lagna_deg // 30.0) % 12
+
+        for (r_i, c_i), s_idx in south_sign_map.items():
+            cell_x = left + c_i * col_w
+            cell_y = top + r_i * row_h
+            s_name = RASHI_NAMES_INDIAN[s_idx]
+
+            # Label sign name in top corner
+            draw.text((cell_x + 6, cell_y + 6), s_name[:5], fill=text_rashi, font=font_small)
+
+            # If Lagna falls here, draw diagonal sash and mark ASC
+            if s_idx == lagna_sign_idx:
+                draw.line([(cell_x, cell_y), (cell_x + 35, cell_y)], fill=border_gold, width=3)
+                draw.line([(cell_x, cell_y), (cell_x, cell_y + 35)], fill=border_gold, width=3)
+                draw.line([(cell_x, cell_y + 35), (cell_x + 35, cell_y)], fill=border_gold, width=2)
+                draw.text((cell_x + col_w - 6, cell_y + 6), "ASC", fill=(180, 20, 20), font=font_med, anchor="rt")
+
+            # Collect grahas in this sign
+            planets_in_sign = []
+            for gname, gobj in chart.grahas.items():
+                if gobj.sign_index == s_idx:
+                    abbr = _ABBR_MAP.get(gname, gname[:2])
+                    if gobj.is_retrograde:
+                        abbr += "®"
+                    planets_in_sign.append(abbr)
+
+            if planets_in_sign:
+                mid_x = cell_x + col_w // 2
+                mid_y = cell_y + row_h // 2 + 5
+                p_str = " ".join(planets_in_sign)
+                draw.text((mid_x, mid_y), p_str, fill=text_graha, font=font_med, anchor="mm")
+
+        # Center info box details
+        center_x = cx
+        center_y = cy
+        draw.text((center_x, center_y - 45), f"{chart.name.upper()}", fill=header_color, font=font_large, anchor="mm")
+        draw.text((center_x, center_y - 15), f"Chandra Rashi: {chart.grahas['Chandra'].sign_name}", fill=text_dark, font=font_med, anchor="mm")
+        draw.text((center_x, center_y + 12), f"Nakshatra: {chart.grahas['Chandra'].nakshatra}", fill=text_dark, font=font_small, anchor="mm")
+        active_d = f"Dasha: {chart.active_dasha.get('mahadasha', '')}-{chart.active_dasha.get('antardasha', '')}"
+        draw.text((center_x, center_y + 38), active_d, fill=text_rashi, font=font_small, anchor="mm")
+
+    # Footer banner
+    footer_text = f"Ayanamsha: {chart.ayanamsha_name} ({chart.ayanamsha_value}°) | AMATYA Astrological Core"
+    draw.text((450, 868), footer_text, fill=(100, 100, 100), font=font_small, anchor="mm")
+
+    # Output file determination
+    if not output_path:
+        out_dir = Path.home() / "Projects/Mark-LVI/reports/kundali"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        clean_name = re.sub(r"[^\w\-]", "_", chart.name.lower())
+        output_path = str(out_dir / f"kundali_{clean_name}_{style_clean}.png")
+
+    p_out = Path(output_path)
+    p_out.parent.mkdir(parents=True, exist_ok=True)
+    im.save(str(p_out), format="PNG")
+    return str(p_out.resolve())

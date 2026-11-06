@@ -297,8 +297,36 @@ def agentring_call(
         return {"ok": False, "backend": "agentring", "error": str(exc)}
 
 
+def agentring_init(relay_url: str, api_key: str) -> dict[str, Any]:
+    """Initialize AgentRing relay configuration in ~/.agentring/settings.json."""
+    cli = find_agentring_cli()
+    if not cli:
+        return {"ok": False, "error": "agentring CLI executable not found"}
+    try:
+        cmd = [cli, "init", "--relay", relay_url.strip(), "--api-key", api_key.strip()]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if p.returncode == 0:
+            return {"ok": True, "message": f"AgentRing configured with relay: {relay_url}"}
+        return {"ok": False, "error": p.stderr.strip() or p.stdout.strip()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def agentring_pair() -> dict[str, Any]:
     """Generate pairing QR payload / token for AgentRing Android app."""
+    st = get_agentring_status()
+    if not st.configured:
+        return {
+            "ok": False,
+            "unconfigured": True,
+            "error": (
+                "AgentRing is installed but requires a relay connection. "
+                "Initialize with: agentring init --relay https://<your-relay> --api-key ak_... "
+                "Or in chat: phone_ring action='init_agentring' relay='...' api_key='...'. "
+                "Meanwhile, KDE Connect is already paired with your Android Phone and ready to ring immediately!"
+            ),
+        }
+
     try:
         from agentring.config import load_settings
         from agentring.relay_client import RelayClient
@@ -319,7 +347,7 @@ def agentring_pair() -> dict[str, Any]:
         cli = find_agentring_cli()
         if cli:
             try:
-                p = subprocess.run([cli, "pair", "--no-wait", "--json"], capture_output=True, text=True, timeout=10)
+                p = subprocess.run([cli, "pair", "--json"], capture_output=True, text=True, timeout=10)
                 if p.returncode == 0 and p.stdout.strip():
                     data = json.loads(p.stdout.strip())
                     return {"ok": True, "token_data": data}

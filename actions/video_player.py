@@ -69,20 +69,24 @@ def _local_path(text: str) -> str:
     return ""
 
 
+_BLOCKED_MEME_IDS = {
+    "dQw4w9WgXcQ",
+    "oHg5SJYRHA0",
+    "cvh0nX08nRw",
+    "xfr64zoBTAQ",
+    "2qBlE2-DU60",
+}
+
+_BLOCKED_MEME_KEYWORDS = (
+    "rick astley",
+    "never gonna give you up",
+    "rickroll",
+    "rick roll",
+)
+
+
 def _resolve_youtube(url_or_query: str) -> tuple[str, str, str, str]:
-    """(video_url, audio_url, title, error). Needs yt-dlp; says so when absent.
-
-    TWO urls, because YouTube no longer offers one.
-    The first version of this asked for a format carrying both picture and
-    sound and got "Requested format is not available". That was not a bad
-    selector, it was a wrong assumption: checked against three videos —
-    including the oldest upload on the site — every one offered ZERO combined
-    formats. Picture and sound are separate streams now, and both are returned
-    so the player can run them together.
-
-    `audio_url` comes back empty when only a combined or video-only stream
-    exists, which is the normal case for everything that is not YouTube.
-    """
+    """(video_url, audio_url, title, error). Needs yt-dlp; says so when absent."""
     try:
         import yt_dlp
     except Exception:
@@ -90,16 +94,40 @@ def _resolve_youtube(url_or_query: str) -> tuple[str, str, str, str]:
                             "cannot be played inside the HUD. "
                             "Run: pip install yt-dlp")
 
-    query = url_or_query if _YT.search(url_or_query) else f"ytsearch1:{url_or_query}"
-    # No "format" here on purpose: ask for everything and choose below, so a
-    # video that lacks whatever was requested cannot fail outright.
+    is_direct_url = bool(_YT.search(url_or_query))
+    query = url_or_query if is_direct_url else f"ytsearch5:{url_or_query}"
     opts = {"quiet": True, "no_warnings": True, "skip_download": True,
             "noplaylist": True}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-        if info and info.get("entries"):
-            info = info["entries"][0]
+            raw_info = ydl.extract_info(query, download=False)
+        candidates = []
+        if raw_info:
+            if raw_info.get("entries"):
+                candidates = list(raw_info["entries"])
+            else:
+                candidates = [raw_info]
+
+        user_query_lower = url_or_query.lower()
+        wants_meme = any(k in user_query_lower for k in ("rick", "astley", "never gonna give you up", "rickroll"))
+
+        info = None
+        for cand in candidates:
+            if not cand:
+                continue
+            cand_id = cand.get("id", "")
+            cand_title = (cand.get("title") or "").lower()
+            if not wants_meme:
+                if cand_id in _BLOCKED_MEME_IDS:
+                    continue
+                if any(mkw in cand_title for mkw in _BLOCKED_MEME_KEYWORDS):
+                    continue
+            info = cand
+            break
+
+        if not info and candidates:
+            info = candidates[0]
+
         if not info:
             return "", "", "", "nothing was found for that."
     except Exception as e:

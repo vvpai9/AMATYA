@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -77,15 +78,15 @@ ANDROID_TV_APPS: dict[str, str] = {
 DEFAULT_CONNECTED_DEVICES: dict[str, dict[str, Any]] = {
     "phone": {
         "device_id": "phone",
-        "name": "Primary Android Phone",
+        "name": "Android Phone",
         "type": "android_phone",
         "transport": "kdeconnect",
-        "kdeconnect_id": "",
+        "kdeconnect_id": "generic_kde_id_001",
         "adb_serial": "",
-        "ip_address": "192.168.1.101",
+        "ip_address": "10.0.0.2",
         "authorized": True,
         "paired": True,
-        "connectivity": "simulated",
+        "connectivity": "online",
         "status": {
             "battery_pct": 84,
             "charging": False,
@@ -111,24 +112,6 @@ DEFAULT_CONNECTED_DEVICES: dict[str, dict[str, Any]] = {
             "muted": False,
             "current_app": "",
             "model": "Generic Android TV",
-        },
-    },
-    "home_server": {
-        "device_id": "home_server",
-        "name": "Home Linux Server",
-        "type": "remote_computer",
-        "transport": "ssh",
-        "ip_address": "192.168.1.200",
-        "ssh_user": "ubuntu",
-        "ssh_port": 22,
-        "authorized": True,
-        "paired": True,
-        "connectivity": "simulated",
-        "status": {
-            "uptime": "14 days, 06:12",
-            "load_avg": "0.24, 0.18, 0.15",
-            "disk_used_pct": 41,
-            "ram_used_pct": 38,
         },
     },
 }
@@ -224,16 +207,108 @@ class ConnectedDeviceManager:
     # ── 8.1 Network & Device Discovery ───────────────────────────────────────
 
     def discover_devices(self) -> dict[str, Any]:
-        """Discover devices across KDE Connect, ADB, LAN ARP table, mDNS, SSDP, and Tailscale."""
+        """Dynamically discover live devices across LAN (nmap/ARP), IPv6, and Tailscale."""
         discovered: dict[str, Any] = {
             "kdeconnect": [],
             "adb": [],
             "lan_neighbors": [],
-            "mdns": [],
+            "nmap_hosts": [],
             "tailscale": [],
+            "formatted_devices": [],
         }
 
-        # 1. KDE Connect discovery
+        # Step A: IPv6 neighbors map by MAC address & IP
+        mac_to_ip6: dict[str, str] = {}
+        ip4_to_mac: dict[str, str] = {}
+        if shutil.which("ip"):
+            try:
+                r6 = subprocess.run(["ip", "-6", "neigh", "show"], capture_output=True, text=True, timeout=3)
+                for line in (r6.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 5 and "lladdr" in parts:
+                        mac_idx = parts.index("lladdr") + 1
+                        if mac_idx < len(parts):
+                            mac_to_ip6[parts[mac_idx].lower()] = parts[0]
+            except Exception:
+                pass
+
+            try:
+                r4 = subprocess.run(["ip", "neigh", "show"], capture_output=True, text=True, timeout=3)
+                for line in (r4.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[-1] in ("REACHABLE", "STALE", "DELAY"):
+                        ip_val = parts[0]
+                        mac_val = parts[4].lower() if len(parts) > 4 else ""
+                        if mac_val:
+                            ip4_to_mac[ip_val] = mac_val
+                        discovered["lan_neighbors"].append({
+                            "ip": ip_val,
+                            "dev": parts[2] if len(parts) > 2 else "",
+                            "mac": mac_val,
+                            "state": parts[-1],
+                        })
+            except Exception:
+                pass
+
+        # Step B: Identify active local subnets for nmap
+        subnets_to_scan = []
+        if shutil.which("ip"):
+            try:
+                r_sub = subprocess.run(["ip", "-o", "-4", "addr", "show"], capture_output=True, text=True, timeout=3)
+                for line in (r_sub.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4 and not parts[1].startswith("lo") and not parts[1].startswith("tailscale"):
+                        cidr = parts[3]
+                        if "/" in cidr:
+                            ip_addr, mask = cidr.split("/", 1)
+                            octets = ip_addr.split(".")
+                            if len(octets) == 4 and mask == "24":
+                                subnets_to_scan.append(f"{octets[0]}.{octets[1]}.{octets[2]}.0/24")
+                            elif len(octets) == 4:
+                                subnets_to_scan.append(cidr)
+            except Exception:
+                pass
+
+        subnets_to_scan = list(dict.fromkeys(subnets_to_scan))
+        if not subnets_to_scan:
+            subnets_to_scan = ["192.168.1.0/24"]
+
+        # Step C: Dynamic nmap ping/ARP scan (fast parallel scan)
+        nmap_hosts: list[dict[str, str]] = []
+        if shutil.which("nmap"):
+            for subnet in subnets_to_scan:
+                try:
+                    rn = subprocess.run(
+                        ["nmap", "-sn", "-T4", "--min-parallelism", "32", subnet],
+                        capture_output=True, text=True, timeout=12,
+                    )
+                    cur_host = ""
+                    cur_ip = ""
+                    cur_mac = ""
+                    for line in (rn.stdout or "").splitlines():
+                        m = re.match(r"Nmap scan report for (?:([^\s()]+)\s+\(([\d.]+)\)|([\d.]+))", line)
+                        if m:
+                            if cur_ip:
+                                nmap_hosts.append({"name": cur_host or cur_ip, "ip": cur_ip, "mac": cur_mac})
+                                cur_mac = ""
+                            if m.group(1):
+                                cur_host = m.group(1)
+                                cur_ip = m.group(2)
+                            else:
+                                cur_host = m.group(3)
+                                cur_ip = m.group(3)
+                        elif "MAC Address:" in line:
+                            mm = re.search(r"MAC Address:\s+([0-9A-Fa-f:]+)", line)
+                            if mm:
+                                cur_mac = mm.group(1).lower()
+                    if cur_ip:
+                        nmap_hosts.append({"name": cur_host or cur_ip, "ip": cur_ip, "mac": cur_mac})
+                except Exception:
+                    pass
+
+        discovered["nmap_hosts"] = nmap_hosts
+
+        # Step D: KDE Connect discovery
         if shutil.which("kdeconnect-cli"):
             try:
                 r = subprocess.run(
@@ -247,95 +322,101 @@ class ConnectedDeviceManager:
                         k_id = parts[0]
                         k_name = parts[1] if len(parts) > 1 else k_id
                         discovered["kdeconnect"].append({"id": k_id, "name": k_name})
-                        # Auto-bind primary phone if found
-                        with _LOCK:
-                            if "phone" in self._devices and not self._devices["phone"].get("kdeconnect_id"):
-                                self._devices["phone"]["kdeconnect_id"] = k_id
-                                self._devices["phone"]["connectivity"] = "online"
-                                self._save_devices()
             except Exception:
                 pass
 
-        # 2. ADB discovery
-        if shutil.which("adb"):
-            try:
-                r = subprocess.run(
-                    ["adb", "devices", "-l"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                for line in (r.stdout or "").splitlines()[1:]:
-                    line = line.strip()
-                    if line and "\t" in line or " device " in line:
-                        parts = line.split()
-                        if len(parts) >= 2 and parts[1] == "device":
-                            discovered["adb"].append({"serial": parts[0], "info": " ".join(parts[2:])})
-            except Exception:
-                pass
-
-        # 3. LAN ARP / IP neighbor scan
-        if shutil.which("ip"):
-            try:
-                r = subprocess.run(
-                    ["ip", "neigh", "show"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                for line in (r.stdout or "").splitlines():
-                    parts = line.split()
-                    if len(parts) >= 4 and parts[-1] in ("REACHABLE", "STALE", "DELAY"):
-                        discovered["lan_neighbors"].append({
-                            "ip": parts[0],
-                            "dev": parts[2] if len(parts) > 2 else "",
-                            "mac": parts[4] if len(parts) > 4 else "",
-                            "state": parts[-1],
-                        })
-            except Exception:
-                pass
-
-        # 4. mDNS / Avahi discovery (if avahi-browse is installed)
-        if shutil.which("avahi-browse"):
-            try:
-                r = subprocess.run(
-                    ["avahi-browse", "-atp", "-r", "-t"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                for line in (r.stdout or "").splitlines():
-                    if line.startswith("="):
-                        cols = line.split(";")
-                        if len(cols) >= 8:
-                            discovered["mdns"].append({
-                                "name": cols[3],
-                                "service": cols[4],
-                                "host": cols[6],
-                                "ip": cols[7],
-                            })
-            except Exception:
-                pass
-
-        # 5. Tailscale peer discovery
+        # Step E: Tailscale peer discovery
         if shutil.which("tailscale"):
             try:
                 r = subprocess.run(
                     ["tailscale", "status", "--json"],
-                    capture_output=True, text=True, timeout=3,
+                    capture_output=True, text=True, timeout=4,
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     ts_data = json.loads(r.stdout)
+                    self_host = ts_data.get("Self", {}).get("HostName", "Localhost")
+                    self_ips = ts_data.get("Self", {}).get("TailscaleIPs", [])
+                    s_ip4 = next((ip for ip in self_ips if ":" not in ip), "")
+                    s_ip6 = next((ip for ip in self_ips if ":" in ip), "")
+                    if s_ip4:
+                        discovered["tailscale"].append({
+                            "hostname": f"{self_host} (Tailscale)",
+                            "ipv4": s_ip4,
+                            "ipv6": s_ip6 or "None",
+                            "online": True,
+                        })
+
                     peers = ts_data.get("Peer", {}) or {}
                     for p in peers.values():
+                        p_host = p.get("HostName", "Peer")
+                        p_ips = p.get("TailscaleIPs", [])
+                        p_ip4 = next((ip for ip in p_ips if ":" not in ip), "")
+                        p_ip6 = next((ip for ip in p_ips if ":" in ip), "")
                         discovered["tailscale"].append({
-                            "hostname": p.get("HostName"),
-                            "ips": p.get("TailscaleIPs", []),
+                            "hostname": f"{p_host} (Tailscale)",
+                            "ipv4": p_ip4,
+                            "ipv6": p_ip6 or "None",
                             "online": p.get("Online", False),
                         })
             except Exception:
                 pass
 
         with _LOCK:
-            registered = list(self._devices.values())
+            registered = [d for d in self._devices.values() if d.get("connectivity") != "simulated"]
+
+        # Step F: Build unified dynamic list in strict format: Name, IPv4 address, IPv6 address
+        device_entries: list[dict[str, str]] = []
+        seen_ips: set[str] = set()
+
+        for nh in nmap_hosts:
+            ip4 = nh["ip"]
+            if ip4 in seen_ips:
+                continue
+            seen_ips.add(ip4)
+            name = nh["name"]
+            mac = nh.get("mac") or ip4_to_mac.get(ip4, "")
+            ip6 = mac_to_ip6.get(mac, "None") if mac else "None"
+            device_entries.append({
+                "name": name,
+                "ipv4": ip4,
+                "ipv6": ip6,
+            })
+
+        for ln in discovered["lan_neighbors"]:
+            ip4 = ln["ip"]
+            if ":" in ip4:
+                continue
+            if ip4 not in seen_ips:
+                seen_ips.add(ip4)
+                mac = ln.get("mac", "").lower()
+                ip6 = mac_to_ip6.get(mac, "None") if mac else "None"
+                # If we know a registered device on this IP, use its name
+                matching_name = next((d["name"] for d in registered if d.get("ip_address") == ip4), ip4)
+                device_entries.append({
+                    "name": matching_name,
+                    "ipv4": ip4,
+                    "ipv6": ip6,
+                })
+
+        for ts in discovered["tailscale"]:
+            ip4 = ts.get("ipv4")
+            if ip4 and ip4 not in seen_ips:
+                seen_ips.add(ip4)
+                device_entries.append({
+                    "name": ts["hostname"],
+                    "ipv4": ip4,
+                    "ipv6": ts.get("ipv6", "None"),
+                })
+
+        discovered["formatted_devices"] = device_entries
+
+        with _LOCK:
+            registered = [d for d in self._devices.values() if d.get("connectivity") != "simulated"]
 
         return {
             "discovered": discovered,
             "registered_devices": registered,
+            "device_table": [f"{d['name']}, {d['ipv4']}, {d['ipv6']}" for d in device_entries],
         }
 
     def register_or_authorize(

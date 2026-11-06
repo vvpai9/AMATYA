@@ -448,21 +448,32 @@ class ModelRouter:
 
         try:
             from core import gemini
+
+            # Build Gemini configuration dictionary
+            cfg: dict[str, Any] = {}
+            if system:
+                cfg["system_instruction"] = system
+            if max_tokens:
+                cfg["max_output_tokens"] = max_tokens
+            if temperature is not None:
+                cfg["temperature"] = temperature
+
+            contents: Any = prompt
             if image_bytes is not None:
-                return gemini.vision(
-                    prompt,
-                    image_bytes,
-                    tier=gemini.VISION,
-                    system=system,
-                    max_tokens=max_tokens,
-                )
+                try:
+                    from google.genai import types
+                    contents = [
+                        types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                        prompt,
+                    ]
+                except Exception:
+                    contents = prompt
+
             tier = gemini.SMART if task_type in ("coding", "planning", "reasoning") else gemini.FAST
             return gemini.text(
-                prompt,
+                contents,
                 tier=tier,
-                system=system,
-                max_tokens=max_tokens,
-                temperature=temperature,
+                config=cfg if cfg else None,
             )
         except Exception as exc:
             return f"[ModelRouter Error] Generation failed for role '{task_type}': {exc}"
