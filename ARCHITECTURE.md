@@ -19,7 +19,7 @@ Mark-LVI/
 ├── ARCHITECTURE.md              # Architecture map & phase plan (this file)
 ├── DEVELOPMENT_LOG.md           # Engineering audit, bug fixes, implementation & verification log
 ├── requirements.txt             # Dependencies
-├── actions/                     # 26 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
+├── actions/                     # 27 bundled auto-discovered skills (TOOL + SKILL_METADATA dicts)
 │   ├── browser_control.py       # Playwright web automation
 │   ├── cmd_control.py           # Terminal / bash automation
 │   ├── code_helper.py           # Code generation & Wayland-safe clipboard fallback
@@ -32,6 +32,7 @@ Mark-LVI/
 │   ├── finder.py                # File search
 │   ├── flight_finder.py         # Travel flight lookup
 │   ├── home_automation.py       # Smart home devices, routines, camera privacy gate, simulated home
+│   ├── jyotisha.py              # Vedic Jyotisha birth chart computation, Shodashavarga D1..D60, Shadbala, Dashas
 │   ├── knowledge_base.py        # Hybrid semantic + lexical RAG knowledge base action
 │   ├── kwin_desktop.py          # Wayland-native KWin / AT-SPI2 / EIS desktop automation
 │   ├── model_router.py          # 11-role local/cloud AI model router action
@@ -56,6 +57,7 @@ Mark-LVI/
 │   ├── echo_guard.py            # Self-echo acoustic guard
 │   ├── gemini.py                # Gemini model ladder & cooldowns
 │   ├── home_automation.py       # Home Assistant REST/WS, MQTT, routines, state verification & simulator
+│   ├── jyotisha.py              # Swiss Ephemeris astronomical engine, Sidereal Lahiri & Tropical Western calculators
 │   ├── kwin_mcp_client.py       # MCP stdio client for kwin-mcp v0.12.0 (session-isolated)
 │   ├── model_router.py          # 11-role hardware-aware model router (GTX 1650 4GB + 16GB RAM aware)
 │   ├── orchestrator.py          # CentralOrchestrator, ContextTracker & pronoun/reference resolution

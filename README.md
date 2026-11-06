@@ -45,8 +45,20 @@ AMATYA controls KDE Plasma 6 Wayland natively through `kwin-mcp` (KWin EIS libei
 ### 6. CREATOR — Software Engineering & Document Engine (`core/creator.py`, `core/doc_generator.py`)
 - **Software Engineering:** Repository architecture summary, symbol search, safe file editing with automatic Python AST syntax validation and backup rollback, git status/diff, and test execution with **Command Risk Classification** (`SAFE_READ`, `SAFE_BUILD`, `MODIFY`, `DESTRUCTIVE`).
 - **Multi-Format Documents:** Generate and inspect **PDF, DOCX, XLSX, PPTX, CSV, Markdown, and ZIP** files locally.
+- **Dynamic Content & Summary Bridging:** Auto-bridges summarized text directly from generated files (`.txt`, `.md`, `.pdf`, `.docx`) into multi-slide presentations without falling back to stale or generic placeholder content.
+- **Strict File Deletion Protection:** Deletion of any file or directory requires mandatory confirmation and supports spoken voice authorization (`confirm.voice_authorize`).
 
-### 7. Futuristic Command-Centre HUD (`ui.py`, `dashboard/server.py`)
+### 7. Vedic Jyotisha & Astrological Intelligence (`core/jyotisha.py`, `actions/jyotisha.py`)
+- **Vedic Sidereal Calculations (Lahiri / Chitrapaksha Ayanamsha):** High-precision planetary longitudes, Lagna, and Bhavas computed using Swiss Ephemeris (`pyswisseph`).
+- **Classical Indian Nomenclature:** Uses classical terms throughout (Mesha..Meena for Rashis; Surya, Chandra, Mangala, Budha, Guru, Shukra, Shani, Rahu, Ketu for Grahas).
+- **All 16 Shodashavarga Divisional Charts:** Full computation and interpretation of D1 (Rashi), D2 (Hora), D3 (Drekkana), D4 (Chaturthamsa), D7 (Saptamsha), D9 (Navamsha for marriage/dharma), D10 (Dashamsha for career), D12 (Dwadashamsha), D16, D20, D24, D27, D30, D40, D45, and D60 (Shashtiamsha).
+- **Planetary Strengths & Karakas:** Six-fold **Shadbala** (Sthana, Dig, Kala, Cheshta, Naisargika, Drik) in Virupas and Rupas, and Jaimini **Chara Karakas** (Atmakaraka, Amatyakaraka, Bhratrikaraka, Matrikaraka, Putrakaraka, Gnatikaraka, Darakaraka).
+- **Upagraha Maandi & Outer Planets:** Precise calculation of Maandi and Gulika based on diurnal/nocturnal Saturnian Khandas, plus modern outer planets Harshal (Uranus), Varun (Neptune), and Yama (Pluto).
+- **Vimsottari Dasha Engine:** Computes birth dasha balance, the complete 120-year cycle of Mahadashas and Antardashas, and identifies the currently active period and transition dates.
+- **Synthesized Readings & Upayas:** Generates structured analyses covering personality, career (D10), marriage (D9), wealth (D2), Maandi harmonization, and classical Vedic remedies.
+- **Western Astrology Mode:** Seamlessly switches to Western Tropical astrology (Sayana coordinates, Placidus houses, Big Three, and major aspects) ONLY when explicitly requested.
+
+### 8. Futuristic Command-Centre HUD (`ui.py`, `dashboard/server.py`)
 - Holographic rotating globe with real-time audio-reactive lip-sync, plus:
   - **`⊞ COMMAND CENTRE`:** Live telemetry overlay displaying security tier, voice auth status, GPU/RAM model router status, connected devices, smart home summary, and active tasks.
   - **`🛡 AUTONOMY`:** One-click cycling across all 5 autonomy levels (`L0 OBSERVE` → `L4 FULL AUTO`).
@@ -70,6 +82,7 @@ AMATYA is a fork and evolution of **[Mark-LVI by FatihMakes](https://github.com/
 | Smart Home Automation (HA + MQTT + Simulator + Routines) | ✅ Complete & verified |
 | Connected Devices (KDE Connect, ADB, Redmi TV, SSH, LAN) | ✅ Complete & verified live |
 | CREATOR Coding Agent + PDF/DOCX/XLSX/PPTX/CSV/MD/ZIP Engine | ✅ Complete & verified |
+| Vedic Jyotisha Engine (Shodashavarga D1..D60, Shadbala, Dashas) | ✅ Complete & verified |
 | Command-Centre HUD + Emergency Stop | ✅ Complete & verified |
 
 ---

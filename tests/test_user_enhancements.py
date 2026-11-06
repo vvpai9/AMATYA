@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ["AMATYA_TEST_MODE"] = "1"
 
-from actions import computer_control, creator, file_controller, orchestrator
+from actions import computer_control, creator, file_controller, jyotisha, orchestrator
 from core import confirm
 from core.doc_generator import analyze_document, generate_document
 from core.orchestrator import CentralOrchestrator, TaskRecord, get_orchestrator
@@ -469,6 +469,171 @@ class TestUserEnhancements(unittest.TestCase):
         # 3. Verify user-space wl-paste / wl-copy wrapper presence
         wl_paste = shutil.which("wl-paste")
         self.assertIsNotNone(wl_paste, "wl-paste wrapper should be found in PATH")
+
+    # ── 12. PPT Generation Bridges Summary File Content (No Stale/Vague Data) ───
+
+    def test_12_ppt_generation_bridges_file_summary_content(self):
+        """Verify PPT creation resolves file paths and bridges summary text instead of vague placeholders."""
+        from actions import creator
+        from core.orchestrator import CentralOrchestrator
+
+        # Create a realistic project summary text file
+        summary_file = Path(self.test_dir) / "ldo_summary.txt"
+        summary_content = (
+            "# Low Dropout Voltage Regulator (LDO)\n\n"
+            "## Executive Summary\n"
+            "The LDO circuit delivers stable 1.8V output across 2.7V to 5.0V supply fluctuations.\n"
+            "Achieves ultra-low quiescent current and fast transient recovery under step loads.\n\n"
+            "## Technical Specifications\n"
+            "- Dropout Voltage: 140mV at 200mA load current\n"
+            "- Power Supply Rejection Ratio: 72dB at 1kHz\n"
+            "- Quiescent Current: 28uA under no-load standby\n"
+            "- Output Capacitor: 1.0uF ceramic ESR stable\n\n"
+            "## Subsystem Architecture\n"
+            "- Sub-bandgap reference generator with curvature compensation\n"
+            "- Folded cascode error amplifier with high gain-bandwidth product\n"
+            "- PMOS pass element with thermal shutdown protection\n"
+        )
+        summary_file.write_text(summary_content, encoding="utf-8")
+
+        # 1. Direct Orchestrator summary extractor resolves file path
+        orch = CentralOrchestrator()
+        extracted = orch._extract_summary_text(f"File created: {summary_file}")
+        self.assertIn("Dropout Voltage: 140mV", extracted)
+        self.assertIn("Folded cascode error amplifier", extracted)
+
+        # 2. Creator generate_doc with content as filepath
+        ppt_file1 = Path(self.test_dir) / "ldo_deck1.pptx"
+        res1 = creator.execute({
+            "action": "generate_doc",
+            "doc_type": "pptx",
+            "title": "LDO Engineering Review",
+            "content": str(summary_file),
+            "output_path": str(ppt_file1),
+        })
+        self.assertIn("status=done", str(res1))
+        self.assertTrue(ppt_file1.exists())
+
+        analysis1 = analyze_document(str(ppt_file1))
+        self.assertTrue(analysis1["ok"])
+        self.assertIn("140mV", analysis1["text"])
+        self.assertIn("Power Supply Rejection", analysis1["text"])
+        self.assertNotIn("Architecture Focus: Comprehensive evaluation", analysis1["text"])
+
+        # 3. Creator generate_doc with source_paths parameter
+        ppt_file2 = Path(self.test_dir) / "ldo_deck2.pptx"
+        res2 = creator.execute({
+            "action": "generate_doc",
+            "doc_type": "pptx",
+            "title": "LDO Architecture Brief",
+            "source_paths": [str(summary_file)],
+            "output_path": str(ppt_file2),
+        })
+        self.assertIn("status=done", str(res2))
+        analysis2 = analyze_document(str(ppt_file2))
+        self.assertTrue(analysis2["ok"])
+        self.assertIn("Folded cascode", analysis2["text"])
+
+    # ── 13. Vedic Jyotisha Birth Chart Calculation & Comprehensive Analysis ─────
+
+    def test_13_vedic_jyotisha_birth_chart_and_analysis(self):
+        """Verify Vedic Jyotisha calculation: Sidereal Lahiri, Shodashavarga (D1..D60), Maandi, Shadbala, Dashas."""
+        import actions.jyotisha
+        from core.jyotisha import calculate_vedic_chart, resolve_location
+
+        # Test location resolution
+        lat, lon, tz, cname = resolve_location("Bengaluru")
+        self.assertAlmostEqual(lat, 12.9716, places=2)
+        self.assertAlmostEqual(lon, 77.5946, places=2)
+        self.assertEqual(tz, 5.5)
+
+        # 1. Action calculate_chart
+        res = jyotisha.execute({
+            "action": "calculate_chart",
+            "name": "Varun",
+            "date": "1995-05-15",
+            "time": "14:30:00",
+            "place": "Bengaluru",
+        })
+        self.assertIn("status=done", res)
+        self.assertIn("VEDIC KUNDALI", res)
+        self.assertIn("Lagna: Kanya", res)
+        self.assertIn("Chandra Rashi: Vrishchika", res)
+        self.assertIn("Maandi", res)
+        self.assertIn("Harshal (Uranus)", res)
+        self.assertIn("Varun (Neptune)", res)
+        self.assertIn("Yama (Pluto)", res)
+
+        # 2. All 16 Divisional Charts (Shodashavargas)
+        chart = calculate_vedic_chart(name="Varun", date_str="1995-05-15", time_str="14:30:00", place="Bengaluru")
+        vargas = chart.divisional_charts
+        expected_vargas = ["D1", "D2", "D3", "D4", "D7", "D9", "D10", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D60"]
+        for ev in expected_vargas:
+            self.assertIn(ev, vargas, f"Missing divisional chart {ev}")
+            self.assertIn("Lagna", vargas[ev])
+            self.assertIn("Surya", vargas[ev])
+            self.assertIn("Chandra", vargas[ev])
+
+        # 3. Shadbala & Chara Karakas
+        res_sb = jyotisha.execute({
+            "action": "shadbala",
+            "name": "Varun",
+            "date": "1995-05-15",
+            "time": "14:30:00",
+            "place": "Bengaluru",
+        })
+        self.assertIn("status=done", res_sb)
+        self.assertIn("Atmakaraka (AK)", res_sb)
+        self.assertIn("Amatyakaraka (AmK)", res_sb)
+        self.assertIn("Darakaraka (DK)", res_sb)
+        self.assertIn("Shadbala", res_sb)
+
+        # 4. Vimsottari Dasha Timeline
+        res_dasha = jyotisha.execute({
+            "action": "dasha_timeline",
+            "name": "Varun",
+            "date": "1995-05-15",
+            "time": "14:30:00",
+            "place": "Bengaluru",
+        })
+        self.assertIn("status=done", res_dasha)
+        self.assertIn("VIMSOTTARI DASHA TIMELINE", res_dasha)
+        self.assertIn("CURRENT ACTIVE PERIOD", res_dasha)
+        self.assertIn("Mahadasha", res_dasha)
+
+        # 5. Full Synthesized Reading
+        res_read = jyotisha.execute({
+            "action": "read_chart",
+            "name": "Varun",
+            "date": "1995-05-15",
+            "time": "14:30:00",
+            "place": "Bengaluru",
+        })
+        self.assertIn("status=done", res_read)
+        self.assertIn("Core Triad", res_read)
+        self.assertIn("Jaimini Chara Karakas", res_read)
+        self.assertIn("D10 Dashamsha", res_read)
+        self.assertIn("D9 Navamsha", res_read)
+        self.assertIn("Classical Upayas", res_read)
+
+    # ── 14. Western Tropical Astrology Mode ───────────────────────────────────
+
+    def test_14_western_astrology_tropical_mode(self):
+        """Verify Western astrology mode operates accurately with Tropical zodiac and Placidus houses."""
+        res_w = jyotisha.execute({
+            "action": "western_chart",
+            "name": "Varun",
+            "date": "1995-05-15",
+            "time": "14:30:00",
+            "place": "Bengaluru",
+        })
+        self.assertIn("status=done", res_w)
+        self.assertIn("WESTERN TROPICAL HOROSCOPE", res_w)
+        self.assertIn("Sun Sign: Taurus", res_w)
+        self.assertIn("Moon Sign: Sagittarius", res_w)
+        self.assertIn("Rising Sign (Ascendant): Virgo", res_w)
+        self.assertIn("Placidus Houses", res_w)
+        self.assertIn("Major Aspects", res_w)
 
 
 if __name__ == "__main__":

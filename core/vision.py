@@ -245,29 +245,36 @@ class Vision:
             cmd.append("-f")
         cmd.extend(["-o", str(tmp_file)])
 
-        try:
-            p = _sp.run(cmd, capture_output=True, timeout=6)
-            if tmp_file.exists() and tmp_file.stat().st_size > 0:
-                img_bytes = tmp_file.read_bytes()
-                tmp_file.unlink(missing_ok=True)
-                # If region requested, crop image using PIL
-                if kind == "region" and region:
-                    try:
-                        import io
-                        from PIL import Image
-                        im = Image.open(io.BytesIO(img_bytes))
-                        box = (region["x"], region["y"], region["x"] + region["width"], region["y"] + region["height"])
-                        cropped = im.crop(box)
-                        buf = io.BytesIO()
-                        cropped.save(buf, format="PNG")
-                        img_bytes = buf.getvalue()
-                    except Exception:
-                        pass
-                return self._finalize_capture(img_bytes, "image/png", kind, monitor, region, window_id, None, None)
-            err_msg = p.stderr.decode("utf-8", errors="ignore") if p.stderr else "unknown error"
-            return CaptureResult(ok=False, error=f"spectacle failed: {err_msg}")
-        except Exception as exc:
-            return CaptureResult(ok=False, error=f"spectacle error: {exc}")
+        for attempt in range(2):
+            try:
+                p = _sp.run(cmd, capture_output=True, timeout=8)
+                if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                    img_bytes = tmp_file.read_bytes()
+                    tmp_file.unlink(missing_ok=True)
+                    # If region requested, crop image using PIL
+                    if kind == "region" and region:
+                        try:
+                            import io
+                            from PIL import Image
+                            im = Image.open(io.BytesIO(img_bytes))
+                            box = (region["x"], region["y"], region["x"] + region["width"], region["y"] + region["height"])
+                            cropped = im.crop(box)
+                            buf = io.BytesIO()
+                            cropped.save(buf, format="PNG")
+                            img_bytes = buf.getvalue()
+                        except Exception:
+                            pass
+                    return self._finalize_capture(img_bytes, "image/png", kind, monitor, region, window_id, None, None)
+                if attempt == 0:
+                    time.sleep(0.3)
+            except Exception as exc:
+                if attempt == 0:
+                    time.sleep(0.3)
+                    continue
+                return CaptureResult(ok=False, error=f"spectacle error: {exc}")
+
+        err_msg = p.stderr.decode("utf-8", errors="ignore") if p.stderr else "unknown error"
+        return CaptureResult(ok=False, error=f"spectacle failed: {err_msg}")
 
     def _get_monitor_region(self, monitor: int) -> Optional[dict[str, int]]:
         """Query KDE kscreen-doctor JSON for monitor geometry (1-based index)."""

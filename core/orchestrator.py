@@ -94,10 +94,23 @@ def _extract_summary_text(val: Any) -> str:
     """Extract summary/content text from tool return values."""
     if not val:
         return ""
+    # If val contains or points to a document or text file, read the file directly!
+    fp = _extract_file_path(val)
+    if fp:
+        p = Path(fp).expanduser()
+        if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".docx", ".pdf", ".csv"):
+            try:
+                from core.doc_generator import analyze_document
+                doc_res = analyze_document(p)
+                if doc_res.get("ok") and doc_res.get("text"):
+                    return doc_res["text"]
+                return p.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     if isinstance(val, dict):
         for k in ("summary", "content", "result", "text", "message"):
             cand = val.get(k)
-            if isinstance(cand, str) and cand.strip():
+            if isinstance(cand, str) and cand.strip() and not cand.startswith("File created:"):
                 return cand.strip()
     return str(val).strip()
 
@@ -155,6 +168,8 @@ def resolve_bridged_parameters(
 
 class CentralOrchestrator:
     """Hierarchical Task Planner, Context Resolver & Multi-Step Orchestrator for AMATYA."""
+
+    _extract_summary_text = staticmethod(_extract_summary_text)
 
     def __init__(self) -> None:
         self.context = ContextTracker()

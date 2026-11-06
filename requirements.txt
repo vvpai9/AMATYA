@@ -130,6 +130,9 @@ pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 # only ever uses Gemini should not pay for them. Deleting providers/ removes
 # the whole feature and the app runs exactly as it did before it existed.
 
+# ── Vedic Jyotisha & Astrological Ephemeris ──────────────────────────────────
+pyswisseph>=2.10.0
+
 # ── Optional: local wake word ("Hey Amatya") ──────────────────────────────────
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
 # the tiny model) with one click from ⚙ → WAKE WORD in the app, or install it

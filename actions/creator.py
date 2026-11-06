@@ -1,9 +1,11 @@
-import json
 """
 actions/creator.py — CREATOR Autonomous Software Engineering & Document Engine for AMATYA.
 """
 from __future__ import annotations
 
+import json
+import json
+from pathlib import Path
 from typing import Any
 
 from core import outcome
@@ -279,6 +281,74 @@ def execute(
                         title_val = str(parsed_c["title"])
                     if parsed_c.get("content") or parsed_c.get("subtitle"):
                         raw_content = str(parsed_c.get("content") or parsed_c.get("subtitle") or "")
+            except Exception:
+                pass
+
+        # If raw_content is a path to an existing file, load its real text content
+        if raw_content and isinstance(raw_content, str) and "\n" not in raw_content and len(raw_content.strip()) < 300:
+            try:
+                c_cand = Path(raw_content.strip()).expanduser()
+                if c_cand.is_file():
+                    d_res = analyze_document(c_cand)
+                    if d_res.get("ok") and d_res.get("text"):
+                        raw_content = d_res["text"]
+                    else:
+                        raw_content = c_cand.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+        # If raw_content is empty or a generic placeholder, check source_paths or context last_file
+        source_candidates: list[str] = []
+        if parameters.get("source_paths") and isinstance(parameters["source_paths"], list):
+            source_candidates.extend(parameters["source_paths"])
+        for sk in ("source_path", "source_file", "file_path", "input_file"):
+            if parameters.get(sk):
+                source_candidates.append(parameters[sk])
+
+        is_vague = not raw_content or str(raw_content).strip().lower() in (
+            "automated summary.", "summary", "project report", "$prev.summary",
+            "$prev.content", "$prev.text", "amatya document", "summary of project report"
+        )
+
+        if is_vague and source_candidates:
+            extracted_texts = []
+            for sf in source_candidates:
+                p = Path(str(sf)).expanduser()
+                if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".csv", ".docx", ".pdf"):
+                    try:
+                        d_res = analyze_document(p)
+                        if d_res.get("ok") and d_res.get("text"):
+                            extracted_texts.append(d_res["text"])
+                        else:
+                            extracted_texts.append(p.read_text(encoding="utf-8", errors="replace"))
+                    except Exception:
+                        pass
+            if extracted_texts:
+                raw_content = "\n\n".join(extracted_texts)
+                is_vague = False
+
+        if is_vague and not raw_sections:
+            try:
+                from core.orchestrator import get_orchestrator
+                orch = get_orchestrator()
+                ctx_st = orch.context.get_state()
+                recent_cands = []
+                if ctx_st.get("last_file"):
+                    recent_cands.append(ctx_st["last_file"])
+                last_task = ctx_st.get("last_task", {})
+                if isinstance(last_task, dict) and last_task.get("artifacts"):
+                    recent_cands.extend(last_task["artifacts"])
+                for rf in recent_cands:
+                    p = Path(str(rf)).expanduser()
+                    if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".docx", ".pdf"):
+                        d_res = analyze_document(p)
+                        if d_res.get("ok") and d_res.get("text"):
+                            raw_content = d_res["text"]
+                            break
+                        txt = p.read_text(encoding="utf-8", errors="replace")
+                        if len(txt.strip()) > 30:
+                            raw_content = txt
+                            break
             except Exception:
                 pass
 

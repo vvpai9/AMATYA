@@ -157,6 +157,31 @@ def generate_document(
             pptx_title = title
             pptx_sections = sections or kwargs.get("slides")
             pptx_theme = str(kwargs.get("theme", "navy"))
+
+            # If pptx_content is a file path, load its text
+            if isinstance(pptx_content, str) and "\n" not in pptx_content and len(pptx_content.strip()) < 300:
+                try:
+                    cp = Path(pptx_content.strip()).expanduser()
+                    if cp.is_file():
+                        d_res = analyze_document(cp)
+                        pptx_content = d_res.get("text") or cp.read_text(encoding="utf-8", errors="replace")
+                except (OSError, ValueError):
+                    pass
+
+            # If pptx_content is empty, extract from text files in source_paths
+            if not pptx_content and source_paths:
+                src_texts = []
+                for sp in source_paths:
+                    p = Path(str(sp)).expanduser()
+                    if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".csv", ".docx", ".pdf"):
+                        try:
+                            d_res = analyze_document(p)
+                            src_texts.append(d_res.get("text") or p.read_text(encoding="utf-8", errors="replace"))
+                        except Exception:
+                            pass
+                if src_texts:
+                    pptx_content = "\n\n".join(src_texts)
+
             if isinstance(content, dict):
                 pptx_title = title or content.get("title") or "AMATYA Professional Presentation"
                 pptx_sections = pptx_sections or content.get("slides") or content.get("sections")
@@ -358,6 +383,15 @@ def _parse_presentation_slides(
       - stats: list[dict] (optional)
       - image: str (optional)
     """
+    # Resolve content if passed as file path
+    if content and isinstance(content, str) and "\n" not in content and len(content.strip()) < 300:
+        try:
+            c_cand = Path(content.strip()).expanduser()
+            if c_cand.is_file():
+                content = c_cand.read_text(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
     # 1. If sections is provided, normalize each item
     if sections and isinstance(sections, (list, tuple)):
         items = []
