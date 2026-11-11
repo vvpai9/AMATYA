@@ -39,3 +39,4 @@ When $do(\text{CoolantFlow} = 15\text{ L/min})$ is applied:
 - $\Delta \text{CoolantFlow} = +5$
 - $\Delta \text{EngineTemp} = +5 \times (-2.0) = -10.0^\circ\text{C}$ (New: $80^\circ\text{C}$)
 - $\Delta \text{WearRate} = -10.0 \times 0.01 = -0.1\text{ mm/yr}$
+

@@ -1,0 +1,12 @@
+{
+  "pin_salt": "",
+  "pin_hash": "",
+  "pin_iterations": 200000,
+  "pin_updated_at": 0.0,
+  "autonomy_level": "confirm",
+  "voice_auth_enabled": true,
+  "voice_auth_threshold": 0.75,
+  "tier_overrides": {},
+  "audit_logging_enabled": true
+}
+

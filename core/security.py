@@ -146,6 +146,46 @@ def _save_policy(data: dict[str, Any]) -> None:
             pass
 
 
+_SENSITIVE_KEYS = {
+    "pin", "pin_hash", "pin_salt", "password", "token", "secret", "api_key",
+    "private_key", "credentials", "auth_token", "access_token", "refresh_token",
+    "bearer", "key", "cert", "seed", "challenge", "fingerprint", "embedding",
+    "voice_embedding", "speaker_embedding", "biometric", "voice_print",
+    "acoustic_features", "audio_sample", "audio_bytes"
+}
+
+
+def _redact_recursive(val: Any) -> Any:
+    """Recursively redacts sensitive keys, tokens, and biometric vectors from audit log payloads."""
+    if isinstance(val, dict):
+        out = {}
+        for k, v in val.items():
+            k_str = str(k).lower()
+            if isinstance(v, (bytes, bytearray)):
+                out[k] = "[REDACTED_AUDIO_BYTES]"
+            elif isinstance(v, (list, tuple, set)) and len(v) >= 16 and all(isinstance(x, (int, float)) for x in v):
+                out[k] = "[REDACTED_BIOMETRIC_VECTOR]"
+            elif any(s in k_str for s in (
+                "pin", "pass", "token", "secret", "api_key", "priv_key", "cert",
+                "auth", "embedding", "biometric", "voice_print", "audio", "voice_profile"
+            )):
+                out[k] = "[REDACTED]"
+            else:
+                out[k] = _redact_recursive(v)
+        return out
+    elif isinstance(val, (bytes, bytearray)):
+        return "[REDACTED_AUDIO_BYTES]"
+    elif isinstance(val, (list, tuple, set)):
+        # Check if this list is a numerical biometric embedding vector (e.g. 16+ floats)
+        as_list = list(val)
+        if len(as_list) >= 16 and all(isinstance(x, (int, float)) for x in as_list):
+            return "[REDACTED_BIOMETRIC_VECTOR]"
+        return [_redact_recursive(x) for x in as_list]
+    elif isinstance(val, str):
+        return redact_secrets(val)
+    return val
+
+
 def log_audit_event(
     event_type: str,
     operation: str,
@@ -170,7 +210,7 @@ def log_audit_event(
                 "allowed": bool(allowed),
                 "user": user or _SESSION_STATE.verified_user or "unverified",
                 "reason": redact_secrets(str(reason)),
-                "details": details or {},
+                "details": _redact_recursive(details or {}),
             }
             with AUDIT_LOG_FILE.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -233,8 +273,15 @@ def set_pin(pin: str) -> tuple[bool, str]:
     return True, "Security PIN set and stored with PBKDF2-HMAC-SHA256 (0600 permissions)."
 
 
+_PIN_ATTEMPTS: list[float] = []
+_PIN_LOCKOUT_UNTIL: float = 0.0
+_MAX_PIN_ATTEMPTS: int = 5
+_PIN_LOCKOUT_DURATION_SEC: float = 60.0
+
+
 def verify_pin(pin: str) -> tuple[bool, str]:
-    """Verify a candidate PIN against the stored PBKDF2-HMAC-SHA256 hash."""
+    """Verify a candidate PIN against the stored PBKDF2-HMAC-SHA256 hash with rate-limiting & lockout."""
+    global _PIN_LOCKOUT_UNTIL
     clean = (pin or "").strip()
     pol = _load_policy()
     salt_hex = pol.get("pin_salt")
@@ -242,6 +289,22 @@ def verify_pin(pin: str) -> tuple[bool, str]:
     iterations = int(pol.get("pin_iterations", 200_000))
     if not salt_hex or not hash_hex:
         return False, "No security PIN is configured yet."
+
+    with _LOCK:
+        now = time.time()
+        if now < _PIN_LOCKOUT_UNTIL:
+            rem = int(max(1.0, _PIN_LOCKOUT_UNTIL - now))
+            log_audit_event("pin_lockout_rejected", "verify_pin", PermissionTier.SENSITIVE_SYSTEM, False, f"PIN verification rejected (locked out for {rem}s).")
+            return False, f"PIN verification temporarily locked out due to multiple failed attempts. Try again in {rem} seconds."
+
+        # Filter attempts within the last 60 seconds
+        _PIN_ATTEMPTS[:] = [t for t in _PIN_ATTEMPTS if now - t < 60.0]
+        if len(_PIN_ATTEMPTS) >= _MAX_PIN_ATTEMPTS:
+            _PIN_LOCKOUT_UNTIL = now + _PIN_LOCKOUT_DURATION_SEC
+            rem = int(_PIN_LOCKOUT_DURATION_SEC)
+            log_audit_event("pin_lockout_triggered", "verify_pin", PermissionTier.SENSITIVE_SYSTEM, False, "PIN lockout triggered after 5 consecutive failures.")
+            return False, f"Too many failed PIN attempts. Locked out for {rem} seconds."
+
     try:
         salt = bytes.fromhex(salt_hex)
         expected = bytes.fromhex(hash_hex)
@@ -252,6 +315,8 @@ def verify_pin(pin: str) -> tuple[bool, str]:
 
     if matched:
         with _LOCK:
+            _PIN_ATTEMPTS.clear()
+            _PIN_LOCKOUT_UNTIL = 0.0
             _SESSION_STATE.pin_verified_at = time.time()
         log_audit_event(
             "pin_verified",
@@ -262,13 +327,23 @@ def verify_pin(pin: str) -> tuple[bool, str]:
         )
         return True, "PIN verified."
     else:
+        with _LOCK:
+            now = time.time()
+            _PIN_ATTEMPTS.append(now)
+            fail_count = len(_PIN_ATTEMPTS)
+        # Progressive delay against timing/brute force
+        time.sleep(min(0.5, 0.1 * fail_count))
         log_audit_event(
             "pin_failed",
             "verify_pin",
             PermissionTier.SENSITIVE_SYSTEM,
             False,
-            "Invalid PIN provided.",
+            f"Invalid PIN provided (failed_attempts={fail_count}).",
         )
+        if fail_count >= _MAX_PIN_ATTEMPTS:
+            with _LOCK:
+                _PIN_LOCKOUT_UNTIL = time.time() + _PIN_LOCKOUT_DURATION_SEC
+            return False, f"Invalid PIN. Too many failures; locked out for {int(_PIN_LOCKOUT_DURATION_SEC)} seconds."
         return False, "Invalid PIN."
 
 
@@ -370,6 +445,34 @@ def check_permission(
     autonomy = get_autonomy_level()
     voice_auth_on = get_voice_auth_enabled()
     voice_ok = _SESSION_STATE.is_voice_active() and _SESSION_STATE.anti_spoof_passed
+
+    # 0. Immutable Security Invariants — Under NO circumstances can security protocols,
+    # voice authentication, or core guardrails be disabled or bypassed, even under forced override.
+    op_lower = (operation or "").strip().lower()
+    if op_lower in (
+        "disable_voice_auth",
+        "turn_off_security",
+        "disable_security",
+        "bypass_safety",
+        "disable_protections",
+        "turn_off_security_protocols",
+    ):
+        refusal_reason = (
+            "REFUSAL: Core security protocols, voice authentication, and safety guardrails are "
+            "immutable architectural invariants of AMATYA. They cannot be disabled, bypassed, or "
+            "compromised under any circumstances, even with override authorisation or forced commands."
+        )
+        log_audit_event("security_override_refused", operation, ptier, False, refusal_reason)
+        return {
+            "allowed": False,
+            "tier": int(ptier),
+            "tier_label": TIER_LABELS[ptier],
+            "autonomy_level": autonomy,
+            "reason": refusal_reason,
+            "requires_confirmation": False,
+            "requires_voice_auth": False,
+            "requires_pin": False,
+        }
 
     # If a PIN was explicitly supplied with the call, verify it right away
     if pin:
@@ -643,20 +746,47 @@ def check_permission(
     }
 
 
-# ── Complete Tool-to-Permission Matrix (All 26 Tools) ───────────────────────
+# ── Complete Tool-to-Permission Matrix ────────────────────────────────────────
 
 TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
-    # Tier 0: General Conversation / Read-Only External / Informational
+    # Tier 0: General Conversation / Informational / Read-Only / Calculations
     "web_search": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "weather_report": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "flight_finder": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "youtube_video": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "video_player": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
-    "model_router": {"default_tier": PermissionTier.GENERAL_CONVERSATION, "set_route": PermissionTier.SENSITIVE_SYSTEM},
+    "system_monitor": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "screen_processor": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "jyotisha": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "code_helper": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "proactive": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "save_memory": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "recall_memory": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "screen_process": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "close_camera": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "system_status": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "sleep_amatya": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "open_app": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "reasoning_tools": {
+        "default_tier": PermissionTier.GENERAL_CONVERSATION,
+        "calculate": PermissionTier.GENERAL_CONVERSATION,
+        "simulate": PermissionTier.GENERAL_CONVERSATION,
+        "analyze": PermissionTier.GENERAL_CONVERSATION,
+        "solve_causal": PermissionTier.GENERAL_CONVERSATION,
+        "optimize": PermissionTier.GENERAL_CONVERSATION,
+        "evaluate_decision": PermissionTier.GENERAL_CONVERSATION,
+        "predict": PermissionTier.GENERAL_CONVERSATION,
+    },
+    "model_router": {
+        "default_tier": PermissionTier.GENERAL_CONVERSATION,
+        "set_route": PermissionTier.SENSITIVE_SYSTEM,
+    },
     "orchestrator": {
         "default_tier": PermissionTier.GENERAL_CONVERSATION,
         "emergency_stop": PermissionTier.GENERAL_CONVERSATION,
         "plan_and_execute": PermissionTier.GENERAL_CONVERSATION,
+        "plan_workflow": PermissionTier.GENERAL_CONVERSATION,
+        "status": PermissionTier.GENERAL_CONVERSATION,
     },
 
     # Tier 1: Personal Information Access
@@ -670,6 +800,10 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
         "default_tier": PermissionTier.GENERAL_CONVERSATION,
         "read_personal": PermissionTier.PERSONAL_INFO,
         "search_personal": PermissionTier.PERSONAL_INFO,
+        "query": PermissionTier.GENERAL_CONVERSATION,
+        "search": PermissionTier.GENERAL_CONVERSATION,
+        "list_spaces": PermissionTier.GENERAL_CONVERSATION,
+        "research": PermissionTier.GENERAL_CONVERSATION,
     },
     "send_message": {
         "default_tier": PermissionTier.PERSONAL_INFO,
@@ -677,6 +811,8 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     },
 
     # Tier 2: Private Files & Local Data Modification
+    "undo": {"default_tier": PermissionTier.PRIVATE_FILES},
+    "manage_monitor": {"default_tier": PermissionTier.PRIVATE_FILES},
     "file_controller": {
         "default_tier": PermissionTier.PRIVATE_FILES,
         "find": PermissionTier.GENERAL_CONVERSATION,
@@ -693,7 +829,6 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
         "summarize": PermissionTier.GENERAL_CONVERSATION,
         "write": PermissionTier.PRIVATE_FILES,
     },
-    "open_app": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
 
     # Tier 3: Remote Device Control & Interactive Desktop Manipulation
     "device_control": {
@@ -709,6 +844,24 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
         "get": PermissionTier.GENERAL_CONVERSATION,
         "info": PermissionTier.GENERAL_CONVERSATION,
     },
+    "phone_ring": {
+        "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+        "ring": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "call": PermissionTier.REMOTE_DEVICE_CONTROL,
+    },
+    "browser_control": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "whatsapp_connector": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "workflow_engine": {
+        "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "list": PermissionTier.GENERAL_CONVERSATION,
+        "status": PermissionTier.GENERAL_CONVERSATION,
+        "execute": PermissionTier.REMOTE_DEVICE_CONTROL,
+        "execute_workflow": PermissionTier.REMOTE_DEVICE_CONTROL,
+    },
+    "autonomous_agent": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "background_monitor": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
+    "desktop": {"default_tier": PermissionTier.REMOTE_DEVICE_CONTROL},
     "kwin_desktop": {
         "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
         "list_windows": PermissionTier.GENERAL_CONVERSATION,
@@ -737,13 +890,17 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
         "git_commit": PermissionTier.SENSITIVE_SYSTEM,
         "run_shell": PermissionTier.SENSITIVE_SYSTEM,
     },
-    "code_helper": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "game_updater": {"default_tier": PermissionTier.SENSITIVE_SYSTEM},
     "computer_settings": {
         "default_tier": PermissionTier.SENSITIVE_SYSTEM,
         "status": PermissionTier.GENERAL_CONVERSATION,
+        "get_time": PermissionTier.GENERAL_CONVERSATION,
+        "current_time": PermissionTier.GENERAL_CONVERSATION,
+        "time": PermissionTier.GENERAL_CONVERSATION,
         "get_volume": PermissionTier.GENERAL_CONVERSATION,
         "get_brightness": PermissionTier.GENERAL_CONVERSATION,
+        "text_only_mode": PermissionTier.GENERAL_CONVERSATION,
+        "voice_mode": PermissionTier.GENERAL_CONVERSATION,
         "shutdown": PermissionTier.CRITICAL_SECURITY,
         "restart": PermissionTier.CRITICAL_SECURITY,
         "amatya_shutdown": PermissionTier.CRITICAL_SECURITY,
@@ -751,9 +908,11 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     },
 
     # Tier 5: Critical Security & Authentication Operations
+    "shutdown_amatya": {"default_tier": PermissionTier.CRITICAL_SECURITY},
     "voice_auth": {
         "default_tier": PermissionTier.CRITICAL_SECURITY,
         "status": PermissionTier.GENERAL_CONVERSATION,
+        "benchmark": PermissionTier.GENERAL_CONVERSATION,
         "verify": PermissionTier.PERSONAL_INFO,
         "audit_log": PermissionTier.PERSONAL_INFO,
         "set_pin": PermissionTier.CRITICAL_SECURITY,
@@ -764,12 +923,18 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
 }
 
 
+def register_tool_permission(tool_name: str, spec: dict[str, Any]) -> None:
+    """Register permission mapping for an external/dynamically loaded tool or plugin."""
+    with _LOCK:
+        TOOL_PERMISSION_MATRIX[str(tool_name).strip().lower()] = spec
+
+
 def classify_tool_permission(
     tool_name: str,
     action: str = "",
     parameters: dict[str, Any] | None = None,
 ) -> tuple[PermissionTier, str]:
-    """Resolve the required PermissionTier for any tool and action."""
+    """Resolve the required PermissionTier for any tool and action (fails closed for unclassified)."""
     tool = str(tool_name or "").strip().lower()
     act = str(action or "").strip().lower()
 
@@ -779,7 +944,7 @@ def classify_tool_permission(
     # Look up tool in matrix
     spec = TOOL_PERMISSION_MATRIX.get(tool)
     if not spec:
-        return PermissionTier.PRIVATE_FILES, f"Unregistered tool '{tool}' defaults to Tier 2 (Private Files)."
+        return PermissionTier.CRITICAL_SECURITY, f"Unregistered or unclassified tool '{tool}' fails closed to Tier 5 (Critical Security)."
 
     # Look up action override
     if act in spec:
@@ -792,8 +957,95 @@ def classify_tool_permission(
         if any(c in cmd for c in ("rm -rf", "mkfs", "dd if=", ":(){ :|:& };:", "chmod -r 777 /")):
             return PermissionTier.CRITICAL_SECURITY, "Destructive shell command classified as Tier 5 (Critical Security)."
 
-    def_tier = spec.get("default_tier", PermissionTier.PRIVATE_FILES)
+    def_tier = spec.get("default_tier", PermissionTier.CRITICAL_SECURITY)
     return def_tier, f"Tool '{tool}' default mapped to Tier {int(def_tier)} ({TIER_LABELS[def_tier]})."
+
+
+def authorize_tool_execution(
+    tool_name: str,
+    parameters: dict[str, Any] | None = None,
+    execution_context: dict[str, Any] | None = None,
+    actor: str = "",
+) -> dict[str, Any]:
+    """Mandatory Centralized Authorization Gateway (Phase 15.2 / Section 5).
+
+    Every tool, action, and plugin invocation across AMATYA must pass through
+    this gateway prior to execution.
+
+    Fails closed for unclassified tools. Scans parameters for injection vectors.
+    Evaluates against active permission tier, user biometric/PIN state, and autonomy level.
+    """
+    params = parameters if isinstance(parameters, dict) else {}
+    ctx = execution_context if isinstance(execution_context, dict) else {}
+    t_clean = str(tool_name or "").strip().lower()
+
+    # 1. Unknown or unclassified tools fail closed immediately
+    if t_clean not in TOOL_PERMISSION_MATRIX:
+        reason = f"Security Gateway: Tool '{t_clean}' is unclassified or unregistered. Denied by default (fail-closed)."
+        log_audit_event(
+            "security_gateway_blocked",
+            t_clean,
+            PermissionTier.CRITICAL_SECURITY,
+            False,
+            reason,
+            details={"parameters": params, "context": ctx},
+        )
+        return {
+            "allowed": False,
+            "tier": int(PermissionTier.CRITICAL_SECURITY),
+            "tier_label": TIER_LABELS[PermissionTier.CRITICAL_SECURITY],
+            "autonomy_level": get_autonomy_level(),
+            "reason": reason,
+            "tool": t_clean,
+            "action": "",
+            "requires_confirmation": True,
+            "requires_voice_auth": True,
+            "requires_pin": True,
+        }
+
+    # 2. Adversarial prompt injection scan across text parameters
+    for key, val in params.items():
+        if isinstance(val, str) and val:
+            is_inj, inj_reason = detect_prompt_injection(val)
+            if is_inj:
+                reason = f"Security Gateway: Adversarial prompt injection detected in argument '{key}': {inj_reason}"
+                log_audit_event(
+                    "prompt_injection_blocked",
+                    f"{t_clean}:{key}",
+                    PermissionTier.CRITICAL_SECURITY,
+                    False,
+                    reason,
+                    details={"param_key": key, "malicious_content": val[:200]},
+                )
+                return {
+                    "allowed": False,
+                    "tier": int(PermissionTier.CRITICAL_SECURITY),
+                    "tier_label": TIER_LABELS[PermissionTier.CRITICAL_SECURITY],
+                    "autonomy_level": get_autonomy_level(),
+                    "reason": reason,
+                    "tool": t_clean,
+                    "action": str(params.get("action", "")),
+                    "requires_confirmation": True,
+                    "requires_voice_auth": True,
+                    "requires_pin": True,
+                }
+
+    # 3. Resolve required permission tier
+    ptier, classification_reason = classify_tool_permission(t_clean, parameters=params)
+    act = str(params.get("action", "") or params.get("sub_action", "")).strip().lower()
+
+    # 4. Check permissions against active session, PIN, voice auth, and confirmation
+    perm = check_permission(
+        operation=f"{t_clean}:{act}" if act else t_clean,
+        tier=ptier,
+        description=classification_reason,
+        pin=params.get("pin"),
+        interactive_confirm=ctx.get("interactive_confirm", True),
+        confirmed=bool(params.get("confirmed", False)),
+    )
+    perm["tool"] = t_clean
+    perm["action"] = act
+    return perm
 
 
 # ── Prompt Injection Defense & Quarantine ───────────────────────────────────

@@ -1,10 +1,8 @@
 # AMATYA Architecture Map
 
 **Project:** AMATYA (अमात्य — evolved from Mark-LVI by FatihMakes)
-**Base repo:** `~/Projects/Mark-LVI` (fork of `FatihMakes/Mark-LVI`)
+**Base repo:** `Mark-LVI` (fork of `FatihMakes/Mark-LVI`)
 **Git remote:** `https://github.com/FatihMakes/Mark-LVI.git`
-**Target:** KDE Neon, KDE Plasma 6.8.x, Wayland, PipeWire 1.6.x, Linux, Python 3.12
-**Hardware:** Intel Core i5-11300H (8 threads), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile / Max-Q (~4 GB VRAM)
 
 ---
 

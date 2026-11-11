@@ -13,6 +13,8 @@ from core.document_intelligence import (
     DocumentReasoningEngine,
     export_table_csv,
     export_tables_xlsx,
+    resolve_user_path,
+    resolve_user_output_path,
 )
 from core.ingestion import get_ingestion_engine, Modality, SourceType
 from core.knowledge_graph import EntityType, RelationType, get_knowledge_graph
@@ -334,10 +336,11 @@ def execute(
         out_path = parameters.get("output_path")
         exported_msg = ""
         if out_path:
-            out_p = Path(out_path).expanduser().resolve()
+            out_p = resolve_user_output_path(out_path)
             if out_p.suffix.lower() == ".csv":
-                export_table_csv(parsed.tables[0], out_p)
-                exported_msg = f" Exported primary table to {out_p}."
+                if parsed.tables:
+                    export_table_csv(parsed.tables[0], out_p)
+                    exported_msg = f" Exported primary table to {out_p}."
             elif out_p.suffix.lower() == ".xlsx":
                 export_tables_xlsx(parsed.tables, out_p)
                 exported_msg = f" Exported {len(parsed.tables)} tables to {out_p}."

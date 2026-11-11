@@ -13,9 +13,15 @@ Playback routes non-blockingly via sounddevice and PipeWire.
 """
 from __future__ import annotations
 
+import io
 import math
+import os
+import subprocess
+import sys
+import tempfile
 import threading
 import time
+import wave
 from datetime import datetime
 from typing import Any
 
@@ -97,6 +103,16 @@ def play_audio_data(pcm_data: np.ndarray, sample_rate: int = SAMPLE_RATE, block:
     if os.environ.get("AMATYA_TEST_MODE") == "1":
         return
 
+    def _play_fallback_cli(wav_bytes: bytes) -> bool:
+        """Fallback to pw-play, paplay, or aplay if PortAudio / sounddevice fails."""
+        for player_cmd in ("pw-play", "paplay", "aplay"):
+            try:
+                subprocess.run([player_cmd, "-"], input=wav_bytes, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                continue
+        return False
+
     def _worker():
         try:
             import sounddevice as sd
@@ -106,8 +122,20 @@ def play_audio_data(pcm_data: np.ndarray, sample_rate: int = SAMPLE_RATE, block:
             dev_name = get_output_device()
             dev_idx = ad.resolve(dev_name, "output")
             sd.play(pcm_data, samplerate=sample_rate, device=dev_idx, blocking=True)
-        except Exception as exc:
-            pass  # Non-fatal if audio device is temporarily busy
+            return
+        except Exception:
+            pass  # Fall through to system audio CLI player
+
+        try:
+            with io.BytesIO() as bio:
+                with wave.open(bio, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(sample_rate)
+                    wf.writeframes(pcm_data.tobytes())
+                _play_fallback_cli(bio.getvalue())
+        except Exception:
+            pass
 
     t = threading.Thread(target=_worker, daemon=True, name="amatya-audio-cue")
     t.start()

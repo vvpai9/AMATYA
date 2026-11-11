@@ -442,6 +442,34 @@ def get_plugin_enabled(plugin_name: str) -> bool:
     return load_api_keys().get("plugins_enabled", {}).get(plugin_name, True)
 
 
+def get_plugin_approved(plugin_name: str) -> bool:
+    """Check if a plugin has been trusted and approved for in-process execution."""
+    cfg = load_api_keys()
+    approved_map = cfg.get("plugins_approved", {})
+    if plugin_name in approved_map:
+        return bool(approved_map[plugin_name])
+    # Built-in or existing core plugins
+    core_bundled = {
+        "calculator", "time_display", "system_monitor", "web_search",
+        "youtube_video", "excel_writer", "file_finder", "screen_ocr",
+    }
+    return plugin_name in core_bundled
+
+
+def save_plugin_approved(plugin_name: str, approved: bool = True) -> None:
+    """Record user trust approval for an in-process plugin."""
+    ensure_config_dir()
+    data: dict = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    approved_map = data.setdefault("plugins_approved", {})
+    approved_map[plugin_name] = approved
+    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
 # ── Per-plugin settings ("tokens" / connection details) ───────────────────────
 # Generic store so a plugin can declare its own config fields (PLUGIN_SETTINGS)
 # and the settings UI renders + persists them WITHOUT any core edit — keeping the

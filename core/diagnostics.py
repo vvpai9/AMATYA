@@ -122,11 +122,12 @@ def diagnose_all_subsystems() -> dict[str, dict[str, Any]]:
     # 5. Connected Devices
     dm = get_device_manager()
     registered = dm.list_registered_devices()
-    tv = dm.resolve_device("redmi_tv") or dm.resolve_device("10.0.0.3")
+    tv = dm.resolve_device("redmi_tv")
     tv_real = tv and (Path(tv.get("atvremote_bin", "")).exists() if tv.get("atvremote_bin") else False)
+    tv_ip = tv.get("ip_address") if tv else ""
     subsystems["devices"] = {
         "status": "Healthy" if tv_real else "Simulated",
-        "details": f"{len(registered)} devices registered. TV at {tv.get('ip_address', '10.0.0.3') if tv else 'unknown'} (atvremote={'present' if tv_real else 'missing'}).",
+        "details": f"{len(registered)} devices registered. TV at {tv_ip or 'unconfigured'} (atvremote={'present' if tv_real else 'missing'}).",
     }
 
     # 6. Security Subsystem

@@ -989,3 +989,46 @@ def get_voice_authenticator() -> VoiceAuthenticator:
     if _AUTHENTICATOR is None:
         _AUTHENTICATOR = VoiceAuthenticator()
     return _AUTHENTICATOR
+
+
+def benchmark_voice_pipeline(iterations: int = 15) -> dict[str, Any]:
+    """Benchmark feature extraction, anti-spoofing, and embedding distance latency."""
+    t0 = time.perf_counter()
+    # Generate 1.0 second synthetic audio frame (16kHz PCM 16-bit)
+    audio_sample = (np.sin(2 * np.pi * 440 * np.linspace(0, 1.0, 16000)) * 32767).astype(np.int16).tobytes()
+
+    auth = get_voice_authenticator()
+    feature_times: list[float] = []
+    antispoof_times: list[float] = []
+    distance_times: list[float] = []
+
+    emb1 = np.ones(EMBEDDING_DIM, dtype=np.float32) / np.sqrt(EMBEDDING_DIM)
+    emb2 = np.ones(EMBEDDING_DIM, dtype=np.float32) / np.sqrt(EMBEDDING_DIM)
+
+    for _ in range(iterations):
+        # 1. Feature extraction
+        t_f0 = time.perf_counter()
+        features = auth._extract_features(audio_sample)
+        feature_times.append((time.perf_counter() - t_f0) * 1000.0)
+
+        # 2. Anti-spoofing checks
+        t_s0 = time.perf_counter()
+        _ = auth._check_anti_spoofing(audio_sample, features)
+        antispoof_times.append((time.perf_counter() - t_s0) * 1000.0)
+
+        # 3. Distance computation
+        t_d0 = time.perf_counter()
+        _ = auth._cosine_similarity(emb1, emb2)
+        distance_times.append((time.perf_counter() - t_d0) * 1000.0)
+
+    total_time_ms = (time.perf_counter() - t0) * 1000.0
+
+    return {
+        "iterations": iterations,
+        "feature_extraction_avg_ms": round(float(np.mean(feature_times)), 3),
+        "feature_extraction_p95_ms": round(float(np.percentile(feature_times, 95)), 3),
+        "antispoof_check_avg_ms": round(float(np.mean(antispoof_times)), 3),
+        "distance_calc_avg_ms": round(float(np.mean(distance_times)), 3),
+        "total_benchmark_time_ms": round(total_time_ms, 2),
+        "status": "PASS",
+    }

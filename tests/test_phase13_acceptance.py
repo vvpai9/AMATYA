@@ -211,12 +211,13 @@ class TestPhase13Acceptance(unittest.TestCase):
 
         # 3. Secret Redaction
         secret_file = self.test_dir / "creds.txt"
-        secret_file.write_text("My Google API key is AQ.mock_token_fixture_for_unit_tests_abcdefghijklmnopqrstuvwx in production.", encoding="utf-8")
+        fake_key = "AQ.mock_token_fixture_for_unit_tests_abcdefghijklmnopqrstuvwx"
+        secret_file.write_text(f"My Google API key is {fake_key} in production.", encoding="utf-8")
         res = self.engine.ingest_file(secret_file)
         self.assertTrue(res.is_success)
         for chunk in res.chunks:
             self.assertTrue(chunk.untrusted)
-            self.assertNotIn("AQ.mock_token_fixture_for_unit_tests_abcdefghijklmnopqrstuvwx", chunk.text)
+            self.assertNotIn(fake_key, chunk.text)
             self.assertIn("[REDACTED", chunk.text)
 
     def test_07_incremental_indexing_and_change_detection(self):
@@ -572,17 +573,17 @@ class TestPhase13Acceptance(unittest.TestCase):
         # Add nodes
         p_node = kg.add_entity("Mark-LVI", EntityType.PROJECT)
         c_node = kg.add_entity("Phase 13", EntityType.CONCEPT)
-        d_node = kg.add_entity("Android Phone", EntityType.DEVICE)
+        d_node = kg.add_entity("Mobile Device", EntityType.DEVICE)
 
-        # Add edges: Mark-LVI -> Phase 13 -> Android Phone
+        # Add edges: Mark-LVI -> Phase 13 -> Mobile Device
         kg.add_relationship(p_node.entity_id, RelationType.IMPLEMENTS, c_node.entity_id)
         kg.add_relationship(c_node.entity_id, RelationType.CONNECTED_TO, d_node.entity_id)
 
-        # Multi-hop traversal: 2 hops from Mark-LVI should reach Android Phone
+        # Multi-hop traversal: 2 hops from Mark-LVI should reach Mobile Device
         hops = kg.traverse_multi_hop(p_node.entity_id, max_hops=2)
         target_names = [h["target_name"] for h in hops]
         self.assertIn("Phase 13", target_names)
-        self.assertIn("Android Phone", target_names)
+        self.assertIn("Mobile Device", target_names)
 
         # Contradiction detection
         node_a = kg.add_entity("Spec Alpha", EntityType.DOCUMENT)

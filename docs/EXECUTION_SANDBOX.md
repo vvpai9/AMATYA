@@ -25,3 +25,4 @@ Every simulation adapter checks physical conservation laws:
 2. **Thermal Systems:** Junction temperature cannot fall below ambient under positive power dissipation.
 3. **Orbital Mechanics:** Mechanical orbital energy drift must remain $< 0.1\%$ over propagation windows.
 4. **Units:** Rejection of dimensionally inconsistent equations before computation begins.
+

@@ -216,3 +216,4 @@ def get_strategic_planner() -> StrategicPlanner:
     if _strategic_planner is None:
         _strategic_planner = StrategicPlanner()
     return _strategic_planner
+

@@ -4,13 +4,13 @@ actions/creator.py — CREATOR Autonomous Software Engineering & Document Engine
 from __future__ import annotations
 
 import json
-import json
 from pathlib import Path
 from typing import Any
 
 from core import outcome
 from core.creator import classify_command_risk, get_creator_engine
 from core.doc_generator import analyze_document, generate_document
+from core.document_intelligence import resolve_user_path, resolve_user_output_path
 
 SKILL_METADATA = {
     "name": "creator",
@@ -251,9 +251,10 @@ def execute(
         )
 
     if action == "generate_doc":
-        out_path = str(parameters.get("output_path") or parameters.get("file_path") or "").strip()
-        if not out_path:
+        out_path_raw = str(parameters.get("output_path") or parameters.get("file_path") or "").strip()
+        if not out_path_raw:
             return outcome.failed("creator", "Please specify 'output_path' (.pdf, .docx, .xlsx, .pptx, .csv, .md, .zip).")
+        out_path = str(resolve_user_output_path(out_path_raw))
 
         raw_sections = parameters.get("sections") or parameters.get("slides")
         if isinstance(raw_sections, str) and raw_sections.strip().startswith(("[", "{")):
@@ -287,7 +288,7 @@ def execute(
         # If raw_content is a path to an existing file, load its real text content
         if raw_content and isinstance(raw_content, str) and "\n" not in raw_content and len(raw_content.strip()) < 300:
             try:
-                c_cand = Path(raw_content.strip()).expanduser()
+                c_cand = resolve_user_path(raw_content.strip())
                 if c_cand.is_file():
                     d_res = analyze_document(c_cand)
                     if d_res.get("ok") and d_res.get("text"):
@@ -313,7 +314,7 @@ def execute(
         if is_vague and source_candidates:
             extracted_texts = []
             for sf in source_candidates:
-                p = Path(str(sf)).expanduser()
+                p = resolve_user_path(str(sf))
                 if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".csv", ".docx", ".pdf"):
                     try:
                         d_res = analyze_document(p)
@@ -339,7 +340,7 @@ def execute(
                 if isinstance(last_task, dict) and last_task.get("artifacts"):
                     recent_cands.extend(last_task["artifacts"])
                 for rf in recent_cands:
-                    p = Path(str(rf)).expanduser()
+                    p = resolve_user_path(str(rf))
                     if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".docx", ".pdf"):
                         d_res = analyze_document(p)
                         if d_res.get("ok") and d_res.get("text"):
@@ -371,9 +372,10 @@ def execute(
         )
 
     if action == "analyze_doc":
-        fpath = str(parameters.get("file_path") or parameters.get("output_path") or "").strip()
-        if not fpath:
+        fpath_raw = str(parameters.get("file_path") or parameters.get("output_path") or "").strip()
+        if not fpath_raw:
             return outcome.failed("creator", "Please specify 'file_path' to analyze.")
+        fpath = str(resolve_user_path(fpath_raw))
         res = analyze_document(fpath)
         if not res.get("ok"):
             return outcome.failed("creator", res.get("error", "Document analysis failed."), data=res)

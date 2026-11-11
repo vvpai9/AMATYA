@@ -13,11 +13,19 @@ Phase 14.5 Core Implementation:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import math
+import multiprocessing
+import sys
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional
+
+import os
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import numpy as np
 import scipy.integrate
@@ -227,7 +235,8 @@ class ThermalSimulationAdapter:
             metrics={
                 "ambient_temp_C": t_amb_c,
                 "steady_state_temp_C": round(steady_state_temp, 2),
-                "t_steady_state": round(steady_state_temp, 2),
+                "t_steady_state": round(4.0 * tau_seconds, 3),
+                "settling_time_s": round(4.0 * tau_seconds, 3),
                 "thermal_time_constant_s": round(tau_seconds, 2),
                 "peak_temp_reached_C": round(max(tj_traj), 2),
             },
@@ -362,6 +371,7 @@ class MonteCarloSimulationAdapter:
                 "P90": round(p90, 4),
                 "P99": round(p99, 4),
             },
+            "sample_preview": [round(float(x), 4) for x in results[:10]],
         }
 
 
@@ -389,8 +399,185 @@ class SimulationEngine:
         duration: float = 10.0,
         step_size: float = 0.01,
         seed: Optional[int] = None,
+        *,
+        allow_in_process: bool = False,
     ) -> SimulationResult:
         st = sim_type.lower()
+        sim_err_id = f"sim_err_{str(uuid.uuid4())[:8]}"
+
+        # Sanitize parameters: remove untrusted in_process flag to preserve subprocess isolation
+        parameters = dict(parameters) if parameters else {}
+        parameters.pop("in_process", None)
+
+        # Parameter validation: check for NaN/Inf and boundaries
+        for k, v in parameters.items():
+            if isinstance(v, (int, float)):
+                if math.isnan(v) or math.isinf(v):
+                    return SimulationResult(
+                        simulation_id=sim_err_id,
+                        model_name=sim_type,
+                        success=False,
+                        time_points=[],
+                        trajectories={},
+                        metrics={},
+                        validation_status="Infeasible",
+                        execution_time_ms=0.0,
+                        error=f"Parameter '{k}' has invalid non-finite value ({v}).",
+                    )
+
+        if math.isnan(duration) or math.isinf(duration) or duration < 0 or duration > 86400.0:
+            return SimulationResult(
+                simulation_id=sim_err_id,
+                model_name=sim_type,
+                success=False,
+                time_points=[],
+                trajectories={},
+                metrics={},
+                validation_status="Infeasible",
+                execution_time_ms=0.0,
+                error=f"Invalid simulation duration '{duration}'. Must be between 0 and 86400 seconds.",
+            )
+
+        # Compute adaptive number of points using step_size if num_points is omitted
+        default_pts = max(50, min(10000, int(duration / max(1e-6, step_size)))) if step_size > 0 else 200
+        timeout_sec = max(0.001, float(parameters.get("timeout_sec", 15.0)))
+        max_mem_mb = int(parameters.get("max_memory_mb", 1024))
+
+        # Restrict in-process execution strictly to trusted internal callers passing allow_in_process=True
+        if allow_in_process:
+            try:
+                return self._dispatch_core(st, parameters, duration, step_size, seed, default_pts)
+            except Exception as exc:
+                return SimulationResult(
+                    simulation_id=sim_err_id,
+                    model_name=sim_type,
+                    success=False,
+                    time_points=[],
+                    trajectories={},
+                    metrics={},
+                    validation_status="ExecutionError",
+                    execution_time_ms=0.0,
+                    error=f"Simulation failed during execution: {exc}",
+                )
+
+        # Genuine isolated worker process with resource limits and process termination
+        # Uses spawn context for clean cross-platform process isolation without thread inheritance
+        ctx = multiprocessing.get_context("spawn")
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
+
+        proc = ctx.Process(
+            target=_isolated_simulation_worker,
+            args=(
+                st,
+                parameters,
+                duration,
+                step_size,
+                seed,
+                default_pts,
+                child_conn,
+                max_mem_mb,
+                int(timeout_sec + 5),
+            ),
+        )
+
+        t_start = time.perf_counter()
+        proc.start()
+        child_conn.close()
+
+        res_payload = None
+        timed_out = False
+
+        try:
+            if parent_conn.poll(timeout=timeout_sec):
+                try:
+                    res_payload = parent_conn.recv()
+                except (EOFError, BrokenPipeError):
+                    res_payload = None
+            else:
+                timed_out = True
+        except Exception:
+            timed_out = True
+        finally:
+            parent_conn.close()
+
+        if timed_out or proc.is_alive():
+            if timed_out:
+                try:
+                    proc.terminate()
+                    proc.join(timeout=0.5)
+                    if proc.is_alive():
+                        proc.kill()
+                        proc.join(timeout=0.2)
+                except Exception:
+                    pass
+
+                return SimulationResult(
+                    simulation_id=sim_err_id,
+                    model_name=sim_type,
+                    success=False,
+                    time_points=[],
+                    trajectories={},
+                    metrics={},
+                    validation_status="Timeout",
+                    execution_time_ms=timeout_sec * 1000.0,
+                    error=f"Simulation exceeded execution timeout of {timeout_sec:.2f}s and was terminated.",
+                )
+            else:
+                proc.join(timeout=1.0)
+
+        elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+        if proc.exitcode != 0 and res_payload is None:
+            return SimulationResult(
+                simulation_id=sim_err_id,
+                model_name=sim_type,
+                success=False,
+                time_points=[],
+                trajectories={},
+                metrics={},
+                validation_status="ExecutionError",
+                execution_time_ms=elapsed_ms,
+                error=f"Simulation worker process crashed with exit code {proc.exitcode} (OOM, killed, or signal).",
+            )
+
+        if res_payload is not None:
+            ok, data = res_payload
+            if ok and isinstance(data, SimulationResult):
+                return data
+            else:
+                return SimulationResult(
+                    simulation_id=sim_err_id,
+                    model_name=sim_type,
+                    success=False,
+                    time_points=[],
+                    trajectories={},
+                    metrics={},
+                    validation_status="ExecutionError",
+                    execution_time_ms=elapsed_ms,
+                    error=f"Simulation failed during execution: {data}",
+                )
+
+        return SimulationResult(
+            simulation_id=sim_err_id,
+            model_name=sim_type,
+            success=False,
+            time_points=[],
+            trajectories={},
+            metrics={},
+            validation_status="ExecutionError",
+            execution_time_ms=elapsed_ms,
+            error="Simulation worker process produced no output.",
+        )
+
+    def _dispatch_core(
+        self,
+        st: str,
+        parameters: dict[str, Any],
+        duration: float,
+        step_size: float,
+        seed: Optional[int],
+        default_pts: int,
+    ) -> SimulationResult:
+        """Internal deterministic simulation execution dispatcher."""
         if st in ("circuit", "rlc"):
             return self.circuit_adapter.simulate_rlc(
                 r_ohm=float(parameters.get("r", parameters.get("r_ohm", 10.0))),
@@ -398,7 +585,7 @@ class SimulationEngine:
                 c_farad=float(parameters.get("c", parameters.get("c_farad", 0.00001))),
                 vin_volts=float(parameters.get("vin", parameters.get("vin_volts", 12.0))),
                 t_max=duration if duration < 1.0 else 0.005,
-                num_points=int(parameters.get("num_points", 200)),
+                num_points=int(parameters.get("num_points", default_pts)),
             )
         elif st in ("thermal", "temperature"):
             return self.thermal_adapter.simulate_thermal_transient(
@@ -407,17 +594,17 @@ class SimulationEngine:
                 c_th=float(parameters.get("c_th", 25.0)),
                 t_ambient=float(parameters.get("t_ambient", 25.0)),
                 t_max=duration if duration > 1.0 else 120.0,
-                num_points=int(parameters.get("num_points", 200)),
+                num_points=int(parameters.get("num_points", default_pts)),
             )
         elif st in ("orbital", "orbit", "kepler"):
             return self.orbital_adapter.propagate_kepler_orbit(
                 alt_km=float(parameters.get("alt_km", 400.0)),
                 t_span_hours=duration if duration > 0.1 else 3.0,
-                num_points=int(parameters.get("num_points", 200)),
+                num_points=int(parameters.get("num_points", default_pts)),
             )
         elif st in ("monte_carlo", "sampling"):
             t_start = time.perf_counter()
-            num_trials = int(parameters.get("num_trials", 10000))
+            num_trials = min(1_000_000, max(10, int(parameters.get("num_trials", 10000))))
             rnd_seed = int(seed if seed is not None else parameters.get("seed", 42))
             mean_val = float(parameters.get("mean", 100.0))
             std_val = float(parameters.get("std", 15.0))
@@ -432,8 +619,8 @@ class SimulationEngine:
                 simulation_id=f"sim_mc_{str(uuid.uuid4())[:8]}",
                 model_name="Monte_Carlo_Uncertainty",
                 success=True,
-                time_points=[float(i) for i in range(10)],
-                trajectories={"sample_preview": [round(mean_val + std_val * np.sin(i), 3) for i in range(10)]},
+                time_points=[float(i) for i in range(len(mc_res["sample_preview"]))],
+                trajectories={"sample_preview": mc_res["sample_preview"]},
                 metrics=mc_res,
                 validation_status="Validated",
                 execution_time_ms=elapsed,
@@ -441,15 +628,59 @@ class SimulationEngine:
         else:
             return SimulationResult(
                 simulation_id=f"sim_err_{str(uuid.uuid4())[:8]}",
-                model_name=sim_type,
+                model_name=st,
                 success=False,
                 time_points=[],
                 trajectories={},
                 metrics={},
                 validation_status="Infeasible",
                 execution_time_ms=0.0,
-                error=f"Unknown simulation type '{sim_type}'. Supported: circuit, thermal, orbital, monte_carlo",
+                error=f"Unknown simulation type '{st}'. Supported: circuit, thermal, orbital, monte_carlo",
             )
+
+
+def _isolated_simulation_worker(
+    st: str,
+    parameters: dict[str, Any],
+    duration: float,
+    step_size: float,
+    seed: Optional[int],
+    default_pts: int,
+    result_pipe_conn: Any,
+    max_memory_mb: int = 1024,
+    cpu_limit_sec: int = 60,
+) -> None:
+    """Worker process entry point executed in an isolated OS process."""
+    # Constrain BLAS/LAPACK threads to 1 to bound virtual memory allocation within the 1024 MB ceiling
+    import os
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+
+    # 1. Apply OS resource limits where supported (Linux/macOS)
+    try:
+        import resource
+        # CPU execution time boundary
+        if hasattr(resource, "RLIMIT_CPU"):
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_sec, cpu_limit_sec))
+        # Virtual memory limits enforced at default 1024 MB and user-specified limits
+        if max_memory_mb and max_memory_mb > 0 and hasattr(resource, "RLIMIT_AS"):
+            as_bytes = max_memory_mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (as_bytes, as_bytes))
+    except Exception:
+        pass
+
+    try:
+        engine = SimulationEngine()
+        res = engine._dispatch_core(st, parameters, duration, step_size, seed, default_pts)
+        result_pipe_conn.send((True, res))
+    except Exception as exc:
+        result_pipe_conn.send((False, str(exc)))
+    finally:
+        try:
+            result_pipe_conn.close()
+        except Exception:
+            pass
 
 
 def get_simulation_engine() -> SimulationEngine:

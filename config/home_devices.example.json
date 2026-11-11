@@ -1,0 +1,25 @@
+{
+  "devices": {
+    "light_living_room": {
+      "id": "light_living_room",
+      "name": "Living Room Ceiling Light",
+      "type": "light",
+      "protocol": "mqtt",
+      "state": {
+        "power": "off",
+        "brightness": 80,
+        "color_temp": 4000
+      }
+    },
+    "plug_desk": {
+      "id": "plug_desk",
+      "name": "Desk Power Strip",
+      "type": "switch",
+      "protocol": "tuya",
+      "state": {
+        "power": "on"
+      }
+    }
+  }
+}
+

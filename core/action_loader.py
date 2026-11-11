@@ -146,6 +146,18 @@ class ActionRegistry:
         rec = self._actions.get(name)
         if rec is None or not rec.valid:
             return f"Action '{name}' is not available."
+
+        # Centralized Security Gateway Enforcement (Phase 15.2 / Section 5)
+        try:
+            from core.security import authorize_tool_execution
+            auth = authorize_tool_execution(name, parameters, execution_context=ctx)
+            if not auth["allowed"]:
+                return f"Permission Denied: {auth['reason']}"
+        except Exception as exc:
+            err_msg = f"Security Gateway error checking '{name}': {exc}. Denied by default (fail-closed)."
+            self._logger(f"[ActionRegistry] {err_msg}")
+            return f"Permission Denied: {err_msg}"
+
         try:
             return _call_handler(rec.handler, parameters, ctx or {}) or "Done."
         except Exception as e:

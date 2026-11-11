@@ -36,3 +36,4 @@ The health index $H \in [0.0, 1.0]$ tracks component wear:
 - **Nominal ($H \ge 0.85$):** All state variables within safe margins.
 - **Degraded ($0.50 \le H < 0.85$):** State variables operating within 10% of operating boundaries or experiencing persistent drift.
 - **Critical ($H < 0.50$):** State variables out of physical limits; immediate throttling or inspection recommended.
+

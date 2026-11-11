@@ -2,8 +2,6 @@
 ## Persistent Intelligence, Autonomous Operations & Adaptive Personal Assistance
 
 **Version:** 12.0.0  
-**Target Environment:** Linux (KDE Neon / KDE Plasma 6 Wayland, PipeWire 1.6, Python 3.12)  
-**Host Profile:** Intel Core i5-11300H (12 logical threads), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile (4 GB VRAM)  
 **Upstream Lineage:** Built upon [FatihMakes/Mark-LVI](https://github.com/FatihMakes/Mark-LVI) with Wayland automation powered by [kwin-mcp](https://github.com/Aetf/kwin-mcp).
 
 ---
@@ -85,7 +83,7 @@ AMATYA Phase 12 elevates the assistant from a reactive command-dispatch interfac
 ### 2.7 Hardware & Device Dynamic Discovery (`core/device_manager.py`)
 - **Deterministic Persistent UUIDs:** RFC 4122 v5 UUIDs generated for every connected device.
 - **Dynamic IP Resolution:** Socket reachability and ARP neighbor table inspection to accommodate dynamic DHCP lease changes.
-- **Real Xiaomi TV (`10.0.0.3`):** Controlled via native `atvremote` binary without simulation fallback when reachable.
+- **Android TV:** Controlled via network remote / `atvremote` binary without simulation fallback when reachable.
 
 ### 2.8 Holographic Telemetry HUD & Subsystem Diagnostics (`core/diagnostics.py`)
 - **6 Subsystem Health Classifications:**

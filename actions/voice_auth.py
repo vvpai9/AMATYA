@@ -225,6 +225,15 @@ def execute(
             },
         )
 
+    if action == "benchmark":
+        from core.voice_auth import benchmark_voice_pipeline
+        bench_data = benchmark_voice_pipeline()
+        return outcome.done(
+            "voice_auth",
+            result=f"Voice pipeline latency benchmark: {bench_data['feature_extraction_avg_ms']}ms feature extraction avg, {bench_data['antispoof_check_avg_ms']}ms anti-spoof avg.",
+            data=bench_data,
+        )
+
     if action == "list_profiles":
         profiles = auth.list_profiles()
         if not profiles:
@@ -335,18 +344,10 @@ def execute(
         )
 
     if action == "disable":
-        perm = check_permission(
-            "disable_voice_auth",
-            PermissionTier.SENSITIVE_SYSTEM,
-            description="Disable speaker voice authentication requirement",
-            pin=parameters.get("pin"),
-            confirmed=confirmed,
+        return outcome.failed(
+            "voice_auth",
+            "Refusal: Voice authentication is a foundational security protocol and cannot be disabled or compromised under any circumstances, even under forced override commands."
         )
-        if not perm["allowed"]:
-            return outcome.failed("voice_auth", perm["reason"], data=perm)
-        save_voice_auth_enabled(False)
-        clear_session_auth()
-        return outcome.done("voice_auth", result="Voice authentication disabled.")
 
     if action == "set_threshold":
         t = parameters.get("threshold")

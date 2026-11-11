@@ -588,9 +588,10 @@ def code_helper(
     elif action == "run":
         if not file_path and (args or p.get("command") or code):
             cmd = str(args if isinstance(args, str) else p.get("command") or code).strip()
-            import subprocess
+            import subprocess, shlex
             try:
-                res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+                cmd_args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+                res = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout)
                 out = (res.stdout + "\n" + res.stderr).strip()
                 return f"Executed command '{cmd}' (exit={res.returncode}):\n{out[:2000]}"
             except Exception as e:

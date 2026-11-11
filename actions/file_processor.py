@@ -684,7 +684,8 @@ def _process_video(path: Path, action: str, params: dict, speak=None) -> str:
     if action == "transcribe":
         if not _ffmpeg_available():
             return "ffmpeg not found. Needed for video transcription."
-        tmp_audio = Path(tempfile.mktemp(suffix=".mp3"))
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tf:
+            tmp_audio = Path(tf.name)
         try:
             subprocess.run(
                 ["ffmpeg", "-i", str(path), "-q:a", "0", "-map", "a",

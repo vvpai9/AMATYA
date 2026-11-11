@@ -30,6 +30,7 @@ SKILL_METADATA = {
         "phone_status",
         "phone_launch_app",
         "tv_key",
+        "tv_power",
         "tv_volume",
         "tv_launch_app",
         "tv_cast_url",
@@ -162,18 +163,20 @@ def execute(
         return outcome.done("device_control", result=msg, data=res)
 
     # TV actions
-    if action in ("tv_key", "tv_volume", "tv_launch_app", "tv_cast_url", "tv_status"):
+    if action in ("tv_key", "tv_power", "tv_volume", "tv_launch_app", "tv_cast_url", "tv_status"):
         sub_map = {
             "tv_key": "key",
+            "tv_power": "key",
             "tv_volume": "set_volume",
             "tv_launch_app": "launch_app",
             "tv_cast_url": "cast_url",
             "tv_status": "status",
         }
+        k_cmd = "power" if action == "tv_power" else parameters.get("key_command")
         res = mgr.tv_action(
             sub_action=sub_map[action],
             device_query=dev_target or "redmi_tv",
-            key_command=parameters.get("key_command"),
+            key_command=k_cmd,
             app_name=parameters.get("app_name"),
             media_url=parameters.get("media_url"),
             volume_pct=parameters.get("volume_pct"),

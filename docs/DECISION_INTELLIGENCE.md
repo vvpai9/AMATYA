@@ -32,3 +32,4 @@ The Decision Intelligence module (`core/decision_intelligence.py`) provides quan
 An option $A$ dominates option $B$ ($A \succ B$) if:
 $$\forall j \in \{1, \dots, M\}, \quad f_j(A) \ge f_j(B) \quad \text{and} \quad \exists k, \; f_k(A) > f_k(B)$$
 The engine filters out all dominated options to isolate the exact Pareto-optimal frontier.
+

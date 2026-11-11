@@ -194,12 +194,16 @@ class Vision:
         window_id: Optional[Any] = None,
     ) -> CaptureResult:
         """Internal capture dispatcher with graceful multi-tier fallback."""
+        fallback_candidate: Optional[CaptureResult] = None
+
         # 1. Try kwin-mcp on Wayland (native, works where mss fails).
         if self._ensure_kwin():
             try:
                 res = self._capture_kwin(kind, monitor, region, window_id)
-                if res.ok and res.image_bytes and not self._is_completely_black(res.image_bytes):
-                    return res
+                if res.ok and res.image_bytes:
+                    if not self._is_completely_black(res.image_bytes):
+                        return res
+                    fallback_candidate = fallback_candidate or res
                 self._log("[Vision] kwin-mcp returned empty or black image, falling back.")
             except Exception as e:
                 self._log(f"[Vision] kwin-mcp capture error, falling back: {e}")
@@ -208,8 +212,10 @@ class Vision:
         if platform.system() == "Linux":
             try:
                 res_spec = self._capture_spectacle(kind, monitor, region, window_id)
-                if res_spec.ok and res_spec.image_bytes and not self._is_completely_black(res_spec.image_bytes):
-                    return res_spec
+                if res_spec.ok and res_spec.image_bytes:
+                    if not self._is_completely_black(res_spec.image_bytes):
+                        return res_spec
+                    fallback_candidate = fallback_candidate or res_spec
                 self._log("[Vision] spectacle returned empty or black image, falling back.")
             except Exception as e:
                 self._log(f"[Vision] spectacle capture error, falling back: {e}")
@@ -218,8 +224,10 @@ class Vision:
         if platform.system() == "Darwin":
             try:
                 res_mac = self._capture_macos_screencapture(kind, monitor, region, window_id)
-                if res_mac.ok and res_mac.image_bytes and not self._is_completely_black(res_mac.image_bytes):
-                    return res_mac
+                if res_mac.ok and res_mac.image_bytes:
+                    if not self._is_completely_black(res_mac.image_bytes):
+                        return res_mac
+                    fallback_candidate = fallback_candidate or res_mac
             except Exception as e:
                 self._log(f"[Vision] macOS screencapture error: {e}")
 
@@ -227,18 +235,25 @@ class Vision:
         if platform.system() == "Windows":
             try:
                 res_win = self._capture_windows_imagegrab(kind, monitor, region)
-                if res_win.ok and res_win.image_bytes and not self._is_completely_black(res_win.image_bytes):
-                    return res_win
+                if res_win.ok and res_win.image_bytes:
+                    if not self._is_completely_black(res_win.image_bytes):
+                        return res_win
+                    fallback_candidate = fallback_candidate or res_win
             except Exception as e:
                 self._log(f"[Vision] Windows ImageGrab error: {e}")
 
         # 5. Fallback to mss (X11, Windows, macOS, or when other backends fail).
         try:
             res_mss = self._capture_mss(kind, monitor, region)
-            if res_mss.ok and res_mss.image_bytes and not self._is_completely_black(res_mss.image_bytes):
-                return res_mss
+            if res_mss.ok and res_mss.image_bytes:
+                if not self._is_completely_black(res_mss.image_bytes):
+                    return res_mss
+                fallback_candidate = fallback_candidate or res_mss
         except Exception as e:
             self._log(f"[Vision] mss capture error: {e}")
+
+        if fallback_candidate is not None and fallback_candidate.ok and fallback_candidate.image_bytes:
+            return fallback_candidate
 
         return CaptureResult(ok=False, error="All screen capture backends failed or returned unpainted frames.")
 

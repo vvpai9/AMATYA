@@ -146,6 +146,51 @@ class ParsedDocument:
         }
 
 
+def resolve_user_path(file_path: str | Path) -> Path:
+    """Robustly resolve user-supplied file path against CWD, $HOME, Desktop, Downloads, Documents."""
+    raw = str(file_path or "").strip()
+    if not raw:
+        return Path(raw)
+    p = Path(raw).expanduser()
+    if p.is_absolute() and p.exists():
+        return p
+    if p.exists():
+        return p.resolve()
+    home = Path.home()
+    if (home / p).exists():
+        return (home / p).resolve()
+    if (home / "Desktop" / p).exists():
+        return (home / "Desktop" / p).resolve()
+    if (home / "Downloads" / p).exists():
+        return (home / "Downloads" / p).resolve()
+    if (home / "Documents" / p).exists():
+        return (home / "Documents" / p).resolve()
+    first_part = p.parts[0].lower() if p.parts else ""
+    if first_part in ("desktop", "documents", "downloads", "videos", "pictures", "music"):
+        return (home / p).resolve()
+    return p.resolve()
+
+
+def resolve_user_output_path(output_path: str | Path) -> Path:
+    """Resolve destination output path ensuring it defaults to Desktop or user home."""
+    raw = str(output_path or "").strip()
+    if not raw:
+        return Path.home() / "Desktop" / "amatya_output.txt"
+    p = Path(raw).expanduser()
+    if p.is_absolute():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    first = p.parts[0].lower() if p.parts else ""
+    if first in ("desktop", "downloads", "documents", "videos", "pictures", "music"):
+        target = Path.home() / p
+    elif len(p.parts) == 1:
+        target = Path.home() / "Desktop" / p
+    else:
+        target = Path.home() / p
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 # ============================================================================
 # Structural Document Parser
 # ============================================================================
@@ -160,7 +205,7 @@ class DocumentParser:
 
     @classmethod
     def parse(cls, file_path: str | Path) -> ParsedDocument:
-        p = Path(file_path).expanduser().resolve()
+        p = resolve_user_path(file_path)
         if not p.exists() or not p.is_file():
             return ParsedDocument(
                 path=str(p),
@@ -941,20 +986,25 @@ class DocumentReasoningEngine:
 # ============================================================================
 
 def export_table_csv(table: DocumentTable, output_path: str | Path) -> Path:
-    p = Path(output_path).expanduser().resolve()
+    p = resolve_user_output_path(output_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(table.to_csv(), encoding="utf-8")
+    p.write_text(table.to_csv() if table else "", encoding="utf-8")
     return p
 
 
 def export_tables_xlsx(tables: list[DocumentTable], output_path: str | Path) -> Path:
     import openpyxl
-    p = Path(output_path).expanduser().resolve()
+    p = resolve_user_output_path(output_path)
     p.parent.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.Workbook()
-    # Remove default sheet
-    wb.remove(wb.active)
+    if not tables:
+        ws = wb.active
+        ws.title = "Empty_Export"
+        ws.append(["No tables extracted from document."])
+        wb.save(str(p))
+        return p
 
+    wb.remove(wb.active)
     for idx, table in enumerate(tables, start=1):
         sheet_title = (table.title_or_caption[:25] or f"Table_{idx}").replace(":", "_").replace("/", "_")
         ws = wb.create_sheet(title=sheet_title)

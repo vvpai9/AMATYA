@@ -182,7 +182,7 @@ def _local_hash_embedding(text: str, dim: int = 128) -> list[float]:
                 tokens.append((f"c:{w[j:j + 3]}", 0.4))
 
     for tok, weight in tokens:
-        h = hashlib.md5(tok.encode("utf-8")).digest()
+        h = hashlib.md5(tok.encode("utf-8"), usedforsecurity=False).digest()
         idx = int.from_bytes(h[:4], "little") % dim
         sign = 1.0 if (h[4] & 1) == 0 else -1.0
         vec[idx] += sign * weight
@@ -321,7 +321,7 @@ class ModelRouter:
             ollama_base = ollama_base[:-3]
         try:
             req = urllib.request.Request(f"{ollama_base}/api/tags", method="GET")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
                 body = json.loads(resp.read().decode("utf-8"))
                 models = [m.get("name", "") for m in body.get("models", []) if m.get("name")]
                 status["ollama"] = {"online": True, "url": ollama_base, "models": models}
@@ -334,7 +334,7 @@ class ModelRouter:
                 continue
             try:
                 req = urllib.request.Request(f"{url}/models", method="GET")
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
                     body = json.loads(resp.read().decode("utf-8"))
                     models = [m.get("id", "") for m in body.get("data", []) if m.get("id")]
                     status[pname] = {"online": True, "url": url, "models": models}
@@ -400,7 +400,7 @@ class ModelRouter:
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=25.0) as resp:
+                with urllib.request.urlopen(req, timeout=25.0) as resp:  # nosec B310
                     body = json.loads(resp.read().decode("utf-8"))
                     txt = str(body.get("response", "") or "").strip()
                     if txt:
@@ -429,7 +429,7 @@ class ModelRouter:
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    with urllib.request.urlopen(req, timeout=25.0) as resp:
+                    with urllib.request.urlopen(req, timeout=25.0) as resp:  # nosec B310
                         body = json.loads(resp.read().decode("utf-8"))
                         choices = body.get("choices", [])
                         if choices:

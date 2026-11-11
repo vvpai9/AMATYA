@@ -282,9 +282,10 @@ def _open_vscode(project_dir: Path) -> bool:
     ]
     for cmd in vscode_candidates:
         try:
+            import sys
+            cmd_args = ["cmd.exe", "/c", cmd, str(project_dir)] if sys.platform == "win32" else [cmd, str(project_dir)]
             subprocess.Popen(
-                [cmd, str(project_dir)],
-                shell=True,
+                cmd_args,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )

@@ -1,0 +1,20 @@
+{
+  "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+  "assistant_name": "AMATYA",
+  "user_name": "YourName",
+  "voice_name": "Charon",
+  "autonomy_level": "confirm",
+  "hud_style": "minimal",
+  "ui_color": "cyan",
+  "wake_word_enabled": true,
+  "push_to_talk_enabled": false,
+  "privacy_mode": false,
+  "ntfy_topic": "amatya-alerts",
+  "speech_verbosity": "normal",
+  "camera_index": 0,
+  "voice_auth_enabled": true,
+  "voice_auth_threshold": 0.75,
+  "dashboard_https": false,
+  "dashboard_lan": false
+}
+

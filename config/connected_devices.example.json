@@ -1,0 +1,37 @@
+{
+  "registered_devices": {
+    "primary_phone": {
+      "device_id": "primary_phone",
+      "name": "Personal Android Phone",
+      "type": "phone",
+      "os": "Android",
+      "transport": "kdeconnect",
+      "ip_address": "192.168.1.100",
+      "authorized": true,
+      "paired": true,
+      "connectivity": "offline",
+      "capabilities": ["notifications", "telephony", "file_transfer", "media_control", "clipboard"]
+    },
+    "smart_tv": {
+      "device_id": "smart_tv",
+      "name": "Living Room Android TV",
+      "type": "android_tv",
+      "transport": "atvremote",
+      "ip_address": "192.168.1.105",
+      "atvremote_bin": "atvremote",
+      "cert_file": "cert.pem",
+      "key_file": "key.pem",
+      "authorized": true,
+      "paired": true,
+      "connectivity": "offline",
+      "status": {
+        "power": "standby",
+        "volume_pct": 20,
+        "muted": false,
+        "current_app": "",
+        "model": "Smart TV"
+      }
+    }
+  }
+}
+

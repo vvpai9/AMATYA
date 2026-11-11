@@ -29,3 +29,4 @@ xychart-beta
     y-axis "Metric Swing ($)" 0 --> 50000
     bar [40000, 32000, 16000, 4000]
 ```
+

@@ -203,7 +203,8 @@ def test_06_simulation_adapters_circuit_thermal_orbital_mc():
         duration=60.0,
     )
     assert therm_res.success is True
-    assert therm_res.metrics["t_steady_state"] == 25.0 + 50.0 * 1.2
+    assert therm_res.metrics["steady_state_temp_C"] == 25.0 + 50.0 * 1.2
+    assert therm_res.metrics["t_steady_state"] == 4.0 * (1.2 * 30.0)
 
     # 3. Orbital propagation (LEO 400 km)
     orb_res = sim_engine.run_simulation(

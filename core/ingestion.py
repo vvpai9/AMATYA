@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import http.client
 import io
 import ipaddress
 import json
@@ -23,6 +24,7 @@ import os
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import threading
 import time
@@ -339,28 +341,63 @@ class SecurityGovernance:
         return True, ""
 
     @classmethod
-    def validate_url(cls, url: str) -> tuple[bool, str]:
-        """Guards against SSRF and access to internal private IP spaces."""
+    def validate_and_resolve_url(cls, url: str) -> tuple[bool, str, Optional[str]]:
+        """Guards against SSRF and access to internal private IP spaces (both IPv4 and IPv6).
+
+        Returns:
+            (is_valid, error_message, validated_ip_address)
+        Security Guarantees:
+            - Validates protocol scheme (http/https).
+            - Rejects internal/private reserved domains (.local, .internal, .lan, etc.).
+            - Resolves destination IP address and validates all resolved interfaces.
+            - Yields validated IP to pin TCP connections, eliminating DNS-rebinding TOCTOU gaps.
+        """
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme not in ("http", "https"):
-            return False, f"Invalid scheme '{parsed.scheme}'. Only 'http' and 'https' are allowed."
-        host = parsed.hostname or ""
+            return False, f"Invalid scheme '{parsed.scheme}'. Only 'http' and 'https' are allowed.", None
+        host = (parsed.hostname or "").strip().lower()
         if not host:
-            return False, "Invalid URL: Missing hostname."
+            return False, "Invalid URL: Missing hostname.", None
 
+        # Reject private/internal pseudo-TLDs and localhost variants upfront
+        if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or any(  # nosec B104
+            host.endswith(suffix) for suffix in (".local", ".internal", ".lan", ".corp", ".home", ".test", ".invalid")
+        ):
+            return False, f"Access denied: Host '{host}' is an internal or local reserved domain (restricted private or loopback IP).", None
+
+        ips_to_check: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
         try:
-            ip = ipaddress.ip_address(host)
+            ips_to_check.append(ipaddress.ip_address(host))
         except ValueError:
             try:
-                ip_str = socket.gethostbyname(host)
-                ip = ipaddress.ip_address(ip_str)
+                # Resolve both IPv4 and IPv6 addresses across all interfaces
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                addr_info = socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+                for res in addr_info:
+                    sockaddr = res[4]
+                    ip_str = sockaddr[0]
+                    try:
+                        ips_to_check.append(ipaddress.ip_address(ip_str))
+                    except ValueError:
+                        continue
             except Exception as e:
-                return False, f"DNS resolution failed for '{host}': {e}"
+                return False, f"DNS resolution failed for '{host}': {e}", None
 
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return False, f"Access denied: Target '{host}' ({ip}) resolves to a restricted private or loopback IP."
+        if not ips_to_check:
+            return False, f"DNS resolution returned no valid addresses for '{host}'.", None
 
-        return True, ""
+        # Anti-DNS Rebinding check: if ANY resolved IP is private or restricted, reject entire host
+        for ip in ips_to_check:
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False, f"Access denied: Target '{host}' ({ip}) resolves to a restricted private or loopback IP.", None
+
+        return True, "", str(ips_to_check[0])
+
+    @classmethod
+    def validate_url(cls, url: str) -> tuple[bool, str]:
+        """Backward-compatible validation wrapper."""
+        valid, err, _ = cls.validate_and_resolve_url(url)
+        return valid, err
 
     @classmethod
     def sanitize_untrusted_text(cls, text: str) -> str:
@@ -966,6 +1003,101 @@ class MediaExtractor:
             )
 
 
+class PinnedIPHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that binds TCP socket strictly to a pre-validated IP address,
+    preventing DNS-rebinding / TOCTOU attacks while preserving the original Host header.
+    """
+    def __init__(self, *args, pinned_ip: Optional[str] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        target_ip = self._pinned_ip or self.host
+        self.sock = self._create_connection(
+            (target_ip, self.port), self.timeout, self.source_address
+        )
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class PinnedIPHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection that binds TCP socket strictly to a pre-validated IP address
+    and enforces SNI and certificate validation against the original hostname.
+    """
+    def __init__(self, *args, pinned_ip: Optional[str] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        target_ip = self._pinned_ip or self.host
+        self.sock = self._create_connection(
+            (target_ip, self.port), self.timeout, self.source_address
+        )
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        if self._tunnel_host:
+            server_hostname = self._tunnel_host
+            self._tunnel()
+        else:
+            server_hostname = self.host
+
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+
+class PinnedIPHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip: Optional[str] = None):
+        super().__init__()
+        self._default_pinned_ip = pinned_ip
+
+    def http_open(self, req):
+        ip = getattr(req, "_amatya_pinned_ip", self._default_pinned_ip)
+        return self.do_open(
+            lambda host, **kwargs: PinnedIPHTTPConnection(host, pinned_ip=ip, **kwargs),
+            req,
+        )
+
+
+class PinnedIPHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, pinned_ip: Optional[str] = None):
+        super().__init__()
+        self._default_pinned_ip = pinned_ip
+
+    def https_open(self, req):
+        ip = getattr(req, "_amatya_pinned_ip", self._default_pinned_ip)
+        return self.do_open(
+            lambda host, **kwargs: PinnedIPHTTPSConnection(host, pinned_ip=ip, **kwargs),
+            req,
+        )
+
+
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Intercepts HTTP redirects, re-validates each destination against SSRF policies,
+    and updates the pinned IP on the redirected request to eliminate rebinding on redirect.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        valid, err_msg, validated_ip = SecurityGovernance.validate_and_resolve_url(newurl)
+        if not valid:
+            raise urllib.error.HTTPError(newurl, code, f"SSRF Redirect Blocked: {err_msg}", headers, fp)
+        setattr(req, "_amatya_pinned_ip", validated_ip)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def build_safe_opener(validated_ip: Optional[str] = None) -> urllib.request.OpenerDirector:
+    """Builds a urllib opener hardened against SSRF and DNS rebinding."""
+    return urllib.request.build_opener(
+        SafeRedirectHandler(),
+        PinnedIPHTTPHandler(pinned_ip=validated_ip),
+        PinnedIPHTTPSHandler(pinned_ip=validated_ip),
+    )
+
+
 class WebExtractor:
     """Safely extracts text, structure, headers, and metadata from authorized online URLs."""
 
@@ -973,7 +1105,7 @@ class WebExtractor:
         self.chunker = chunker
 
     def extract(self, url: str, source_id: str) -> ExtractedContent:
-        valid, err_msg = SecurityGovernance.validate_url(url)
+        valid, err_msg, validated_ip = SecurityGovernance.validate_and_resolve_url(url)
         if not valid:
             return ExtractedContent(
                 source_id=source_id,
@@ -989,7 +1121,9 @@ class WebExtractor:
                 url,
                 headers={"User-Agent": "AMATYA-Ingestion-Agent/13.2 (Compatible; Linux)"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            setattr(req, "_amatya_pinned_ip", validated_ip)
+            opener = build_safe_opener(validated_ip)
+            with opener.open(req, timeout=10) as resp:
                 content_bytes = resp.read(5 * 1024 * 1024)  # 5 MB max
                 content_type = resp.headers.get_content_type() or "text/html"
                 encoding = resp.headers.get_content_charset() or "utf-8"
@@ -1198,7 +1332,7 @@ class UniversalIngestionEngine:
         mtime = stat.st_mtime
         size_bytes = stat.st_size
 
-        # O(1) Fast-Path: Check existing completed record
+        # O(1) Fast-Path: Check existing completed record (verified by mtime/size or SHA-256)
         existing = self.registry.get(source_id)
         if existing and not force_reindex:
             if existing.status == IngestionStatus.COMPLETED.value:
@@ -1211,6 +1345,20 @@ class UniversalIngestionEngine:
                         modality=Modality(existing.modality),
                         mime_type=existing.mime_type,
                         metadata={"status": "unchanged", "skipped": True},
+                    )
+                # Compare SHA-256 content hash if mtime/size changed
+                cur_hash = self.compute_sha256(path)
+                if existing.content_hash and existing.content_hash == cur_hash:
+                    existing.mtime = mtime
+                    existing.size_bytes = size_bytes
+                    self.registry.set(existing)
+                    return ExtractedContent(
+                        source_id=source_id,
+                        title=path.name,
+                        raw_text=f"[Unchanged source (SHA-256 verified) already indexed with {existing.chunk_count} chunk(s)]",
+                        modality=Modality(existing.modality),
+                        mime_type=existing.mime_type,
+                        metadata={"status": "unchanged", "skipped": True, "hash_matched": True},
                     )
 
         # Content sniffing and modality detection
@@ -1447,8 +1595,15 @@ class UniversalIngestionEngine:
                 categorized["new"].append(str(path))
             else:
                 stat = path.stat()
-                if rec.status == IngestionStatus.COMPLETED.value and rec.mtime == stat.st_mtime and rec.size_bytes == stat.st_size:
-                    categorized["unchanged"].append(str(path))
+                if rec.status == IngestionStatus.COMPLETED.value:
+                    if rec.mtime == stat.st_mtime and rec.size_bytes == stat.st_size:
+                        categorized["unchanged"].append(str(path))
+                    else:
+                        cur_hash = self.compute_sha256(path)
+                        if rec.content_hash and rec.content_hash == cur_hash:
+                            categorized["unchanged"].append(str(path))
+                        else:
+                            categorized["modified"].append(str(path))
                 else:
                     categorized["modified"].append(str(path))
         return categorized

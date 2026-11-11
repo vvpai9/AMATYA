@@ -43,3 +43,4 @@ Analytical solutions are verified independently against numerical approximations
 - Analytical derivative $f'(x)$ is verified against central finite difference:
   $$\frac{f(x + h) - f(x - h)}{2h} + O(h^2)$$
 - Solutions are validated only if relative error $\epsilon_{rel} < 10^{-4}$.
+

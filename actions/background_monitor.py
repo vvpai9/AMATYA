@@ -32,7 +32,7 @@ def _slug(topic: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", topic.lower().strip())[:40].strip("_")
 
 def _title_hash(title: str) -> str:
-    return hashlib.md5(title.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return hashlib.md5(title.encode("utf-8", errors="ignore"), usedforsecurity=False).hexdigest()[:12]
 
 
 # ── Memory I/O ─────────────────────────────────────────────────────────────────

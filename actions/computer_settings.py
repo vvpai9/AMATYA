@@ -1,11 +1,12 @@
 #computer_settings.py
 import json
+import os
+import platform
 import re
-import sys
-import time
 import shutil
 import subprocess
-import platform
+import sys
+import time
 from pathlib import Path
 
 from core.lazyimport import LazyModule, installed
@@ -670,9 +671,19 @@ def open_file_explorer():
     elif _OS == "Darwin":
         subprocess.Popen(["open", str(Path.home())])
     else:
-        for cmd in [["dolphin"], ["nautilus"], ["thunar"], ["nemo"]]:
+        try:
+            r = subprocess.run(["xdg-mime", "query", "default", "inode/directory"], capture_output=True, text=True, timeout=2)
+            if r.returncode == 0:
+                desktop_f = r.stdout.strip().lower()
+                for fm in ("dolphin", "nautilus", "thunar", "nemo", "caja", "pcmanfm"):
+                    if fm in desktop_f and subprocess.run(["which", fm], capture_output=True).returncode == 0:
+                        subprocess.Popen([fm, str(Path.home())])
+                        return
+        except Exception:
+            pass
+        for cmd in [["dolphin"], ["nautilus"], ["thunar"], ["nemo"], ["caja"], ["pcmanfm"]]:
             if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
-                subprocess.Popen(cmd)
+                subprocess.Popen(cmd + [str(Path.home())])
                 return
         subprocess.Popen(["xdg-open", str(Path.home())])
 
@@ -916,6 +927,9 @@ _ALIASES = {
     "shutdown":        ("power off", "turn off the computer", "switch off the pc"),
     "restart":         ("reboot", "restart the pc"),
     "amatya_sleep":    ("go to sleep", "sleep assistant", "sleep amatya", "amatya sleep", "take a rest"),
+    "get_time":        ("what time is it", "current time", "what is the time", "tell me the time", "what day is it", "what is today's date"),
+    "text_only_mode":  ("text only", "text mode", "switch to text", "silent mode", "stop speaking", "text only interaction", "text only mode"),
+    "voice_mode":      ("voice mode", "switch to voice", "enable voice", "start speaking", "voice interaction"),
 }
 
 _VALUE_ACTIONS = {"volume_set", "type_text", "press_key", "reload_n",
@@ -1025,6 +1039,33 @@ def computer_settings(
             amatya.sleep(reason="user commanded sleep")
             return outcome.done("computer_settings", result="AMATYA is now asleep. Say 'Hey Amatya' to wake me.")
         return outcome.done("computer_settings", result="AMATYA sleep requested.")
+
+    if action in ("get_time", "current_time", "time", "clock", "date"):
+        from datetime import datetime
+        now = datetime.now().astimezone()
+        tz_name = now.tzname() or "Local Time"
+        time_str = now.strftime("%I:%M %p")
+        date_str = now.strftime("%A, %B %d, %Y")
+        full_msg = f"The current local time is {time_str} ({tz_name}) on {date_str}."
+        if player and hasattr(player, "write_log"):
+            player.write_log(f"⏰ {full_msg}")
+        return outcome.done("computer_settings", result=full_msg, time=time_str, date=date_str, timezone=tz_name)
+
+    if action in ("text_only_mode", "text_mode", "enable_text_only"):
+        if player and hasattr(player, "text_only"):
+            player.text_only = True
+        msg = "Text-only mode ENABLED. Spoken voice output is silenced; responses will appear as text on screen."
+        if player and hasattr(player, "write_log"):
+            player.write_log(f"SYS: {msg}")
+        return outcome.done("computer_settings", result=msg, mode="text_only")
+
+    if action in ("voice_mode", "disable_text_only", "speech_mode"):
+        if player and hasattr(player, "text_only"):
+            player.text_only = False
+        msg = "Voice mode ENABLED. Spoken voice output is active."
+        if player and hasattr(player, "write_log"):
+            player.write_log(f"SYS: {msg}")
+        return outcome.done("computer_settings", result=msg, mode="voice")
 
     # ── The gate ─────────────────────────────────────────────────────────────
     # A human presses a button, or this does not happen. The model can no longer
@@ -1238,7 +1279,8 @@ TOOL = {
                     "undo | redo | select_all | save | enter | escape | press_key | "
                     "type_text | screenshot | lock_screen | open_settings | "
                     "file_explorer | open_run | dark_mode | toggle_wifi | "
-                    "restart | shutdown | amatya_sleep | system_hud"
+                    "restart | shutdown | amatya_sleep | system_hud | "
+                    "get_time | text_only_mode | voice_mode"
                 )
             },
             "confirmed": {

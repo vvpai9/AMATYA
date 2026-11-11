@@ -10,6 +10,7 @@ Phase 14.3 Core Implementation:
 """
 from __future__ import annotations
 
+import ast
 import math
 import re
 import threading
@@ -22,6 +23,95 @@ import scipy.optimize
 import sympy as sp
 
 _LOCK = threading.RLock()
+
+
+# ============================================================================
+# Safe AST Symbolic Parser (Phase 15.4)
+# ============================================================================
+
+ALLOWED_AST_NODES = (
+    ast.Expression,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Constant,
+    ast.Name,
+    ast.Call,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Pow,
+    ast.Mod,
+    ast.UAdd,
+    ast.USub,
+    ast.Load,
+)
+
+ALLOWED_MATH_FUNCS = {
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+    "exp", "log", "ln", "sqrt", "cbrt", "abs", "sign",
+    "factorial", "gamma", "pi", "E", "oo", "zoo", "nan",
+}
+
+
+def _validate_ast_node(node: ast.AST) -> None:
+    """Validate that AST node contains only strictly safe mathematical operations."""
+    if not isinstance(node, ALLOWED_AST_NODES):
+        raise ValueError(
+            f"Disallowed AST node type '{type(node).__name__}'. Only mathematical expressions are allowed."
+        )
+
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise ValueError(
+                f"Disallowed function call syntax. Function must be a simple name, not '{type(node.func).__name__}'."
+            )
+        func_name = node.func.id
+        if func_name not in ALLOWED_MATH_FUNCS:
+            raise ValueError(
+                f"Disallowed function '{func_name}'. Only mathematical functions ({', '.join(sorted(ALLOWED_MATH_FUNCS))}) are permitted."
+            )
+        if node.keywords:
+            raise ValueError("Keyword arguments are disallowed in mathematical expressions.")
+
+    for child in ast.iter_child_nodes(node):
+        _validate_ast_node(child)
+
+
+def safe_sympify(expr_str: str, allowed_symbols: set[str] | None = None) -> sp.Expr:
+    """Restricted AST symbolic parser replacing direct sympy.sympify on untrusted input.
+
+    Validates AST structure to guarantee:
+    - No attribute lookups (e.g. os.system, __class__)
+    - No imports or exec
+    - No subscripts or lambdas
+    - Only registered mathematical functions and allowed symbols.
+    """
+    clean_str = str(expr_str or "").strip()
+    if not clean_str:
+        raise ValueError("Cannot parse empty symbolic expression.")
+
+    try:
+        tree = ast.parse(clean_str, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Invalid mathematical syntax: {exc}")
+
+    _validate_ast_node(tree)
+
+    if allowed_symbols is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id not in ALLOWED_MATH_FUNCS:
+                if node.id not in allowed_symbols:
+                    raise ValueError(f"Symbol '{node.id}' is not in allowed symbols: {allowed_symbols}")
+
+    try:
+        parsed = sp.sympify(clean_str)
+    except Exception as exc:
+        raise ValueError(f"SymPy evaluation error: {exc}")
+
+    return parsed
 
 
 # ============================================================================
@@ -153,22 +243,25 @@ class UnitQuantity:
         norm_unit = self.unit.strip()
         if self.dimensions is None:
             if norm_unit not in UNIT_REGISTRY:
-                # Fallback for unrecognized unit
-                self.dimensions = DIMENSIONS["dimensionless"]
-                self.si_multiplier = 1.0
-            else:
-                self.dimensions, self.si_multiplier = UNIT_REGISTRY[norm_unit]
+                raise DimensionalInconsistencyError(
+                    f"Unrecognized or unsupported physical unit '{norm_unit}'. Refusing silent dimensionless fallback."
+                )
+            self.dimensions, self.si_multiplier = UNIT_REGISTRY[norm_unit]
         else:
             if norm_unit in UNIT_REGISTRY:
                 _, self.si_multiplier = UNIT_REGISTRY[norm_unit]
-            else:
+            elif norm_unit == "":
                 self.si_multiplier = 1.0
+            else:
+                raise DimensionalInconsistencyError(
+                    f"Unrecognized or unsupported physical unit '{norm_unit}'."
+                )
 
     @classmethod
     def parse(cls, text: str) -> UnitQuantity:
         """Parses a string representation like '10 m', '25 V', '100.5 ohm'."""
         text = text.strip()
-        m = re.match(r"^([+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*([A-Za-zµ%°/Ω^0-9\-]*)$", text)
+        m = re.match(r"^([+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*([A-Za-zµ%°/Ω^0-9\-_]*)$", text)
         if not m:
             raise ValueError(f"Cannot parse '{text}' as a valid UnitQuantity.")
         val = float(m.group(1))
@@ -287,9 +380,9 @@ class SymbolicSolver:
         eq_clean = equation_str.strip()
         if "=" in eq_clean:
             lhs_s, rhs_s = eq_clean.split("=", 1)
-            expr = sp.sympify(lhs_s) - sp.sympify(rhs_s)
+            expr = safe_sympify(lhs_s) - safe_sympify(rhs_s)
         else:
-            expr = sp.sympify(eq_clean)
+            expr = safe_sympify(eq_clean)
 
         v = sp.Symbol(var)
         solutions = sp.solve(expr, v)
@@ -299,7 +392,7 @@ class SymbolicSolver:
     def differentiate(cls, expr_str: str, var: str = "x", order: int = 1) -> str:
         """Computes analytical derivative of expression."""
         v = sp.Symbol(var)
-        expr = sp.sympify(expr_str)
+        expr = safe_sympify(expr_str)
         deriv = sp.diff(expr, v, order)
         return str(deriv)
 
@@ -307,7 +400,7 @@ class SymbolicSolver:
     def integrate(cls, expr_str: str, var: str = "x", lower: float | None = None, upper: float | None = None) -> str:
         """Computes analytical definite or indefinite integral."""
         v = sp.Symbol(var)
-        expr = sp.sympify(expr_str)
+        expr = safe_sympify(expr_str)
         if lower is not None and upper is not None:
             res = sp.integrate(expr, (v, lower, upper))
         else:
@@ -318,15 +411,15 @@ class SymbolicSolver:
     def limit(cls, expr_str: str, var: str = "x", target: str = "0") -> str:
         """Computes analytical limit as var -> target."""
         v = sp.Symbol(var)
-        expr = sp.sympify(expr_str)
-        t = sp.sympify(target)
+        expr = safe_sympify(expr_str)
+        t = safe_sympify(target)
         lim = sp.limit(expr, v, t)
         return str(lim)
 
     @classmethod
     def simplify(cls, expr_str: str) -> str:
         """Symbolically simplifies an algebraic expression."""
-        expr = sp.sympify(expr_str)
+        expr = safe_sympify(expr_str)
         return str(sp.simplify(expr))
 
 
@@ -374,7 +467,7 @@ class NumericalSolver:
             f_lam = func
         else:
             v = sp.Symbol(var)
-            expr = sp.sympify(str(func))
+            expr = safe_sympify(str(func))
             f_lam = sp.lambdify(v, expr, "numpy")
 
         res = scipy.optimize.root_scalar(f_lam, x0=x0, method="newton")
@@ -391,12 +484,12 @@ class NumericalSolver:
         # Parse scalar or multi-variable function
         if len(x0) == 1:
             x = sp.Symbol("x")
-            expr = sp.sympify(func_str)
+            expr = safe_sympify(func_str)
             f_lam = sp.lambdify(x, expr, "numpy")
             cost_fn = lambda v: float(f_lam(v[0]))
         else:
             symbols = [sp.Symbol(f"x{i}") for i in range(len(x0))]
-            expr = sp.sympify(func_str)
+            expr = safe_sympify(func_str)
             f_lam = sp.lambdify(symbols, expr, "numpy")
             cost_fn = lambda v: float(f_lam(*v))
 
@@ -463,7 +556,7 @@ class VerificationAuditor:
         """Compares symbolic analytical derivative with independent central finite-difference."""
         target_x = at_x if at_x is not None else (x_eval if x_eval is not None else 0.0)
         x = sp.Symbol("x")
-        expr = sp.sympify(expr_str)
+        expr = safe_sympify(expr_str)
         analytical_deriv_expr = sp.diff(expr, x)
         analytical_val = float(analytical_deriv_expr.subs(x, target_x))
 

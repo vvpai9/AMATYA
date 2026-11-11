@@ -21,7 +21,7 @@ The Personal Knowledge Graph transforms AMATYA from a disconnected collection of
             │ [IMPLEMENTS]                    │ [USES]
             ▼                                 ▼
 ┌──────────────────────┐           ┌──────────────────────┐
-│ Concept: Phase 13    │           │ Device: Android Phone │
+│ Concept: Phase 13    │           │ Device: Android Dev  │
 └──────────┬───────────┘           └──────────────────────┘
            │
            │ [REFERENCES]
@@ -61,7 +61,7 @@ kg = get_knowledge_graph()
 
 # Add entities
 p_node = kg.add_entity("Mark-LVI", EntityType.PROJECT)
-d_node = kg.add_entity("Android Phone", EntityType.DEVICE)
+d_node = kg.add_entity("Android Device", EntityType.DEVICE)
 
 # Link relationship
 kg.add_relationship(p_node.entity_id, RelationType.CONNECTED_TO, d_node.entity_id, confidence=1.0)

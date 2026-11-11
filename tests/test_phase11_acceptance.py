@@ -62,6 +62,8 @@ from memory.config_manager import BASE_DIR, save_autonomy_level
 class TestPhase11Acceptance(unittest.TestCase):
 
     def setUp(self):
+        from core.security import mark_voice_verified
+        mark_voice_verified("test_user", 0.99)
         self.orch = get_orchestrator()
         self.router = get_router()
         self.creator = get_creator_engine()
@@ -101,8 +103,9 @@ class TestPhase11Acceptance(unittest.TestCase):
 
     # ── 2. Contextual Reference Resolution & Pronoun Grounding ────────────────
     def test_02_contextual_reference_resolution(self):
+        import tempfile
         self.orch.context.update_entity(
-            last_file="/tmp/annual_report.pdf",
+            last_file=str(Path(tempfile.gettempdir()) / "annual_report.pdf"),
             last_device="primary_phone",
             previous_window_id="win_778",
             previous_window_title="Firefox Browser",

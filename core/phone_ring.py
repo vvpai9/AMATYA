@@ -323,7 +323,7 @@ def agentring_pair() -> dict[str, Any]:
                 "AgentRing is installed but requires a relay connection. "
                 "Initialize with: agentring init --relay https://<your-relay> --api-key ak_... "
                 "Or in chat: phone_ring action='init_agentring' relay='...' api_key='...'. "
-                "Meanwhile, KDE Connect is already paired with your Android Phone and ready to ring immediately!"
+                "Meanwhile, KDE Connect or local push notifications are available to ring immediately!"
             ),
         }
 
@@ -385,7 +385,7 @@ def get_kdeconnect_devices() -> list[dict[str, str]]:
             return []
 
         devices = []
-        # Sample output: "- Android Phone: generic_kde_id_001 on 10.0.0.2 via LAN (paired and reachable)"
+        # Sample output: "- Android Phone: <device_id> on 192.168.1.100 via LAN (paired and reachable)"
         for line in p.stdout.splitlines():
             line = line.strip()
             if not line.startswith("-") or ":" not in line:
@@ -424,13 +424,17 @@ def kdeconnect_ring(device_id: Optional[str] = None) -> dict[str, Any]:
     target_name = "Phone"
 
     # Match device
-    if target_id:
+    matched = False
+    generic_names = {"phone", "my phone", "mobile", "cell", "cellphone", "android", "device"}
+    if target_id and target_id.strip().lower() not in generic_names:
         for d in devs:
             if d["device_id"] == target_id or target_id.lower() in d["name"].lower():
                 target_id = d["device_id"]
                 target_name = d["name"]
+                matched = True
                 break
-    elif devs:
+
+    if not matched and devs:
         # Find first reachable paired device
         reachable = [d for d in devs if d.get("reachable") and d.get("paired")]
         if reachable:
@@ -439,6 +443,8 @@ def kdeconnect_ring(device_id: Optional[str] = None) -> dict[str, Any]:
         else:
             target_id = devs[0]["device_id"]
             target_name = devs[0]["name"]
+    elif not matched and target_id and target_id.strip().lower() in generic_names:
+        target_id = None
 
     cmd = [cli]
     if target_id:
@@ -563,7 +569,7 @@ def ntfy_ring(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             status_code = resp.getcode()
             if status_code in (200, 201):
                 return {

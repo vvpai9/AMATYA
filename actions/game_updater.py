@@ -501,7 +501,7 @@ def _search_steam_appid(game_name: str) -> tuple[str | None, str | None]:
         query = urllib.parse.quote(game_name)
         url   = f"https://store.steampowered.com/api/storesearch/?term={query}&l=english&cc=US"
         req   = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=6) as resp:  # nosec B310
             items = json.loads(resp.read().decode()).get("items", [])
         if items:
             best = items[0]

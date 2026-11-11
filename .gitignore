@@ -8,6 +8,7 @@
 # ── Secrets. Committing any of these publishes them. ──────────────────────────
 config/api_keys.json
 config/api_keys*.json
+!config/*.example.json
 config/security_policy.json
 config/certs/
 config/whatsapp_web/
@@ -27,8 +28,20 @@ memory/security_state.json
 memory/active_tasks.json
 memory/model_benchmarks.json
 memory/audit.log
+memory/semantic_memory.json
+memory/project_profiles.json
+memory/ingestion_index.json
+memory/knowledge_graph.json
+memory/procedural_memory.json
+memory/rag_chunks/
+memory/embeddings/
 config/voice_profiles/
+config/speaker_models/
 config/simulated_home_state.json
+config/connected_devices.json
+config/home_devices.json
+config/home_routines.json
+Desktop/
 
 # ── Python build noise ────────────────────────────────────────────────────────
 __pycache__/
@@ -43,6 +56,12 @@ dist/
 # ── Local logs, reports and artifacts ─────────────────────────────────────────
 reports/
 session_errors*.txt
+Desktop/
+memory/episodic_memory.json
+*.tar.gz
+*.tar
+*.zip
+*.bak
 
 # ── Virtual environments ──────────────────────────────────────────────────────
 .venv/

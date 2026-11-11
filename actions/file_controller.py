@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import platform
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -99,7 +100,7 @@ _SAFE_ROOTS: list[Path] = [
     Path("/media"),
     Path("/run/media"),
     Path("/mnt"),
-    Path("/tmp"),
+    Path(tempfile.gettempdir()),
     _BASE_DIR,
 ]
 

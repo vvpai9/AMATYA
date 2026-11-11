@@ -138,7 +138,6 @@ pyswisseph>=2.10.0
 
 # ── Autonomous Chess Engine & Mobile VoIP ─────────────────────────────────────
 chess>=1.11.0
-agentring @ git+https://github.com/mutonby/agentring.git#subdirectory=daemon
 
 # ── Scientific Computation, Simulation & Symbolic Mathematics ────────────────
 scipy>=1.12.0

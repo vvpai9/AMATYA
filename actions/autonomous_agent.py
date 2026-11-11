@@ -180,9 +180,12 @@ def autonomous_agent(parameters: dict[str, Any] | None = None, **kwargs: Any) ->
 
     # Status
     bd = chess_ag.state.board
+    white_const = getattr(chess, "WHITE", True) if chess else True
+    turn_is_white = getattr(bd, "turn", None) == white_const
+    player_is_white = getattr(chess_ag.state, "player_color", None) == white_const
     status_msg = (
         f"✦ CHESS STATUS ✦\n"
-        f"• Turn: {'White' if bd.turn == chess.WHITE else 'Black'} | Playing as: {'White' if chess_ag.state.player_color == chess.WHITE else 'Black'}\n"
+        f"• Turn: {'White' if turn_is_white else 'Black'} | Playing as: {'White' if player_is_white else 'Black'}\n"
         f"• FEN: {bd.fen()}\n"
         f"• Moves: {' '.join(chess_ag.state.moves_history) or 'None'}\n"
         f"• Game Over: {bd.is_game_over()}"

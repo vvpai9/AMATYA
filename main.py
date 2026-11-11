@@ -1226,12 +1226,18 @@ class AmatyaLive:
         mem_str    = format_memory_for_prompt(memory)
         sys_prompt = _load_system_prompt()
 
-        now      = datetime.now()
-        time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
+        now = datetime.now().astimezone()
+        tz_name = now.tzname() or "IST"
+        utc_offset = now.strftime("%z")
+        if len(utc_offset) == 5:
+            utc_offset = f"{utc_offset[:3]}:{utc_offset[3:]}"
+        time_str = now.strftime("%A, %B %d, %Y — %I:%M:%S %p")
         time_ctx = (
-            f"[CURRENT DATE & TIME]\n"
-            f"Right now it is: {time_str}\n"
-            f"Use this to calculate exact times for reminders.\n\n"
+            f"[CURRENT LOCAL DATE, TIME & TIMEZONE]\n"
+            f"User Local Time: {time_str} ({tz_name}, UTC{utc_offset})\n"
+            f"User Timezone: {tz_name} (Indian Standard Time, UTC{utc_offset})\n"
+            f"CRITICAL DIRECTIVE: When asked for the time, date, or day, you MUST ALWAYS respond in the user's LOCAL timezone: {tz_name} ({time_str}). If asked for precise live seconds, call `computer_settings(action='get_time')`.\n"
+            f"STRICT BAN: You are STRICTLY FORBIDDEN from reporting in UTC or Greenwich Mean Time. Stating UTC time is a critical failure.\n\n"
         )
 
         # Identity injection — overrides any hardcoded name in prompt.txt
@@ -1396,7 +1402,7 @@ class AmatyaLive:
         # before a reply actually is, and the default has to suit everybody, so
         # it is necessarily cautious.
         turn = get_turn_tuning()
-        if turn.get("enabled", True):
+        if turn.get("enabled", False):
             detect = types.AutomaticActivityDetection(
                 silence_duration_ms=turn["silence_ms"],
                 prefix_padding_ms=turn["prefix_ms"],
@@ -1440,6 +1446,32 @@ class AmatyaLive:
 
         print(f"[AMATYA] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
+
+        # Mandatory Centralized Security Gateway (Phase 15.2 / Section 5)
+        try:
+            from core.security import authorize_tool_execution
+            auth_res = authorize_tool_execution(
+                name,
+                args,
+                execution_context={"source": "gemini_live", "player": self.ui},
+            )
+            if not auth_res["allowed"]:
+                print(f"[AMATYA] 🛡️ Security Gateway Blocked '{name}': {auth_res['reason']}")
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": outcome.failed(name, auth_res["reason"], data=auth_res)}
+                )
+        except Exception as exc:
+            err_msg = f"Security Gateway error checking '{name}': {exc}. Denied by default (fail-closed)."
+            print(f"[AMATYA] 🛡️ {err_msg}")
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": outcome.failed(name, err_msg)}
+            )
 
 
         if name == "save_memory":
@@ -1667,7 +1699,7 @@ class AmatyaLive:
         _noise_gate_thresh = 0.012  # RMS level floor (~90 RMS)
         _last_voice_ts = [time.monotonic()]
         _pre_roll = collections.deque(maxlen=4)  # ~120ms ring buffer to preserve leading syllables
-        _HANGOVER_SEC = 0.65                     # keep stream open briefly after words end
+        _HANGOVER_SEC = 0.65                     # keep stream open briefly after words end (rapid turn turnaround)
 
         def callback(indata, frames, time_info, status):
             # ── Wake-word gate ───────────────────────────────────────────────
@@ -1867,8 +1899,8 @@ class AmatyaLive:
                         return
 
                     if response.data:
-                        if self._interrupted:
-                            pass  # discard: interrupted
+                        if self._interrupted or getattr(self.ui, "text_only", False):
+                            pass  # discard: interrupted or in text-only mode
                         else:
                             if self._turn_done_event and self._turn_done_event.is_set():
                                 self._turn_done_event.clear()
@@ -1945,6 +1977,8 @@ class AmatyaLive:
                             if full_out:
                                 self._last_out_logged = full_out
                                 self.ui.write_log(f"{self._asst_name}: {full_out}")
+                                if getattr(self.ui, "text_only", False):
+                                    self.ui.show_content(f"{self._asst_name} (Text Mode)", full_out)
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({

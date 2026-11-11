@@ -353,7 +353,7 @@ def project_guide(folder: Path, stack: dict | None = None) -> str:
 def fingerprint(folder: Path) -> str:
     """Changes when files are added, removed or resized — the cue to re-learn
     a project, without reading every byte of it."""
-    h = hashlib.sha1()
+    h = hashlib.sha256()
     for p in sorted(_walk(folder, 5000)):
         try:
             h.update(f"{p.relative_to(folder).as_posix()}:{p.stat().st_size}\n".encode())

@@ -177,7 +177,7 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
                 f"✦ AMATYA PHONE CALL ALERT ✦\n"
                 f"• AgentRing VoIP: {res_call.get('error', 'Unconfigured')}\n"
                 f"• Fallback: Rang phone immediately via {res_ring.get('backend', 'KDE Connect')} "
-                f"({res_ring.get('device', 'Android Phone')}) at max volume so you do not miss this alert!"
+                f"({res_ring.get('device', 'phone')}) at max volume so you do not miss this alert!"
             )
             return outcome.done("phone_ring", result=call_msg, data={"call_attempt": res_call, "ring_fallback": res_ring})
 

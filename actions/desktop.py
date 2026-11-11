@@ -118,7 +118,8 @@ def _apply_wallpaper(image_path: str) -> str:
             if path.suffix.lower() in {".webp", ".png"}:
                 try:
                     from PIL import Image
-                    bmp_path = Path(tempfile.mktemp(suffix=".bmp"))
+                    with tempfile.NamedTemporaryFile(suffix=".bmp", delete=False) as tf:
+                        bmp_path = Path(tf.name)
                     Image.open(path).convert("RGB").save(bmp_path, "BMP")
                     path = bmp_path
                 except ImportError:
@@ -237,10 +238,13 @@ def set_wallpaper(image_path: str) -> str:
 
 def set_wallpaper_from_url(url: str) -> str:
     try:
+        if not url.startswith(("http://", "https://")):
+            return "Invalid URL scheme for wallpaper."
         import urllib.request
         suffix = Path(url.split("?")[0]).suffix or ".jpg"
-        tmp    = Path(tempfile.mktemp(suffix=suffix))
-        urllib.request.urlretrieve(url, str(tmp))
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+            tmp = Path(tf.name)
+        urllib.request.urlretrieve(url, str(tmp))  # nosec B310
         result = set_wallpaper(str(tmp))
         try:
             tmp.unlink()

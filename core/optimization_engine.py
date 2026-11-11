@@ -283,3 +283,4 @@ def get_optimization_engine() -> OptimizationEngine:
     if _optimization_engine is None:
         _optimization_engine = OptimizationEngine()
     return _optimization_engine
+

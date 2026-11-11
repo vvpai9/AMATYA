@@ -34,3 +34,4 @@ All outputs from this engine are explicitly labeled `simulated`. Simulated value
 ### D. Monte Carlo Uncertainty Propagation (`MonteCarloSimulationAdapter`)
 - **Stochastic Sampling:** Reproducible pseudo-random number generator (`numpy.random.default_rng`) with deterministic seed control.
 - **Statistical Analytics:** Sample mean, sample standard deviation, and percentiles ($P_{10}, P_{50}, P_{90}, P_{99}$).
+

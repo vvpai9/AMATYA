@@ -359,8 +359,8 @@ class PersonalKnowledgeGraph:
             node = self.add_entity(m.group(1), EntityType.PROJECT, source_id=source_id)
             created_ids.append(node.entity_id)
 
-        # 2. Devices: "Android Phone", "MiTV", etc.
-        for m in re.finditer(r"\b(Nokia\s+[A-Za-z0-9\s]+|MiTV[A-Za-z0-9\-]*|Android\s+TV)\b", clean_text):
+        # 2. Devices: "Android Phone", "Smart TV", etc.
+        for m in re.finditer(r"\b(Android\s+Phone|Pixel\s+[A-Za-z0-9\s]+|iPhone\s+[A-Za-z0-9\s]+|Android\s+TV|Smart\s+TV)\b", clean_text, re.IGNORECASE):
             node = self.add_entity(m.group(1).strip(), EntityType.DEVICE, source_id=source_id)
             created_ids.append(node.entity_id)
 

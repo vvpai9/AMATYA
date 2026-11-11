@@ -4257,6 +4257,7 @@ class MainWindow(QMainWindow):
     def __init__(self, face_path: str):
         super().__init__()
         self._face_path = face_path
+        self._text_only = False
 
         # Load customization from config
         _cfg = _read_full_config()
@@ -7081,6 +7082,16 @@ class AmatyaUI:
     def muted(self, v: bool):
         if v != self._win._muted:
             self._win._toggle_mute()
+
+    @property
+    def text_only(self) -> bool:
+        return getattr(self._win, "_text_only", False)
+
+    @text_only.setter
+    def text_only(self, v: bool):
+        val = bool(v)
+        self._win._text_only = val
+        self.write_log(f"SYS: Text-only interaction {'ENABLED (voice output silenced)' if val else 'DISABLED (voice output active)'}")
 
     @property
     def current_file(self) -> str | None:

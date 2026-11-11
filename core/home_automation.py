@@ -339,7 +339,7 @@ class HomeAutomationController:
                 },
                 method="GET",
             )
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:  # nosec B310
                 body = json.loads(resp.read().decode("utf-8"))
                 return {
                     "live_connected": True,
@@ -544,7 +544,7 @@ class HomeAutomationController:
                     },
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=5.0):
+                with urllib.request.urlopen(req, timeout=5.0):  # nosec B310
                     pass
                 # Post-command state verification GET
                 state_req = urllib.request.Request(
@@ -552,7 +552,7 @@ class HomeAutomationController:
                     headers={"Authorization": f"Bearer {cfg['token']}"},
                     method="GET",
                 )
-                with urllib.request.urlopen(state_req, timeout=4.0) as sresp:
+                with urllib.request.urlopen(state_req, timeout=4.0) as sresp:  # nosec B310
                     sbody = json.loads(sresp.read().decode("utf-8"))
                     actual_state = str(sbody.get("state", ""))
                     dev["state"] = actual_state

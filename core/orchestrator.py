@@ -451,7 +451,11 @@ class CentralOrchestrator:
                     res_str = get_router().generate("reasoning", params.get("prompt", task.resolved_goal))
                     res_obj = {"result": res_str}
                 else:
-                    # Direct action module dispatch
+                    # Direct action module dispatch with security gateway enforcement
+                    from core.security import authorize_tool_execution
+                    auth = authorize_tool_execution(tool_name, params, actor="orchestrator")
+                    if not auth["allowed"]:
+                        raise PermissionError(f"Security gateway blocked '{tool_name}': {auth.get('reason')}")
                     mod = __import__(f"actions.{tool_name}", fromlist=["execute"])
                     res_obj = mod.execute(params)
                     res_str = str(res_obj)

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import pytest
 from pathlib import Path
 
 import numpy as np
@@ -47,10 +48,16 @@ def _synth_voice(f0: float, formants: list[tuple[float, float]], duration: float
 
 class TestAmatyaSuite(unittest.TestCase):
 
+    @pytest.mark.integration
+    @pytest.mark.desktop
     def test_01_wayland_desktop_and_vision(self):
+        from core.platform_support import is_usable_display_available
         from core.kwin_mcp_client import available
         from core.vision import get_vision
         from core.desktop_agent import DesktopAgent
+
+        if not is_usable_display_available():
+            self.skipTest("Usable desktop display session (Wayland/X11) is not provisioned; skipping desktop integration test.")
 
         self.assertTrue(available(), "kwin-mcp binary/module should be available in AMATYA venv")
         vis = get_vision()
@@ -161,10 +168,13 @@ class TestAmatyaSuite(unittest.TestCase):
     def test_05_orchestrator_context_resolution(self):
         from core.orchestrator import get_orchestrator
 
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        readme_path = str(Path(repo_root) / "README.md")
+
         orch = get_orchestrator()
         orch.context.update_entity(
-            last_file="/home/user/Projects/Mark-LVI/README.md",
-            last_project="/home/user/Projects/Mark-LVI",
+            last_file=readme_path,
+            last_project=repo_root,
             window_id="{win-1}",
             window_title="Kate",
         )
@@ -175,7 +185,7 @@ class TestAmatyaSuite(unittest.TestCase):
 
         r_phone = orch.context.resolve_references("Send that file to my phone.")
         self.assertEqual(r_phone["recommended_action"]["tool"], "device_control")
-        self.assertEqual(r_phone["recommended_action"]["parameters"]["file_path"], "/home/user/Projects/Mark-LVI/README.md")
+        self.assertEqual(r_phone["recommended_action"]["parameters"]["file_path"], readme_path)
 
         r_win = orch.context.resolve_references("Close the previous window.")
         self.assertEqual(r_win["recommended_action"]["tool"], "kwin_desktop")

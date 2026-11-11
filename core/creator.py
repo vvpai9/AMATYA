@@ -549,9 +549,10 @@ class CreatorEngine:
 
         work_dir = Path(cwd or BASE_DIR).expanduser().resolve()
         try:
+            import shlex
+            cmd_args = shlex.split(command) if isinstance(command, str) else list(command)
             r = subprocess.run(
-                command,
-                shell=True,
+                cmd_args,
                 cwd=str(work_dir),
                 capture_output=True,
                 text=True,

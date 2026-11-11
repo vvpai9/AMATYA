@@ -209,3 +209,34 @@ def describe_for_model(support: Support) -> list[str]:
 def describe_for_user(support: Support) -> list[str]:
     """One line per note, for the activity log at startup."""
     return [f"SYS: {note}" for note in support.notes]
+
+
+def is_usable_display_available() -> bool:
+    """Check whether a real, functional graphical display server (Wayland or X11) is reachable."""
+    from pathlib import Path
+    # 1. Wayland socket probe
+    wayland_display = os.environ.get("WAYLAND_DISPLAY")
+    if wayland_display:
+        import tempfile
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+        sock = Path(runtime_dir) / wayland_display
+        if sock.exists():
+            try:
+                import socket
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.5)
+                    s.connect(str(sock))
+                    return True
+            except Exception:
+                pass
+
+    # 2. X11 display connection probe
+    if os.environ.get("DISPLAY"):
+        try:
+            import pyautogui
+            pyautogui.size()
+            return True
+        except Exception:
+            pass
+
+    return False

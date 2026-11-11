@@ -49,6 +49,7 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -100,6 +101,35 @@ def fold(text: str) -> str:
 # Read the module docstring before adding to this: it exists ONLY for names
 # that genuinely differ between operating systems. A name that is the same
 # everywhere does not belong here — it already works without an entry.
+def default_linux_file_manager() -> str:
+    """Detect default file manager on Linux (e.g. Dolphin on KDE Plasma, Nautilus on GNOME, Thunar on XFCE)."""
+    try:
+        r = subprocess.run(["xdg-mime", "query", "default", "inode/directory"], capture_output=True, text=True, timeout=2)
+        if r.returncode == 0 and r.stdout:
+            low = r.stdout.strip().lower()
+            for fm in ("dolphin", "nautilus", "thunar", "nemo", "caja", "pcmanfm"):
+                if fm in low and shutil.which(fm):
+                    return fm
+    except Exception:
+        pass
+    for fm in ("dolphin", "nautilus", "thunar", "nemo", "caja", "pcmanfm"):
+        if shutil.which(fm):
+            return fm
+    return "xdg-open"
+
+
+def default_linux_terminal() -> str:
+    """Detect default desktop terminal on Linux (e.g. Konsole on KDE Plasma, gnome-terminal on GNOME)."""
+    # Check konsole first because on KDE Plasma / Neon, x-terminal-emulator often symlinks to qmlkonsole (Plasma Mobile)
+    for term in ("konsole", "gnome-terminal", "xfce4-terminal", "x-terminal-emulator", "xterm"):
+        if shutil.which(term):
+            return term
+    return "konsole"
+
+
+_LINUX_FM = default_linux_file_manager() if _OS == "Linux" else "nautilus"
+_LINUX_TERM = default_linux_terminal() if _OS == "Linux" else "x-terminal-emulator"
+
 ALIASES: dict[str, dict[str, str]] = {
     "chrome":             {"Windows": "chrome",            "Darwin": "Google Chrome",        "Linux": "google-chrome"},
     "google chrome":      {"Windows": "chrome",            "Darwin": "Google Chrome",        "Linux": "google-chrome"},
@@ -122,7 +152,8 @@ ALIASES: dict[str, dict[str, str]] = {
     "vscode":             {"Windows": "code",              "Darwin": "Visual Studio Code",   "Linux": "code"},
     "visual studio code": {"Windows": "code",              "Darwin": "Visual Studio Code",   "Linux": "code"},
     "code":               {"Windows": "code",              "Darwin": "Visual Studio Code",   "Linux": "code"},
-    "terminal":           {"Windows": "wt",                "Darwin": "Terminal",             "Linux": "x-terminal-emulator"},
+    "terminal":           {"Windows": "wt",                "Darwin": "Terminal",             "Linux": _LINUX_TERM},
+    "konsole":            {"Windows": "wt",                "Darwin": "Terminal",             "Linux": "konsole"},
     "cmd":                {"Windows": "cmd.exe",           "Darwin": "Terminal",             "Linux": "bash"},
     "powershell":         {"Windows": "powershell.exe",    "Darwin": "Terminal",             "Linux": "bash"},
     "postman":            {"Windows": "Postman",           "Darwin": "Postman",              "Linux": "postman"},
@@ -135,9 +166,13 @@ ALIASES: dict[str, dict[str, str]] = {
     "libreoffice":        {"Windows": "soffice",           "Darwin": "LibreOffice",          "Linux": "libreoffice"},
     "notepad":            {"Windows": "notepad.exe",       "Darwin": "TextEdit",             "Linux": "gedit"},
     "textedit":           {"Windows": "notepad.exe",       "Darwin": "TextEdit",             "Linux": "gedit"},
-    "explorer":           {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": "nautilus"},
-    "file explorer":      {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": "nautilus"},
-    "finder":             {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": "nautilus"},
+    "explorer":           {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "file explorer":      {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "finder":             {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "file manager":       {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "filemanager":        {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "files":              {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": _LINUX_FM},
+    "dolphin":            {"Windows": "explorer.exe",      "Darwin": "Finder",               "Linux": "dolphin"},
     "task manager":       {"Windows": "taskmgr.exe",       "Darwin": "Activity Monitor",     "Linux": "gnome-system-monitor"},
     "settings":           {"Windows": "ms-settings:",      "Darwin": "System Preferences",   "Linux": "gnome-control-center"},
     "calculator":         {"Windows": "calc.exe",          "Darwin": "Calculator",           "Linux": "gnome-calculator"},

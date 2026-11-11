@@ -153,14 +153,14 @@ def _launch_macos(app_name: str) -> bool:
 
 
 _LINUX_TERMINALS = [
-    "x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal",
+    "konsole", "gnome-terminal", "xfce4-terminal", "x-terminal-emulator",
     "xterm", "lxterminal", "mate-terminal", "tilix", "alacritty", "kitty",
 ]
 
 
 def _launch_linux(app_name: str) -> bool:
     # "terminal" means whichever one this distribution actually ships.
-    if app_name in ("x-terminal-emulator", "gnome-terminal", "terminal"):
+    if app_name in ("x-terminal-emulator", "gnome-terminal", "konsole", "terminal"):
         for term in _LINUX_TERMINALS:
             path = shutil.which(term)
             if not path:
@@ -374,7 +374,11 @@ def open_app(parameters=None, response=None, player=None,
                     caption = str(w.get("caption", "")).lower()
                     app_id = str(w.get("app_id") or w.get("app") or "").lower()
                     sp = spoken.lower()
-                    if sp in caption or sp in app_id:
+                    term_match = (
+                        sp in ("terminal", "konsole", "console")
+                        and ("konsole" in caption or "konsole" in app_id or "terminal" in caption or "terminal" in app_id)
+                    )
+                    if sp in caption or sp in app_id or term_match:
                         _log(player, f"AMATYA: {w.get('caption') or spoken} is open.")
                         return outcome.done(
                             "open_app", app=spoken, window=w.get("caption"), verified=True

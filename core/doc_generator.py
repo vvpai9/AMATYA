@@ -20,6 +20,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from core.document_intelligence import resolve_user_path, resolve_user_output_path
+
 
 def _write_simple_pdf(output_path: Path, title: str, body: str) -> None:
     """Write a clean, standards-compliant PDF-1.4 document with Helvetica text
@@ -104,7 +106,7 @@ def generate_document(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Generate a PDF, DOCX, XLSX, PPTX, CSV, Markdown, or ZIP file."""
-    out = Path(output_path).expanduser().resolve()
+    out = resolve_user_output_path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     ext = out.suffix.lower()
 
@@ -161,7 +163,7 @@ def generate_document(
             # If pptx_content is a file path, load its text
             if isinstance(pptx_content, str) and "\n" not in pptx_content and len(pptx_content.strip()) < 300:
                 try:
-                    cp = Path(pptx_content.strip()).expanduser()
+                    cp = resolve_user_path(pptx_content.strip())
                     if cp.is_file():
                         d_res = analyze_document(cp)
                         pptx_content = d_res.get("text") or cp.read_text(encoding="utf-8", errors="replace")
@@ -172,7 +174,7 @@ def generate_document(
             if not pptx_content and source_paths:
                 src_texts = []
                 for sp in source_paths:
-                    p = Path(str(sp)).expanduser()
+                    p = resolve_user_path(str(sp))
                     if p.is_file() and p.suffix.lower() in (".txt", ".md", ".json", ".csv", ".docx", ".pdf"):
                         try:
                             d_res = analyze_document(p)
@@ -366,6 +368,32 @@ def analyze_document(file_path: str | Path) -> dict[str, Any]:
         }
     except Exception as exc:
         return {"ok": False, "path": str(fp), "error": f"Document analysis failed: {exc}"}
+
+
+def _clean_and_condense_slide_lines(raw_lines: list[str], max_total: int = 4) -> list[str]:
+    """Condense bullet points to ensure high executive legibility and prevent wall-of-text slides.
+    Limits to max_total bullets, strips raw formatting, and truncates long sentences at 14 words.
+    """
+    cleaned: list[str] = []
+    for raw in raw_lines:
+        txt = re.sub(r"[*#_`~]", "", str(raw or "")).strip()
+        txt = re.sub(r"^[•\-*▸>\d.]+\s*", "", txt).strip()
+        if not txt or len(txt) < 3:
+            continue
+        sentences = re.split(r"(?<=[.!?])\s+", txt)
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            words = s.split()
+            if len(words) > 16:
+                s = " ".join(words[:14]) + "..."
+            cleaned.append(s)
+            if len(cleaned) >= max_total:
+                break
+        if len(cleaned) >= max_total:
+            break
+    return cleaned[:max_total]
 
 
 def _parse_presentation_slides(
@@ -807,62 +835,28 @@ def _build_professional_pptx(
             except Exception:
                 pass
 
-        # Case D: Detailed bullet layout
+        # Case D: Detailed bullet layout (Executive Rule of 4: max 4 concise points)
         else:
             body_text = str(sec.get("body", ""))
-            lines = [l.strip("-*• \t\r\n") for l in body_text.splitlines() if l.strip("-*• \t\r\n")]
-            if not lines and content:
-                lines = [content[:200]]
+            raw_lines = [l.strip("-*• \t\r\n") for l in body_text.splitlines() if l.strip("-*• \t\r\n")]
+            if not raw_lines and content:
+                raw_lines = [content[:200]]
+            lines = _clean_and_condense_slide_lines(raw_lines, max_total=4)
 
-            if len(lines) <= 3:
-                # Full-width card layout for 1-3 concise points
-                c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(11.6), Inches(4.6))
-                c.fill.solid()
-                c.fill.fore_color.rgb = card_color
-                c.line.color.rgb = card_border
-                tf_c = c.text_frame
-                tf_c.word_wrap = True
-                for li, line in enumerate(lines or [heading or "Key Analysis"]):
-                    p = tf_c.paragraphs[0] if li == 0 else tf_c.add_paragraph()
-                    p.text = f"▸  {line}"
-                    p.font.size = Pt(16)
-                    p.font.color.rgb = text_body_color
-                    if li > 0:
-                        p.space_before = Pt(14)
-            else:
-                mid = (len(lines) + 1) // 2
-                left_lines = lines[:mid]
-                right_lines = lines[mid:]
-
-                # Left Card
-                c1 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(5.6), Inches(4.6))
-                c1.fill.solid()
-                c1.fill.fore_color.rgb = card_color
-                c1.line.color.rgb = card_border
-                tf_c1 = c1.text_frame
-                tf_c1.word_wrap = True
-                for li, line in enumerate(left_lines):
-                    p = tf_c1.paragraphs[0] if li == 0 else tf_c1.add_paragraph()
-                    p.text = f"▸  {line}"
-                    p.font.size = Pt(14)
-                    p.font.color.rgb = text_body_color
-                    if li > 0:
-                        p.space_before = Pt(8)
-
-                # Right Card
-                c2 = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(2.0), Inches(5.6), Inches(4.6))
-                c2.fill.solid()
-                c2.fill.fore_color.rgb = card_color
-                c2.line.color.rgb = card_border
-                tf_c2 = c2.text_frame
-                tf_c2.word_wrap = True
-                for li, line in enumerate(right_lines):
-                    p = tf_c2.paragraphs[0] if li == 0 else tf_c2.add_paragraph()
-                    p.text = f"▸  {line}"
-                    p.font.size = Pt(14)
-                    p.font.color.rgb = text_body_color
-                    if li > 0:
-                        p.space_before = Pt(8)
+            # Full-width card layout for clean, readable bullet points
+            c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(2.0), Inches(11.6), Inches(4.6))
+            c.fill.solid()
+            c.fill.fore_color.rgb = card_color
+            c.line.color.rgb = card_border
+            tf_c = c.text_frame
+            tf_c.word_wrap = True
+            for li, line in enumerate(lines or [heading or "Key Analysis"]):
+                p = tf_c.paragraphs[0] if li == 0 else tf_c.add_paragraph()
+                p.text = f"▸  {line}"
+                p.font.size = Pt(17 if len(lines) <= 3 else 15)
+                p.font.color.rgb = text_body_color
+                if li > 0:
+                    p.space_before = Pt(14 if len(lines) <= 3 else 10)
 
     prs.save(str(output_path))
     return {

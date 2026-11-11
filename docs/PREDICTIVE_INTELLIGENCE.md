@@ -39,3 +39,4 @@ When `model_type="auto"`, an 80/20 train/validation split is evaluated across al
 ## 4. Anomaly & Change-Point Detection
 - **Point Anomalies:** Z-score thresholding $|y_i - \mu| / \sigma > 2.0$.
 - **Change Points:** CUSUM detection over the first-difference series $|\Delta y_i - \mu_{\Delta}| / \sigma_{\Delta} > 2.5$.
+

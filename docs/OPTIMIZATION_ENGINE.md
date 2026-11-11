@@ -24,3 +24,4 @@ Solves the 0-1 Knapsack problem:
 $$\max_{\mathbf{x} \in \{0, 1\}^N} \sum_{i=1}^N v_i x_i \quad \text{subject to} \quad \sum_{i=1}^N w_i x_i \le W$$
 - Exact Dynamic Programming ($O(N \cdot W)$) for integer capacities and weights.
 - SciPy mixed-integer linear programming (`scipy.optimize.milp`) for continuous or fractional weights.
+

@@ -42,7 +42,7 @@ STATIC_DIR  = Path(__file__).parent / "static"
 # The port people TYPE, and the port the app actually runs on.
 #
 # They are not the same, and that is the fix for the most confusing failure
-# this dashboard had. A bare `10.0.0.1:8000` typed into a phone browser is
+# this dashboard had. A bare `<host-ip>:8000` typed into a phone browser is
 # tried over HTTP; against a TLS listener that means the connection is accepted,
 # found to carry no handshake, and closed — which Chrome reports as "refused to
 # connect". The server is running perfectly and the user is told it is off.
@@ -340,7 +340,7 @@ def _ensure_network_access(*ports: int) -> None:
         # ── Try running directly (succeeds when already admin) ────────────────
         try:
             r = subprocess.run(
-                [bat_path], capture_output=True, timeout=8, shell=True
+                ["cmd.exe", "/c", bat_path], capture_output=True, timeout=8
             )
             if r.returncode == 0:
                 print(f"[Dashboard] Firewall configured for {', '.join(str(pt) for pt in ports)}.")
@@ -732,10 +732,21 @@ class _Throttle:
             self._fails.pop(who, None)
 
 
+def _is_lan_mode_enabled() -> bool:
+    """Return True if LAN mode is explicitly enabled in config/api_keys.json."""
+    try:
+        import json as _json
+        with open(BASE_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
+            cfg = _json.load(f)
+            return bool(cfg.get("dashboard_lan") or cfg.get("dashboard_lan_mode"))
+    except Exception:
+        return False
+
+
 class DashboardServer:
 
     def __init__(self):
-        self._ip                          = _local_ip()
+        self._ip                          = _local_ip() if _is_lan_mode_enabled() else "127.0.0.1"
         # token -> issued-at. A set had no way to expire anything; this does,
         # and `_auth` sweeps as it reads so nothing has to run a timer.
         self._tokens: dict[str, float]    = {}
@@ -769,40 +780,19 @@ class DashboardServer:
 
     @staticmethod
     def _ssl_enabled() -> bool:
-        """Is HTTPS switched on? Off unless the user asked for it.
+        """Is HTTPS switched on? Mandatory for LAN mode, or when requested in config."""
+        certs = BASE_DIR / "config" / "certs"
+        if _is_lan_mode_enabled():
+            _ensure_certs()
+            return (certs / "amatya.key").exists() and (certs / "amatya.crt").exists()
 
-        WHY THE DEFAULT IS PLAIN HTTP, AFTER A RELEASE THAT MADE TLS MANDATORY
-            The certificate has to be self-signed — there is no certificate
-            authority on earth that will vouch for 10.0.0.1 — and a phone
-            treats a self-signed certificate as an attack. Chrome shows a
-            full-page interstitial; a QR scanner that opens links in its own
-            in-app browser often shows nothing at all and offers no way to
-            proceed, because those views deliberately have no "Advanced" button.
-
-            So the practical result of requiring TLS was a dashboard nobody
-            could reach, which is not a more secure product than one they can.
-            The pairing key, the rate limit, the token expiry and the
-            revoke-all-devices fix are all unaffected and all still apply.
-
-            What IS lost over plain HTTP is the AES-GCM layer, because
-            `crypto.subtle` does not exist outside a secure context. The page
-            says so on its own badge rather than pretending, and commands then
-            travel the local network in clear — which is what this dashboard
-            did for every release before this one.
-
-            Turn it on with "dashboard_https": true in config/api_keys.json if
-            the network is one where that matters; the certificate is generated
-            automatically and you will have to accept it once per device.
-        """
         try:
             import json as _json
-            with open(BASE_DIR / "config" / "api_keys.json", "r",
-                      encoding="utf-8") as f:
+            with open(BASE_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
                 if not _json.load(f).get("dashboard_https"):
                     return False
         except Exception:
             return False
-        certs = BASE_DIR / "config" / "certs"
         return (certs / "amatya.key").exists() and (certs / "amatya.crt").exists()
 
     def get_url(self) -> str:
@@ -884,6 +874,20 @@ class DashboardServer:
         def _who(req: Request) -> str:
             """The client address a throttle counts against."""
             return (getattr(getattr(req, "client", None), "host", "") or "unknown")
+
+        def _check_csrf(req: Request) -> bool:
+            """Validate Origin / Referer header on state-changing requests to prevent CSRF."""
+            origin = req.headers.get("origin") or req.headers.get("referer")
+            if not origin:
+                # Direct API calls (curl/native) or same-origin without header permitted if authorized
+                return True
+            try:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(origin)
+                host = parsed.hostname or ""
+                return host in ("localhost", "127.0.0.1", "::1", self._ip)
+            except Exception:
+                return False
 
         @app.get("/login", response_class=HTMLResponse)
         async def login_page():
@@ -984,13 +988,22 @@ class DashboardServer:
         @app.post("/api/device-login")
         async def device_login_ep(req: Request):
             """Return a fresh auth token for a previously paired device token."""
+            who = _who(req)
+            wait = self._throttle.blocked_for(who)
+            if wait > 0:
+                return JSONResponse(
+                    {"ok": False, "error": f"Too many attempts. Try again in {int(wait) + 1} seconds."},
+                    status_code=429,
+                )
             try:
                 body = await req.json()
             except Exception:
                 return JSONResponse({"ok": False}, status_code=400)
             dev_tok = (body.get("device_token") or "").strip()
             if not dev_tok or dev_tok not in self._device_sessions:
+                self._throttle.record_failure(who)
                 return JSONResponse({"ok": False}, status_code=401)
+            self._throttle.clear(who)
             session_key = self._device_sessions[dev_tok]["session_key"]
             tok = secrets.token_urlsafe(32)
             self._tokens[tok] = time.time()
@@ -1008,6 +1021,8 @@ class DashboardServer:
             """Invalidate all persistent device tokens (admin action)."""
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             # ALSO drop the live tokens, which this did not do.
             #
             # It cleared the remembered devices and left every session those
@@ -1032,6 +1047,8 @@ class DashboardServer:
         async def command(req: Request):
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             body  = await req.json()
             token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
             enc   = body.get("enc", "")
@@ -1057,10 +1074,16 @@ class DashboardServer:
 
         @app.get("/api/command-centre")
         async def command_centre_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
             return JSONResponse(get_command_centre_snapshot())
 
         @app.post("/api/emergency-stop")
         async def emergency_stop_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             try:
                 from core.orchestrator import get_orchestrator
                 msg = get_orchestrator().cancel_all()
@@ -1073,6 +1096,8 @@ class DashboardServer:
         async def set_autonomy_ep(req: Request):
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             body = await req.json()
             lvl = str(body.get("autonomy_level", "confirm") or "confirm").strip().lower()
             from memory.config_manager import AUTONOMY_LEVELS, get_autonomy_level, save_autonomy_level
@@ -1233,10 +1258,10 @@ class DashboardServer:
         """A plain-HTTP listener whose only job is to send people to HTTPS.
 
         THE PROBLEM THIS SOLVES, WHICH LOOKED LIKE THE SERVER BEING DOWN
-            Type `10.0.0.1:8000` into a phone browser and it tries HTTP.
+            Type `<host-ip>:8000` into a phone browser and it tries HTTP.
             The TLS server accepts the connection, finds no handshake and
             closes it — which Chrome reports as "This site can't be reached,
-            10.0.0.1 refused to connect". The server is running perfectly
+            <host-ip> refused to connect". The server is running perfectly
             and the user is told it is off.
 
             The port that used to sit here was a SECOND HTTPS server, added on
@@ -1259,7 +1284,8 @@ class DashboardServer:
                 f"https://{self._ip}:{SECURE_PORT}/{path}{query}",
                 status_code=307)
 
-        cfg = uvicorn.Config(bounce, host="0.0.0.0", port=PORT,
+        bind_host = "0.0.0.0" if _is_lan_mode_enabled() else "127.0.0.1"  # nosec B104
+        cfg = uvicorn.Config(bounce, host=bind_host, port=PORT,
                              log_level="warning")
         print(f"[Dashboard] Type by hand:  {self._ip}:{PORT}  "
               f"(sends you to the secure page)")
@@ -1277,45 +1303,30 @@ class DashboardServer:
         asyncio.get_event_loop().run_in_executor(
             None, _ensure_network_access, PORT, SECURE_PORT)
 
-        # Only make a certificate if HTTPS was actually asked for. Generating
-        # one nobody uses just leaves a private key on disk.
-        try:
-            import json as _json
-            with open(BASE_DIR / "config" / "api_keys.json", "r",
-                      encoding="utf-8") as f:
-                if _json.load(f).get("dashboard_https"):
-                    _ensure_certs()
-        except Exception:
-            pass
+        is_lan = _is_lan_mode_enabled()
+        if is_lan:
+            _ensure_certs()
 
-        use_ssl  = self._ssl_enabled()
-        ssl_key  = BASE_DIR / "config" / "certs" / "amatya.key"
+        use_ssl = self._ssl_enabled()
+        ssl_key = BASE_DIR / "config" / "certs" / "amatya.key"
         ssl_cert = BASE_DIR / "config" / "certs" / "amatya.crt"
 
-        # TLS IS WANTED, BUT NOT AT THE COST OF NOT STARTING.
-        #
-        # An earlier version returned here when certificates could not be made,
-        # on the argument that serving a remote-control channel in clear is a
-        # different product. The argument is right and the behaviour was wrong:
-        # a dashboard that does not start is not more secure, it is absent, and
-        # the user is left with "refused to connect" and nothing to act on.
-        #
-        # So: HTTPS whenever it can be had — which is almost always, since the
-        # certificate is generated locally on first run — and plain HTTP with a
-        # loud, repeated warning when it cannot. The page keeps working either
-        # way; without a secure context it simply cannot encrypt, and it says
-        # so on screen rather than pretending.
+        if is_lan and not use_ssl:
+            self._bind_error = (
+                "LAN mode requires HTTPS/TLS. Serving remote dashboard in cleartext across the network "
+                "is strictly disallowed. Remote dashboard operation is impossible without TLS."
+            )
+            print(f"[Dashboard] 🛡️ {self._bind_error}")
+            return
+
         if use_ssl:
             asyncio.create_task(self._serve_redirector())
         else:
-            print("[Dashboard] Plain HTTP on your local network. Commands are "
-                  "not encrypted; the pairing key still gates access.")
-            print('[Dashboard] For HTTPS set "dashboard_https": true in '
-                  'config/api_keys.json (your phone will ask you to trust the '
-                  'certificate once).')
+            print("[Dashboard] Running locally on 127.0.0.1 (Plain HTTP localhost only).")
 
+        bind_host = "0.0.0.0" if _is_lan_mode_enabled() else "127.0.0.1"  # nosec B104
         cfg = uvicorn.Config(
-            self.app, host="0.0.0.0",
+            self.app, host=bind_host,
             port=SECURE_PORT if use_ssl else PORT, log_level="warning",
             **({"ssl_keyfile": str(ssl_key), "ssl_certfile": str(ssl_cert)}
                if use_ssl else {}),
@@ -1337,7 +1348,7 @@ class DashboardServer:
         # being tested for, so setting it made the probe always succeed.
         _probe = _socket.socket()
         try:
-            _probe.bind(("0.0.0.0", SECURE_PORT if use_ssl else PORT))
+            _probe.bind((bind_host, SECURE_PORT if use_ssl else PORT))
         except OSError as exc:
             _probe.close()
             self._bind_error = (

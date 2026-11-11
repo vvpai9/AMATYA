@@ -67,3 +67,4 @@ Every computation includes:
 - Traceable Step History: Log of deterministic computational operations and solvers executed.
 - Zero Leaks: Private model internal reasoning is never exposed to external logs.
 - Markdown Generation: Standardized formatting for display in the AMATYA HUD.
+
