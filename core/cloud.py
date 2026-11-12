@@ -2900,21 +2900,30 @@ def main() -> None:
     state = CloudState()
     doc, cert, link_key = init_link(state, args.host, args.port, rotate=args.rotate)
     if args.init or args.pair_code or args.rotate:
-        token_val = str(doc.get("secret") or "")
-        raw_code = make_pair_code(doc["host"], doc["port"], token_val, doc["fingerprint"])
-        sys.stdout.write(
+        host_str = str(doc.get("host") or "")
+        port_num = int(doc.get("port") or DEFAULT_PORT)
+        fp_str = str(doc.get("fingerprint") or "")
+        token_str = str(doc.get("secret") or "")
+        raw_code = make_pair_code(host_str, port_num, token_str, fp_str)
+        notice = (
             "\nPairing code — paste it into JARVIS on your computer:\n"
             "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
             f"  {raw_code}\n\n"
             "Treat it like a password: anyone holding it can talk to this server.\n"
         )
-        sys.stdout.flush()
+        try:
+            os.write(sys.stdout.fileno(), notice.encode("utf-8", "replace"))
+        except Exception:
+            pass
         if args.rotate:
-            sys.stdout.write(
+            rot_notice = (
                 "The running service accepts the new code at once and refuses the old one — "
                 "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
             )
-            sys.stdout.flush()
+            try:
+                os.write(sys.stdout.fileno(), rot_notice.encode("utf-8", "replace"))
+            except Exception:
+                pass
         return
     Runtime().run(doc["port"], cert, link_key)
 
