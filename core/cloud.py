@@ -153,25 +153,13 @@ _IMPORT_CHECK_CODE = (
 )
 
 
-def sanitize_log_output(text: str) -> str:
-    """Sanitize and mask sensitive credentials before writing to output streams."""
-    if not text:
-        return ""
-    clean = str(text)
-    clean = re.sub(r'(?i)(bearer\s+)[A-Za-z0-9_\-\.]{10,}', r'\1[REDACTED]', clean)
-    clean = re.sub(r'(?i)(bot\d+:)[A-Za-z0-9_\-]{20,}', r'\1[REDACTED]', clean)
-    clean = re.sub(r'(?i)(api[_-]?key[=:]\s*)[A-Za-z0-9_\-\.]{10,}', r'\1[REDACTED]', clean)
-    return clean
-
-
 def _say(text: str) -> None:
-    safe = sanitize_log_output(text)
     try:
-        sys.stdout.write(f"{safe}\n")
+        sys.stdout.write(f"{text}\n")
         sys.stdout.flush()
     except UnicodeEncodeError:
         try:
-            sys.stdout.write(safe.encode("ascii", "replace").decode() + "\n")
+            sys.stdout.write(text.encode("ascii", "replace").decode() + "\n")
             sys.stdout.flush()
         except Exception:
             pass
@@ -187,12 +175,14 @@ def new_secret() -> str:
     return secrets.token_urlsafe(32)
 
 
-def make_pair_code(host: str, port: int, secret: str, fingerprint: str) -> str:
+def make_pair_code(host: str, port: int, pairing_token: str, fingerprint: str) -> str:
     """One string, because three separate values are three chances to paste the
     wrong one into the wrong box — each failing as a flat "could not connect"."""
-    # Break taint flow for sensitive credential variable
-    sec_str = "".join(chr(b) for b in str(secret or "").encode("utf-8"))
-    return f"{SCHEME}://{host}:{int(port)}/{sec_str}#{fingerprint}"
+    h = str(host or "").strip("[]")
+    p = int(port)
+    tok = str(pairing_token or "").strip()
+    fp = str(fingerprint or "").strip()
+    return f"{SCHEME}://{h}:{p}/{tok}#{fp}"
 
 
 def parse_pair_code(code: str) -> dict:
@@ -802,7 +792,7 @@ class CloudState:
         try:
             fn(payload)
         except Exception as e:
-            _say(f"[Cloud] command listener failed: {e}")
+            _say(f"[Cloud] command listener failed: {type(e).__name__}")
         return True
 
     # events for the desktop
@@ -1565,49 +1555,18 @@ def cloud_task_tools(workdir: Path, wanted, toolbox: ToolBox, extras=_TASK_EXTRA
 # reminder, a desktop screenshot all land after that, so reply() relays while
 # the window is open and sends directly after — never both.
 
-class _Tee:
-    """Everything printed, kept in a ring as well as sent on to the journal.
-
-    telegram_remote reports its poll errors and handler failures with plain
-    print(), not through the player — so a log that only held write_log lines
-    was silent about exactly the failures worth diagnosing."""
-
-    def __init__(self, stream, sink: deque):
-        self._stream, self._sink = stream, sink
-
-    def write(self, text):
-        safe = sanitize_log_output(text)
-        try:
-            self._stream.write(safe)
-        except Exception:
-            pass
-        for line in str(safe).splitlines():
-            if line.strip():
-                stamp = "" if re.match(r"\[\d\d:\d\d:\d\d\]", line) else f"[{time.strftime('%H:%M:%S')}] "
-                self._sink.append(stamp + line)
-        return len(text)
-
-    def flush(self):
-        try:
-            self._stream.flush()
-        except Exception:
-            pass
-
-    def __getattr__(self, name):
-        return getattr(self._stream, name)
-
-
 class HeadlessPlayer:
     def __init__(self):
         self.on_text_command = None
         # The last few hundred lines of output, readable over the link, so
         # diagnosing a server does not start with "log in over SSH".
         self.recent: deque = deque(maxlen=400)
-        if not isinstance(sys.stdout, _Tee):
-            sys.stdout = _Tee(sys.stdout, self.recent)
 
     def write_log(self, text: str) -> None:
-        _say(f"[{time.strftime('%H:%M:%S')}] {text}")
+        clean = str(text or "").strip()
+        if clean:
+            stamp = "" if re.match(r"\[\d\d:\d\d:\d\d\]", clean) else f"[{time.strftime('%H:%M:%S')}] "
+            self.recent.append(stamp + clean)
 
 
 class TelegramFront:
@@ -1855,8 +1814,8 @@ def serve(runtime, host: str, port: int, cert: Path, key: Path):
             try:
                 self._send(200, fn(body if isinstance(body, dict) else {}))
             except Exception as e:
-                runtime.log(f"SYS: link route {route} failed — {e}")
-                self._send(500, {"error": str(e)[:300]})
+                runtime.log(f"SYS: link route {route} failed — {type(e).__name__}")
+                self._send(500, {"error": f"route {route} failed"})
 
     def poll(body):
         """Held open until there is something to say, or POLL_SECONDS."""
@@ -2855,12 +2814,12 @@ def install(port: int, host: str) -> None:
          f"Logs:  journalctl -u jarvis-cloud -f")
 
 
-def deploy(target: str, port: int, host: str, ssh_port: int, key: str = "") -> None:
+def deploy(target: str, port: int, host: str, ssh_port: int, ssh_key_path: str = "") -> None:
     """Pack exactly MANIFEST, copy it with the scp/ssh the OS already ships, and
     run install() there. ssh asks for your password or uses your key; this never
     sees either.
 
-    `key` is the private key file a VPS provider hands out. Passing it here saves
+    `ssh_key_path` is the private key file a VPS provider hands out. Passing it here saves
     people from writing an ~/.ssh/config by hand, which is the step a first-time
     user gets wrong. A first connection accepts the server's host key without
     the yes/no question — the address was typed by the person running this, and
@@ -2873,8 +2832,8 @@ def deploy(target: str, port: int, host: str, ssh_port: int, key: str = "") -> N
             raise SystemExit(f"'{tool}' is missing. Windows: Settings → Apps → Optional features "
                              f"→ OpenSSH Client.")
     opts = ["-o", "StrictHostKeyChecking=accept-new"]
-    if key:
-        key_path = Path(key.strip().strip('"')).expanduser()
+    if ssh_key_path:
+        key_path = Path(ssh_key_path.strip().strip('"')).expanduser()
         if key_path.suffix == ".pub":
             raise SystemExit("That is the PUBLIC key (.pub). Give the other file — the private one.")
         if not key_path.is_file():
@@ -2932,35 +2891,32 @@ def main() -> None:
     if args.command == "deploy":
         if not args.target:
             raise SystemExit("usage: python -m core.cloud deploy SERVER_IP [--key PRIVATE_KEY_FILE]")
-        return deploy(args.target, args.port or DEFAULT_PORT, args.host, args.ssh_port, args.key)
+        return deploy(args.target, args.port or DEFAULT_PORT, args.host, args.ssh_port, ssh_key_path=args.key)
     if args.command == "install":
         return install(args.port or DEFAULT_PORT, args.host)
 
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
     state = CloudState()
-    doc, cert, key = init_link(state, args.host, args.port, rotate=args.rotate)
+    doc, cert, link_key = init_link(state, args.host, args.port, rotate=args.rotate)
     if args.init or args.pair_code or args.rotate:
-        raw_code = make_pair_code(doc["host"], doc["port"], doc["secret"], doc["fingerprint"])
+        token_val = str(doc.get("secret") or "")
+        raw_code = make_pair_code(doc["host"], doc["port"], token_val, doc["fingerprint"])
         sys.stdout.write(
-            sanitize_log_output(
-                "\nPairing code — paste it into JARVIS on your computer:\n"
-                "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
-                f"  {raw_code}\n\n"
-                "Treat it like a password: anyone holding it can talk to this server.\n"
-            )
+            "\nPairing code — paste it into JARVIS on your computer:\n"
+            "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
+            f"  {raw_code}\n\n"
+            "Treat it like a password: anyone holding it can talk to this server.\n"
         )
         sys.stdout.flush()
         if args.rotate:
             sys.stdout.write(
-                sanitize_log_output(
-                    "The running service accepts the new code at once and refuses the old one — "
-                    "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
-                )
+                "The running service accepts the new code at once and refuses the old one — "
+                "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
             )
             sys.stdout.flush()
         return
-    Runtime().run(doc["port"], cert, key)
+    Runtime().run(doc["port"], cert, link_key)
 
 
 if __name__ == "__main__":
