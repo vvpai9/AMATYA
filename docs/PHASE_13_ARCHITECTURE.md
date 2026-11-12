@@ -2,7 +2,9 @@
 ## Multimodal Intelligence, Knowledge Graph & Universal Information Understanding
 
 **Version:** 13.0.0  
-**Upstream Lineage:** Built upon [FatihMakes/Mark-LVI](https://github.com/FatihMakes/Mark-LVI) with Wayland desktop automation, cross-platform phone ring/telemetry, and layered cognitive architecture.
+**Target Environment:** Linux (KDE Plasma 6 Wayland, PipeWire 1.6, Python 3.12)  
+**Host Profile:** Intel Core i5-11300H (8 threads / 4 cores), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile (4 GB VRAM)  
+**Upstream Lineage:** Built upon [FatihMakes/Mark-LVII](https://github.com/FatihMakes/Mark-LVII) with Wayland desktop automation, cross-platform phone ring/telemetry, and layered cognitive architecture.
 
 ---
 
@@ -148,7 +150,7 @@ The Knowledge Graph represents interconnected entities extracted across multimod
 
 ### Entities (`Node`)
 - `id`: Deterministic hash (`sha256(canonical_name + type)`).
-- `name`: Human-readable label (e.g., "AMATYA", "Project Mark-LVI", "Mobile Device").
+- `name`: Human-readable label (e.g., "AMATYA", "Project Mark-LVII", "Mobile Device").
 - `entity_type`: `PERSON`, `PROJECT`, `DEVICE`, `ORGANIZATION`, `CONCEPT`, `TECHNOLOGY`, `FILE`, `LOCATION`, `EVENT`.
 - `attributes`: Key-value properties (e.g., `ip_address`, `file_type`, `version`).
 - `provenance`: `[source_id, timestamp, confidence]`.

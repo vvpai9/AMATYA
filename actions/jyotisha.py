@@ -244,7 +244,7 @@ def jyotisha(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
         try:
             from pathlib import Path
             import re
-            r_dir = Path.home() / "Projects/Mark-LVI/reports/kundali"
+            r_dir = Path(__file__).resolve().parent.parent / "reports" / "kundali"
             r_dir.mkdir(parents=True, exist_ok=True)
             clean_name = re.sub(r"[^\w\-]", "_", chart.name.lower())
             r_file = r_dir / f"reading_{clean_name}_{chart.date_str}.txt"

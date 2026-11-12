@@ -1367,7 +1367,7 @@ def render_kundali_image(
 
     # Output file determination
     if not output_path:
-        out_dir = Path.home() / "Projects/Mark-LVI/reports/kundali"
+        out_dir = Path(__file__).resolve().parent.parent / "reports" / "kundali"
         out_dir.mkdir(parents=True, exist_ok=True)
         clean_name = re.sub(r"[^\w\-]", "_", chart.name.lower())
         output_path = str(out_dir / f"kundali_{clean_name}_{style_clean}.png")

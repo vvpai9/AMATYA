@@ -2,7 +2,9 @@
 ## Persistent Intelligence, Autonomous Operations & Adaptive Personal Assistance
 
 **Version:** 12.0.0  
-**Upstream Lineage:** Built upon [FatihMakes/Mark-LVI](https://github.com/FatihMakes/Mark-LVI) with Wayland automation powered by [kwin-mcp](https://github.com/Aetf/kwin-mcp).
+**Target Environment:** Linux (KDE Neon / KDE Plasma 6 Wayland, PipeWire 1.6, Python 3.12)  
+**Host Profile:** Intel Core i5-11300H (12 logical threads), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile (4 GB VRAM)  
+**Upstream Lineage:** Built upon [FatihMakes/Mark-LVII](https://github.com/FatihMakes/Mark-LVII) with Wayland automation powered by [kwin-mcp](https://github.com/Aetf/kwin-mcp).
 
 ---
 

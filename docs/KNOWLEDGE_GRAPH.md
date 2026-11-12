@@ -14,7 +14,7 @@ The Personal Knowledge Graph transforms AMATYA from a disconnected collection of
 
 ```
                   ┌──────────────────────┐
-                  │ Project: Mark-LVI    │
+                  │ Project: Mark-LVII   │
                   └──────────┬───────────┘
                              │
             ┌────────────────┴────────────────┐
@@ -45,7 +45,7 @@ The Personal Knowledge Graph transforms AMATYA from a disconnected collection of
 
 ## 3. Key Capabilities
 
-1. **Multi-Hop Traversal (`traverse_multi_hop`):** Breadth-first relational path exploration finding connections up to $N$ hops away (e.g. `Mark-LVI -[IMPLEMENTS]-> Phase 13 -[REFERENCES]-> Architecture Doc`).
+1. **Multi-Hop Traversal (`traverse_multi_hop`):** Breadth-first relational path exploration finding connections up to $N$ hops away (e.g. `Mark-LVII -[IMPLEMENTS]-> Phase 13 -[REFERENCES]-> Architecture Doc`).
 2. **Contradiction Detection (`detect_contradictions`):** Surfaces conflicting statements or opposing edges (`CONTRADICTS`).
 3. **Deletion Cascading (`propagate_deletion`):** Removes an entity and purges all attached directional edges, ensuring no orphaned relations survive.
 4. **Confidence & Inferences:** Relationships carry explicit confidence ratings (0.0 to 1.0) and flag `is_inferred: bool`, preventing assumptions from masquerading as verified facts.
@@ -60,7 +60,7 @@ from core.knowledge_graph import get_knowledge_graph, EntityType, RelationType
 kg = get_knowledge_graph()
 
 # Add entities
-p_node = kg.add_entity("Mark-LVI", EntityType.PROJECT)
+p_node = kg.add_entity("Mark-LVII", EntityType.PROJECT)
 d_node = kg.add_entity("Android Device", EntityType.DEVICE)
 
 # Link relationship

@@ -571,15 +571,15 @@ class TestPhase13Acceptance(unittest.TestCase):
         kg = PersonalKnowledgeGraph(storage_path=kg_file)
 
         # Add nodes
-        p_node = kg.add_entity("Mark-LVI", EntityType.PROJECT)
+        p_node = kg.add_entity("Mark-LVII", EntityType.PROJECT)
         c_node = kg.add_entity("Phase 13", EntityType.CONCEPT)
         d_node = kg.add_entity("Mobile Device", EntityType.DEVICE)
 
-        # Add edges: Mark-LVI -> Phase 13 -> Mobile Device
+        # Add edges: Mark-LVII -> Phase 13 -> Mobile Device
         kg.add_relationship(p_node.entity_id, RelationType.IMPLEMENTS, c_node.entity_id)
         kg.add_relationship(c_node.entity_id, RelationType.CONNECTED_TO, d_node.entity_id)
 
-        # Multi-hop traversal: 2 hops from Mark-LVI should reach Mobile Device
+        # Multi-hop traversal: 2 hops from Mark-LVII should reach Mobile Device
         hops = kg.traverse_multi_hop(p_node.entity_id, max_hops=2)
         target_names = [h["target_name"] for h in hops]
         self.assertIn("Phase 13", target_names)

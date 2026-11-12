@@ -1,15 +1,17 @@
 # AMATYA Architecture Map
 
-**Project:** AMATYA (अमात्य — evolved from Mark-LVI by FatihMakes)
-**Base repo:** `Mark-LVI` (fork of `FatihMakes/Mark-LVI`)
-**Git remote:** `https://github.com/FatihMakes/Mark-LVI.git`
+**Project:** AMATYA (अमात्य — evolved from Mark-LVII by FatihMakes)
+**Base repo:** `~/Projects/Mark-LVII` (fork of `FatihMakes/Mark-LVII`)
+**Git remote:** `https://github.com/FatihMakes/Mark-LVII.git`
+**Target:** KDE Neon, KDE Plasma 6.8.x, Wayland, PipeWire 1.6.x, Linux, Python 3.12
+**Hardware:** Intel Core i5-11300H (8 threads), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile / Max-Q (~4 GB VRAM)
 
 ---
 
 ## 1. Repository Structure
 
 ```
-Mark-LVI/
+Mark-LVII/
 ├── main.py                      # Core loop: Gemini Live / local voice session, audio I/O, tool dispatch, CentralOrchestrator hook
 ├── ui.py                        # PyQt6 HUD: holographic avatar, waveform, Command-Centre telemetry, Autonomy level, Emergency Stop
 ├── setup.py                     # OS-aware installer
@@ -108,7 +110,7 @@ Mark-LVI/
 ## 2. Completed Architectural Phases
 
 ### Phase 1 — Foundation & Branding (COMPLETE)
-- Preserved `FatihMakes/Mark-LVI` attribution and architecture while evolving user-facing identity to **AMATYA (अमात्य)**.
+- Preserved `FatihMakes/Mark-LVII` attribution and architecture while evolving user-facing identity to **AMATYA (अमात्य)**.
 - Preserved `hey_jarvis` as the default `openwakeword` model identifier while exposing configurable wake-word models and user-facing wake phrases (`"AMATYA"`).
 - Preserved user memory (`memory/long_term.json`) and credentials (`config/api_keys.json`).
 

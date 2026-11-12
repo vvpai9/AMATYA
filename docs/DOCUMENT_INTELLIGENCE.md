@@ -28,7 +28,7 @@ Rather than treating a document as an unstructured stream of tokens, the Documen
   ┌─────────────────────────────────────────────────────────────┐
   │                    ParsedDocument Object                    │
   ├─────────────────────────────────────────────────────────────┤
-  │ Title: "Mark-LVI Power Architecture"                        │
+  │ Title: "Mark-LVII Power Architecture"                        │
   │ Page Count: 14                                              │
   │                                                             │
   │ ├── Headings:                                               │

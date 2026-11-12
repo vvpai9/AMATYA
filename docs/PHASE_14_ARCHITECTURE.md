@@ -2,6 +2,8 @@
 ## Advanced Reasoning, Simulation, Decision Intelligence & Predictive Planning
 
 **Version:** 14.0.0  
+**Target Environment:** Linux (KDE Plasma 6 Wayland, PipeWire 1.6, Python 3.12)  
+**Host Profile:** Intel Core i5-11300H (8 threads / 4 cores), 16 GB RAM, NVIDIA GeForce GTX 1650 Mobile (4 GB VRAM)  
 **Preceding Milestones:** Phase 11 (Security & System Reliability), Phase 12 (Persistent Cognitive Architecture), Phase 13 (Multimodal Knowledge Graph & Universal Ingestion).
 
 ---

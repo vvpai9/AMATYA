@@ -62,7 +62,7 @@ class TestSessionBugfixes(unittest.TestCase):
         self.assertIn("⏰", log_arg)
 
     def test_02_vad_turn_tuning_default(self):
-        """Issue 2: Verify turn_tuning restores Mark-LVI defaults (enabled=False, silence_ms=550)."""
+        """Issue 2: Verify turn_tuning restores Mark-LVII defaults (enabled=False, silence_ms=550)."""
         tt = get_turn_tuning()
         self.assertFalse(tt["enabled"])
         self.assertEqual(tt["silence_ms"], 550)

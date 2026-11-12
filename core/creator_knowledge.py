@@ -2,7 +2,7 @@
 AMATYA Knowledge-Aware CREATOR Integration (core/creator_knowledge.py)
 ======================================================================
 Phase 13.9 Core Implementation:
-  - Scoped Project Knowledge Spaces (AMATYA, Mark-LVI, Engineering, Research).
+  - Scoped Project Knowledge Spaces (AMATYA, Mark-LVII, Engineering, Research).
   - Isolated Project Provenance, Graph Relationships, and Document Caches.
   - Grounded Document & Multi-Slide Presentation Generation using Verified Knowledge Spaces.
   - Stale-Data Prevention (Audits recent project reports and schemas before generation).
@@ -62,9 +62,9 @@ class CreatorKnowledgeManager:
                         name="General Workspace",
                         description="Default knowledge space for general information",
                     ),
-                    "mark_lvi": KnowledgeSpace(
-                        space_id="mark_lvi",
-                        name="Project Mark-LVI",
+                    "mark_lvii": KnowledgeSpace(
+                        space_id="mark_lvii",
+                        name="Project Mark-LVII",
                         description="AMATYA core system, cognitive engine, and desktop automation",
                     ),
                 }
