@@ -153,13 +153,25 @@ _IMPORT_CHECK_CODE = (
 )
 
 
+def sanitize_log_output(text: str) -> str:
+    """Sanitize and mask sensitive credentials before writing to output streams."""
+    if not text:
+        return ""
+    clean = str(text)
+    clean = re.sub(r'(?i)(bearer\s+)[A-Za-z0-9_\-\.]{10,}', r'\1[REDACTED]', clean)
+    clean = re.sub(r'(?i)(bot\d+:)[A-Za-z0-9_\-]{20,}', r'\1[REDACTED]', clean)
+    clean = re.sub(r'(?i)(api[_-]?key[=:]\s*)[A-Za-z0-9_\-\.]{10,}', r'\1[REDACTED]', clean)
+    return clean
+
+
 def _say(text: str) -> None:
+    safe = sanitize_log_output(text)
     try:
-        sys.stdout.write(f"{text}\n")
+        sys.stdout.write(f"{safe}\n")
         sys.stdout.flush()
     except UnicodeEncodeError:
         try:
-            sys.stdout.write(text.encode("ascii", "replace").decode() + "\n")
+            sys.stdout.write(safe.encode("ascii", "replace").decode() + "\n")
             sys.stdout.flush()
         except Exception:
             pass
@@ -1564,11 +1576,12 @@ class _Tee:
         self._stream, self._sink = stream, sink
 
     def write(self, text):
+        safe = sanitize_log_output(text)
         try:
-            self._stream.write(text)
+            self._stream.write(safe)
         except Exception:
             pass
-        for line in str(text).splitlines():
+        for line in str(safe).splitlines():
             if line.strip():
                 stamp = "" if re.match(r"\[\d\d:\d\d:\d\d\]", line) else f"[{time.strftime('%H:%M:%S')}] "
                 self._sink.append(stamp + line)
@@ -2930,16 +2943,20 @@ def main() -> None:
     if args.init or args.pair_code or args.rotate:
         raw_code = make_pair_code(doc["host"], doc["port"], doc["secret"], doc["fingerprint"])
         sys.stdout.write(
-            "\nPairing code — paste it into JARVIS on your computer:\n"
-            "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
-            f"  {raw_code}\n\n"
-            "Treat it like a password: anyone holding it can talk to this server.\n"
+            sanitize_log_output(
+                "\nPairing code — paste it into JARVIS on your computer:\n"
+                "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
+                f"  {raw_code}\n\n"
+                "Treat it like a password: anyone holding it can talk to this server.\n"
+            )
         )
         sys.stdout.flush()
         if args.rotate:
             sys.stdout.write(
-                "The running service accepts the new code at once and refuses the old one — "
-                "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
+                sanitize_log_output(
+                    "The running service accepts the new code at once and refuses the old one — "
+                    "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
+                )
             )
             sys.stdout.flush()
         return
