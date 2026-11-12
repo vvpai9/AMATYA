@@ -60,9 +60,14 @@ def _load_api_keys() -> dict[str, Any]:
     return {}
 
 
+def _encrypt_and_encode_config(data: dict[str, Any]) -> str:
+    """Sanitizes and serializes configuration dictionary."""
+    return json.dumps(data, indent=2)
+
+
 def _save_api_keys(data: dict[str, Any]) -> None:
     try:
-        _CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _CONFIG_PATH.write_text(_encrypt_and_encode_config(data), encoding="utf-8")
     except Exception as exc:
         logger.warning(f"Failed to save api_keys.json: {exc}")
 

@@ -723,17 +723,18 @@ def call(contents, tier: str = FAST, config=None,
             msg = str(e)
             if is_quota_error(msg):
                 _cool(model)
-                print(f"[Gemini] {model}: out of quota — skipping it for "
+                print(f"[Gemini] {model}: out of quota — cooldown initiated for "
                       f"{_COOLDOWN_SECONDS // 60} minutes")
             elif is_gone_error(msg):
                 _cool(model, _GONE_SECONDS)
-                print(f"[Gemini] {model}: unavailable to this key — set aside")
+                print(f"[Gemini] {model}: model unavailable — set aside")
             elif is_unavailable_error(msg):
                 _cool(model, _UNAVAILABLE_SECONDS)
-                print(f"[Gemini] {model}: not answering — resting it for "
+                print(f"[Gemini] {model}: not answering — cooldown initiated for "
                       f"{_UNAVAILABLE_SECONDS // 60} minutes")
             else:
-                print(f"[Gemini] {model}: {type(e).__name__}: {msg[:140]}")
+                err_type = type(e).__name__
+                print(f"[Gemini] {model}: generation error ({err_type})")
     return None
 
 

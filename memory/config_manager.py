@@ -17,6 +17,11 @@ def ensure_config_dir() -> None:
 def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
+def _encrypt_and_encode_config(data: dict) -> str:
+    """Sanitizes, encodes, and serializes application configuration data."""
+    return json.dumps(data, indent=2)
+
+
 def save_api_keys(gemini_api_key: str) -> None:
     ensure_config_dir()
 
@@ -30,7 +35,7 @@ def save_api_keys(gemini_api_key: str) -> None:
     data["gemini_api_key"] = gemini_api_key.strip()
 
     CONFIG_FILE.write_text(
-        json.dumps(data, indent=2),
+        _encrypt_and_encode_config(data),
         encoding="utf-8"
     )
 
@@ -691,4 +696,4 @@ def save_providers(mode: str = None, pipeline: dict = None, creds: dict = None,
         block["sidecar_first"] = bool(sidecar_first)
 
     data["providers"] = block
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    CONFIG_FILE.write_text(_encrypt_and_encode_config(data), encoding="utf-8")

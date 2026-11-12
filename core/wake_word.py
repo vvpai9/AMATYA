@@ -255,7 +255,7 @@ class WakeWordDetector:
                 # Fallback to default hey_jarvis if a custom model fails to load
                 if resolved_target != WAKE_MODEL:
                     self._logger(
-                        f"Wake word: custom model '{resolved_target}' failed, falling back to '{WAKE_MODEL}'."
+                        f"Wake word: custom model load failed, falling back to '{WAKE_MODEL}'."
                     )
                     self._model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
                 else:
@@ -282,8 +282,8 @@ class WakeWordDetector:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="WakeWordThread")
         self._thread.start()
         self._logger(
-            f"Wake word: listening for AMATYA wake phrase "
-            f"(model='{self._model_name}', threshold={self._threshold:.2f})."
+            f"Wake word: listening for activation "
+            f"(threshold={self._threshold:.2f})."
         )
         return True
 

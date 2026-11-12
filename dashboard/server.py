@@ -12,12 +12,14 @@ Install deps:  pip install fastapi "uvicorn[standard]" cryptography
 import asyncio
 import base64
 import hashlib
+import html
 import re
 import secrets
 import socket
 import string
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 _DEPS_OK = False
@@ -632,8 +634,8 @@ def get_command_centre_snapshot() -> dict:
             "autonomy_level": da.autonomy if da else "confirm",
             "history_count": len(da.get_history()) if da else 0,
         }
-    except Exception as exc:
-        snap["desktop_automation"] = {"error": str(exc)}
+    except Exception:
+        snap["desktop_automation"] = {"error": "Unavailable"}
 
     try:
         from core.security import get_session_auth_status
@@ -644,14 +646,14 @@ def get_command_centre_snapshot() -> dict:
             "enrolled_profiles": len(get_voice_authenticator().list_profiles()),
             "wake_word": list_available_models(),
         }
-    except Exception as exc:
-        snap["voice_auth"] = {"error": str(exc)}
+    except Exception:
+        snap["voice_auth"] = {"error": "Unavailable"}
 
     try:
         from core.home_automation import get_home_controller
         snap["home_automation"] = get_home_controller().get_environment_summary()
-    except Exception as exc:
-        snap["home_automation"] = {"error": str(exc)}
+    except Exception:
+        snap["home_automation"] = {"error": "Unavailable"}
 
     try:
         from core.device_manager import get_device_manager
@@ -661,14 +663,14 @@ def get_command_centre_snapshot() -> dict:
             "lan_count": len(devs.get("discovered", {}).get("lan_neighbors", [])),
             "kdeconnect_count": len(devs.get("discovered", {}).get("kdeconnect", [])),
         }
-    except Exception as exc:
-        snap["connected_devices"] = {"error": str(exc)}
+    except Exception:
+        snap["connected_devices"] = {"error": "Unavailable"}
 
     try:
         from core.model_router import get_router
         snap["model_router"] = get_router().summary()
-    except Exception as exc:
-        snap["model_router"] = {"error": str(exc)}
+    except Exception:
+        snap["model_router"] = {"error": "Unavailable"}
 
     try:
         from core.orchestrator import get_orchestrator
@@ -677,8 +679,8 @@ def get_command_centre_snapshot() -> dict:
             "context": orch.context.get_state(),
             "tasks": orch.list_tasks()[:10],
         }
-    except Exception as exc:
-        snap["orchestrator"] = {"error": str(exc)}
+    except Exception:
+        snap["orchestrator"] = {"error": "Unavailable"}
 
     return snap
 
@@ -968,6 +970,10 @@ class DashboardServer:
                 {"type": "sys", "text": "Remote connection established via QR code."}
             ))
 
+            safe_tok = html.escape(tok, quote=True)
+            safe_key = html.escape(key, quote=True)
+            safe_dev = html.escape(dev_tok, quote=True)
+
             return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width">
 <style>
@@ -977,9 +983,9 @@ class DashboardServer:
 </style></head>
 <body>
 <script>
-  sessionStorage.setItem('amatya_token','{tok}');
-  sessionStorage.setItem('amatya_key','{key}');
-  localStorage.setItem('amatya_device_token','{dev_tok}');
+  sessionStorage.setItem('amatya_token', {json.dumps(safe_tok)});
+  sessionStorage.setItem('amatya_key', {json.dumps(safe_key)});
+  localStorage.setItem('amatya_device_token', {json.dumps(safe_dev)});
   setTimeout(function(){{location.replace('/')}},400);
 </script>
 <p>Connecting to AMATYA…</p>
@@ -1089,8 +1095,8 @@ class DashboardServer:
                 msg = get_orchestrator().cancel_all()
                 await self.broadcast({"type": "sys", "text": msg})
                 return JSONResponse({"ok": True, "message": msg})
-            except Exception as exc:
-                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+            except Exception:
+                return JSONResponse({"ok": False, "error": "Emergency stop execution failed"}, status_code=500)
 
         @app.post("/api/autonomy")
         async def set_autonomy_ep(req: Request):
@@ -1177,7 +1183,7 @@ class DashboardServer:
                         dest.unlink(missing_ok=True)
                     except Exception:
                         pass
-                    return JSONResponse({"error": str(exc)}, status_code=500)
+                    return JSONResponse({"error": "Failed to save uploaded file"}, status_code=500)
 
                 asyncio.create_task(self.broadcast({
                     "type": "file_received",
@@ -1216,11 +1222,15 @@ class DashboardServer:
             tok = token.strip()
             if not _valid(tok):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            safe = re.sub(r'[/\\]', '', filename)
-            path = self._uploads_dir / safe
-            if not path.exists() or not path.is_file():
+            clean_name = Path(filename).name
+            clean_name = re.sub(r'[^A-Za-z0-9._\-]', '_', clean_name).strip(". ")
+            if not clean_name:
+                return JSONResponse({"error": "Invalid filename"}, status_code=400)
+            base_dir = self._uploads_dir.resolve()
+            path = (base_dir / clean_name).resolve()
+            if not path.is_relative_to(base_dir) or not path.exists() or not path.is_file():
                 return JSONResponse({"error": "Not found"}, status_code=404)
-            return FileResponse(str(path), filename=safe)
+            return FileResponse(str(path), filename=clean_name)
 
         @app.websocket("/ws")
         async def ws_ep(websocket: WebSocket, token: str = ""):
@@ -1279,10 +1289,12 @@ class DashboardServer:
 
         @bounce.get("/{path:path}")
         async def _to_https(path: str, request: Request):
-            query = f"?{request.url.query}" if request.url.query else ""
-            return RedirectResponse(
-                f"https://{self._ip}:{SECURE_PORT}/{path}{query}",
-                status_code=307)
+            clean_path = re.sub(r'[^A-Za-z0-9/_\-.]', '', path.lstrip('/\\'))
+            target_url = f"https://{self._ip}:{SECURE_PORT}/{clean_path}"
+            if request.url.query:
+                clean_query = urllib.parse.quote(request.url.query, safe="=&-_")
+                target_url += f"?{clean_query}"
+            return RedirectResponse(target_url, status_code=307)
 
         bind_host = "0.0.0.0" if _is_lan_mode_enabled() else "127.0.0.1"  # nosec B104
         cfg = uvicorn.Config(bounce, host=bind_host, port=PORT,
@@ -1348,7 +1360,7 @@ class DashboardServer:
         # being tested for, so setting it made the probe always succeed.
         _probe = _socket.socket()
         try:
-            _probe.bind((bind_host, SECURE_PORT if use_ssl else PORT))
+            _probe.bind(("127.0.0.1", SECURE_PORT if use_ssl else PORT))
         except OSError as exc:
             _probe.close()
             self._bind_error = (

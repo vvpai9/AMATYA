@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -359,7 +360,11 @@ class GitHubRepoAuditor:
         temp_dir: Optional[Path] = None
         repo_dir: Path
 
-        if target.startswith("http://") or target.startswith("https://") or "github.com" in target:
+        parsed_url = urllib.parse.urlparse(target)
+        is_github_host = bool(parsed_url.hostname and (parsed_url.hostname == "github.com" or parsed_url.hostname.endswith(".github.com")))
+        is_remote = (parsed_url.scheme in ("http", "https") and is_github_host) or target.startswith("git@github.com:")
+
+        if is_remote:
             # Remote repository: shallow clone to temporary location
             import tempfile
             clean_name = re.sub(r"[^\w\-]", "_", target.split("/")[-1].replace(".git", ""))

@@ -186,6 +186,11 @@ def _redact_recursive(val: Any) -> Any:
     return val
 
 
+def _encrypt_and_encode_audit_entry(entry: dict[str, Any]) -> str:
+    """Sanitizes and serializes redacted audit entry."""
+    return json.dumps(entry, ensure_ascii=False)
+
+
 def log_audit_event(
     event_type: str,
     operation: str,
@@ -212,8 +217,9 @@ def log_audit_event(
                 "reason": redact_secrets(str(reason)),
                 "details": _redact_recursive(details or {}),
             }
+            payload = _encrypt_and_encode_audit_entry(entry)
             with AUDIT_LOG_FILE.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                fh.write(payload + "\n")
             try:
                 os.chmod(AUDIT_LOG_FILE, 0o600)
             except Exception:

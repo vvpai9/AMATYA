@@ -777,7 +777,7 @@ class AmatyaLive:
         if self._wake_detector is None:
             self._wake_detector = WakeWordDetector(
                 on_detect=self._on_wake_detected,
-                logger=lambda m: print(f"[Wake] {m}"),
+                logger=lambda m: None,
                 notify=lambda m: self.ui.write_log(f"SYS: {m}"),
             )
         if not self._wake_detector.ready:
@@ -1790,7 +1790,7 @@ class AmatyaLive:
             _mic_name = get_input_device()
             _mic_dev  = audio_devices.resolve(_mic_name, "input")
             if _mic_dev is not None:
-                print(f"[AMATYA] 🎤 Input device: {_mic_name}")
+                print("[AMATYA] 🎤 Audio input device configured")
             try:
                 _mic_stream = _open_mic(_mic_dev)
             except Exception as _e:
@@ -1800,9 +1800,9 @@ class AmatyaLive:
                 # mean the assistant cannot hear at all.
                 if _mic_dev is None:
                     raise
-                print(f"[AMATYA] ⚠️  Mic '{_mic_name}' failed: {_e} — using default")
+                print("[AMATYA] ⚠️  Selected mic failed — using default")
                 self.ui.write_log(
-                    f"SYS: Microphone '{_mic_name}' unavailable — using system default."
+                    "SYS: Selected microphone unavailable — using system default."
                 )
                 _mic_stream = _open_mic(None)
 
@@ -2023,7 +2023,7 @@ class AmatyaLive:
         _spk_name = get_output_device()
         _spk_dev  = audio_devices.resolve(_spk_name, "output")
         if _spk_dev is not None:
-            print(f"[AMATYA] 🔊 Output device: {_spk_name}")
+            print("[AMATYA] 🔊 Audio output device configured")
 
         def _open_spk(dev):
             st = sd.RawOutputStream(
@@ -2044,8 +2044,8 @@ class AmatyaLive:
             # cost the user their voice. Fall back to the default and say so.
             if _spk_dev is None:
                 raise
-            print(f"[AMATYA] ⚠️  Output device '{_spk_name}' failed: {_e} — using default")
-            self.ui.write_log(f"SYS: Speaker '{_spk_name}' unavailable — using system default.")
+            print("[AMATYA] ⚠️  Selected output device failed — using default")
+            self.ui.write_log("SYS: Selected speaker unavailable — using system default.")
             stream = _open_spk(None)
 
         # Ask the device how far behind the speakers actually are, rather than

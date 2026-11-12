@@ -52,7 +52,7 @@ def check(name: str, cond, detail: str = "") -> None:
     else:
         _fail += 1
         _failures.append(name)
-        print(f"  FAIL  {name}   {detail}")
+        print(f"  FAIL  {name}")
 
 
 def section(title: str) -> None:

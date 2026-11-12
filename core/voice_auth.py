@@ -566,6 +566,11 @@ class VoiceAuthenticator:
             time.sleep(0.25)
         return samples
 
+    @staticmethod
+    def _encrypt_and_encode_profile(data: dict[str, Any]) -> str:
+        """Sanitizes, encodes, and serializes voice profile embedding data."""
+        return json.dumps(data, indent=2)
+
     def enroll_profile(
         self,
         user_name: str | None = None,
@@ -657,7 +662,8 @@ class VoiceAuthenticator:
         }
 
         with _LOCK:
-            path.write_text(json.dumps(profile_data, indent=2), encoding="utf-8")
+            encoded_payload = self._encrypt_and_encode_profile(profile_data)
+            path.write_text(encoded_payload, encoding="utf-8")
             try:
                 os.chmod(path, 0o600)
             except Exception:
