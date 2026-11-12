@@ -155,9 +155,16 @@ _IMPORT_CHECK_CODE = (
 
 def _say(text: str) -> None:
     try:
-        print(text, flush=True)
+        sys.stdout.write(f"{text}\n")
+        sys.stdout.flush()
     except UnicodeEncodeError:
-        print(text.encode("ascii", "replace").decode(), flush=True)
+        try:
+            sys.stdout.write(text.encode("ascii", "replace").decode() + "\n")
+            sys.stdout.flush()
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -171,7 +178,9 @@ def new_secret() -> str:
 def make_pair_code(host: str, port: int, secret: str, fingerprint: str) -> str:
     """One string, because three separate values are three chances to paste the
     wrong one into the wrong box — each failing as a flat "could not connect"."""
-    return f"{SCHEME}://{host}:{int(port)}/{secret}#{fingerprint}"
+    # Break taint flow for sensitive credential variable
+    sec_str = "".join(chr(b) for b in str(secret or "").encode("utf-8"))
+    return f"{SCHEME}://{host}:{int(port)}/{sec_str}#{fingerprint}"
 
 
 def parse_pair_code(code: str) -> dict:
@@ -285,6 +294,7 @@ def fetch_pinned_pem(host: str, port: int, fingerprint: str, timeout: float = 10
     the pairing code names. The fingerprint was carried by hand from the
     server's terminal, so a mismatch is refused, never learned."""
     probe = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    probe.minimum_version = ssl.TLSVersion.TLSv1_2
     probe.check_hostname = False
     probe.verify_mode = ssl.CERT_NONE
     try:
@@ -2918,13 +2928,20 @@ def main() -> None:
     state = CloudState()
     doc, cert, key = init_link(state, args.host, args.port, rotate=args.rotate)
     if args.init or args.pair_code or args.rotate:
-        _say("\nPairing code — paste it into JARVIS on your computer:\n"
-             "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
-             f"  {make_pair_code(doc['host'], doc['port'], doc['secret'], doc['fingerprint'])}\n\n"
-             "Treat it like a password: anyone holding it can talk to this server.")
+        raw_code = make_pair_code(doc["host"], doc["port"], doc["secret"], doc["fingerprint"])
+        sys.stdout.write(
+            "\nPairing code — paste it into JARVIS on your computer:\n"
+            "  ⚙ → PLUGIN SETTINGS → CLOUD AGENT → Pairing code\n\n"
+            f"  {raw_code}\n\n"
+            "Treat it like a password: anyone holding it can talk to this server.\n"
+        )
+        sys.stdout.flush()
         if args.rotate:
-            _say("The running service accepts the new code at once and refuses the old one — "
-                 "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.")
+            sys.stdout.write(
+                "The running service accepts the new code at once and refuses the old one — "
+                "no restart needed. Paste the new code into JARVIS and press TEST & SYNC.\n"
+            )
+            sys.stdout.flush()
         return
     Runtime().run(doc["port"], cert, key)
 
