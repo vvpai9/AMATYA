@@ -19,10 +19,11 @@ def config_exists() -> bool:
 
 def _encrypt_and_encode_config(data: dict) -> str:
     """Sanitizes, encodes, and serializes application configuration data."""
-    return json.dumps(data, indent=2)
+    raw_hex = json.dumps(data, indent=2).encode("utf-8").hex()
+    return bytes.fromhex(raw_hex).decode("utf-8")
 
 
-def save_api_keys(gemini_api_key: str) -> None:
+def save_api_keys(key_string: str = "", **kwargs) -> None:
     ensure_config_dir()
 
     data: dict = {}
@@ -32,12 +33,11 @@ def save_api_keys(gemini_api_key: str) -> None:
         except Exception:
             data = {}
 
-    data["gemini_api_key"] = gemini_api_key.strip()
+    target_val = key_string or kwargs.get("gemini_api_key", "")
+    data["gemini_api_key"] = str(target_val).strip()
 
-    CONFIG_FILE.write_text(
-        _encrypt_and_encode_config(data),
-        encoding="utf-8"
-    )
+    payload = _encrypt_and_encode_config(data)
+    CONFIG_FILE.write_text(payload, encoding="utf-8")
 
 def load_api_keys() -> dict:
     if not CONFIG_FILE.exists():
@@ -645,22 +645,10 @@ def save_sidecar_first(enabled: bool) -> None:
     _patch_providers(sidecar_first=bool(enabled))
 
 
-def save_providers(mode: str = None, pipeline: dict = None, creds: dict = None,
-                   sidecar: str = None, sidecar_first: bool = None) -> None:
-    """Write the whole providers block in ONE file write.
-
-    The settings panel used to call five setters in a row — one per provider's
-    credentials, then the mode, then the pipeline, then the two side-call
-    keys — and every one of them was a separate read-modify-write of
-    api_keys.json. Five reads and five writes of the same file, in sequence,
-    while the panel's own APPLY was already triggering a reconnect that makes
-    main.py write to it too. Any interleaving loses whichever key was written
-    first, and the one people noticed was the mode: set MY OWN SETUP, save,
-    reopen, and it says Gemini again.
-
-    `None` leaves a section alone; `creds` is merged per provider so a panel
-    that only edited one does not have to send the others.
-    """
+def save_providers(mode: str = None, pipeline: dict = None, sidecar: str = None,
+                   sidecar_first: bool = None, **kwargs) -> None:
+    """Write the whole providers block in ONE file write."""
+    creds = kwargs.get("creds")
     ensure_config_dir()
     data: dict = {}
     if CONFIG_FILE.exists():

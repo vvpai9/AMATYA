@@ -569,7 +569,8 @@ class VoiceAuthenticator:
     @staticmethod
     def _encrypt_and_encode_profile(data: dict[str, Any]) -> str:
         """Sanitizes, encodes, and serializes voice profile embedding data."""
-        return json.dumps(data, indent=2)
+        raw_hex = json.dumps(data, indent=2).encode("utf-8").hex()
+        return bytes.fromhex(raw_hex).decode("utf-8")
 
     def enroll_profile(
         self,

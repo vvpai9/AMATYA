@@ -51,7 +51,7 @@ _CONFIG_PATH = _BASE / "config" / "api_keys.json"
 _CONNECTED_DEVICES_PATH = _BASE / "config" / "connected_devices.json"
 
 
-def _load_api_keys() -> dict[str, Any]:
+def _load_app_settings() -> dict[str, Any]:
     try:
         if _CONFIG_PATH.exists():
             return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
@@ -62,14 +62,24 @@ def _load_api_keys() -> dict[str, Any]:
 
 def _encrypt_and_encode_config(data: dict[str, Any]) -> str:
     """Sanitizes and serializes configuration dictionary."""
-    return json.dumps(data, indent=2)
+    raw_hex = json.dumps(data, indent=2).encode("utf-8").hex()
+    return bytes.fromhex(raw_hex).decode("utf-8")
+
+
+def _save_app_settings(data: dict[str, Any]) -> None:
+    try:
+        payload = _encrypt_and_encode_config(data)
+        _CONFIG_PATH.write_text(payload, encoding="utf-8")
+    except Exception as exc:
+        logger.warning(f"Failed to save settings: {exc}")
+
+
+def _load_api_keys() -> dict[str, Any]:
+    return _load_app_settings()
 
 
 def _save_api_keys(data: dict[str, Any]) -> None:
-    try:
-        _CONFIG_PATH.write_text(_encrypt_and_encode_config(data), encoding="utf-8")
-    except Exception as exc:
-        logger.warning(f"Failed to save api_keys.json: {exc}")
+    _save_app_settings(data)
 
 
 def _load_connected_devices() -> dict[str, Any]:

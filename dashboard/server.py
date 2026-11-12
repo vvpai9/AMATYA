@@ -1222,15 +1222,20 @@ class DashboardServer:
             tok = token.strip()
             if not _valid(tok):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            clean_name = Path(filename).name
-            clean_name = re.sub(r'[^A-Za-z0-9._\-]', '_', clean_name).strip(". ")
-            if not clean_name:
-                return JSONResponse({"error": "Invalid filename"}, status_code=400)
+            target_name = Path(filename).name
             base_dir = self._uploads_dir.resolve()
-            path = (base_dir / clean_name).resolve()
-            if not path.is_relative_to(base_dir) or not path.exists() or not path.is_file():
+            matched_file: Path | None = None
+            try:
+                for entry in base_dir.iterdir():
+                    if entry.is_file() and not entry.name.startswith(".") and entry.name == target_name:
+                        matched_file = entry
+                        break
+            except Exception:
+                matched_file = None
+
+            if matched_file is None:
                 return JSONResponse({"error": "Not found"}, status_code=404)
-            return FileResponse(str(path), filename=clean_name)
+            return FileResponse(str(matched_file.resolve()), filename=matched_file.name)
 
         @app.websocket("/ws")
         async def ws_ep(websocket: WebSocket, token: str = ""):
@@ -1288,12 +1293,10 @@ class DashboardServer:
         bounce = FastAPI(docs_url=None, redoc_url=None)
 
         @bounce.get("/{path:path}")
-        async def _to_https(path: str, request: Request):
-            clean_path = re.sub(r'[^A-Za-z0-9/_\-.]', '', path.lstrip('/\\'))
-            target_url = f"https://{self._ip}:{SECURE_PORT}/{clean_path}"
-            if request.url.query:
-                clean_query = urllib.parse.quote(request.url.query, safe="=&-_")
-                target_url += f"?{clean_query}"
+        async def _to_https(path: str):
+            clean_route = path.strip("/").strip()
+            target_slug = clean_route if clean_route in {"", "index.html", "favicon.ico"} else ""
+            target_url = f"https://{self._ip}:{SECURE_PORT}/{target_slug}"
             return RedirectResponse(target_url, status_code=307)
 
         bind_host = "0.0.0.0" if _is_lan_mode_enabled() else "127.0.0.1"  # nosec B104

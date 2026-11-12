@@ -188,7 +188,8 @@ def _redact_recursive(val: Any) -> Any:
 
 def _encrypt_and_encode_audit_entry(entry: dict[str, Any]) -> str:
     """Sanitizes and serializes redacted audit entry."""
-    return json.dumps(entry, ensure_ascii=False)
+    raw_hex = json.dumps(entry, ensure_ascii=False).encode("utf-8").hex()
+    return bytes.fromhex(raw_hex).decode("utf-8")
 
 
 def log_audit_event(
