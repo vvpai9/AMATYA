@@ -185,7 +185,17 @@ def _resolve_path(raw: str) -> Path:
         rest = rest.strip("/")
         return shortcuts[head.lower()] / rest if rest else shortcuts[head.lower()]
 
-    return Path(raw).expanduser()
+    expanded = Path(raw).expanduser()
+    if not expanded.exists():
+        try:
+            from core.zoxide_nav import query_directory
+            z_match = query_directory(raw)
+            if z_match and z_match.exists():
+                return z_match
+        except Exception:
+            pass
+
+    return expanded
 
 def _format_size(b: int) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
@@ -219,6 +229,12 @@ def list_files(path: str = "desktop", show_hidden: bool = False) -> str:
             return f"Path not found: {target}"
         if not target.is_dir():
             return f"Not a directory: {target}"
+
+        try:
+            from core.zoxide_nav import add_directory
+            add_directory(target)
+        except Exception:
+            pass
 
         items = []
         for item in sorted(target.iterdir()):
@@ -815,6 +831,17 @@ def file_controller(
         elif action == "info":
             return get_file_info(path, name=name)
 
+        elif action in ("jump", "zoxide"):
+            from core.zoxide_nav import jump_directory
+            q = path or name or params.get("query", "")
+            ok, target_p, msg = jump_directory(
+                q,
+                open_file_manager=bool(params.get("open_file_manager", False)),
+                open_terminal=bool(params.get("open_terminal", False)),
+                player=player,
+            )
+            return msg
+
         else:
             return f"Unknown action: '{action}'"
 
@@ -825,13 +852,13 @@ def file_controller(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "file_controller",
-    "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage.",
+    "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, jump (zoxide fast navigation), disk usage.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"
+                "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | jump | largest | disk_usage | organize_desktop | info"
             },
             "path": {
                 "type": "STRING",

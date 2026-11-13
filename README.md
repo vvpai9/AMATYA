@@ -81,6 +81,25 @@ AMATYA operates natively across all major desktop environments by detecting the 
   - **`🛡 AUTONOMY`:** One-click cycling across all 5 autonomy levels (`L0 OBSERVE` → `L4 FULL AUTO`).
   - **`🛑 EMERGENCY STOP`:** Immediately halts all running desktop agents, background tasks, and speech output.
 
+### 10. Fast Directory Navigation & DesktopAuto (`core/zoxide_nav.py`, `actions/desktop_nav.py`)
+- **Frecency-Based Smart Jumping:** Integrates `zoxide` with pure-Python resilient fallback engine. Learns user directory access habits over time and enables instant jumping using partial keywords (e.g. *"Jump to amatya"*).
+- **Direct System Launcher Integration:** Seamlessly opens target directories in native desktop file managers (Dolphin, Nautilus, Thunar, Windows File Explorer, macOS Finder) or launches terminal emulators (Konsole, GNOME Terminal, Kitty, Alacritty, PowerShell, Terminal) with a single voice or tool command.
+- **Deep File Controller Integration:** `actions/file_controller.py` automatically resolves ambiguous paths via frecency search and records folder access history in real time.
+
+### 11. OSINT & Open Intelligence (`actions/osint_tools.py`, `agents/osint_investigator.md`)
+- **Domain & Infrastructure Reconnaissance:** Deep DNS queries across all records (A, AAAA, MX, NS, TXT, SOA, CNAME), reverse DNS, WHOIS registry lookup, SSL/TLS certificate inspection, and sub-domain enumeration.
+- **Network & IP Intelligence:** Geolocation, Autonomous System Number (ASN), CIDR ranges, and reverse IP lookups.
+- **Metadata Extraction & Historical Archives:** EXIF / GPS / device extraction from media and Wayback Machine historical archive snapshot querying.
+- **Specialized OSINT Investigator Agent:** Dedicated autonomous subagent with failure-resilient passive reconnaissance workflows.
+
+### 12. World News, Local Briefings & Global Outage Monitoring (`core/news_service.py`, `actions/news_service.py`)
+- **Thrice-Daily & Startup Briefings:** Automated briefings scheduled morning, afternoon, and evening, plus a comprehensive debrief on AMATYA startup across user-selected categories (geopolitics, wars, tech, sports, business, science).
+- **Global Service Outage Monitor:** Real-time synthetic outage detection for critical internet platforms (Google, Cloudflare, AWS, GitHub, YouTube, Reddit, X/Twitter, etc.) with live duration and HUD status cards.
+
+### 13. Global Radio Discovery & Aerospace Trajectory Tracking (`core/radio_aerospace.py`, `actions/radio_and_aerospace.py`)
+- **Global Radio Station Directory & Streaming:** Community-driven Radio Browser integration to search and stream worldwide radio stations directly from the HUD.
+- **Orbital Trajectory & Aerospace Tracking:** Real-time telemetry, latitude/longitude/altitude calculations, and flyover pass predictions for the International Space Station (ISS) and commercial flight tracking.
+
 ---
 
 ## Operating System Setup Guides
@@ -91,15 +110,17 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **Ubuntu / Debian / KDE Neon:**
   ```bash
   sudo apt update
-  sudo apt install -y python3-dev python3-venv git ffmpeg portaudio19-dev libasound2-dev wl-clipboard
+  sudo apt install -y python3-dev python3-venv git ffmpeg portaudio19-dev libasound2-dev wl-clipboard zoxide
+  # Or install the latest zoxide binary directly:
+  # curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
   ```
 - **Fedora / RHEL:**
   ```bash
-  sudo dnf install -y python3-devel git ffmpeg-free portaudio-devel alsa-lib-devel wl-clipboard
+  sudo dnf install -y python3-devel git ffmpeg-free portaudio-devel alsa-lib-devel wl-clipboard zoxide
   ```
 - **Arch Linux:**
   ```bash
-  sudo pacman -S --needed python git ffmpeg portaudio alsa-lib wl-clipboard
+  sudo pacman -S --needed python git ffmpeg portaudio alsa-lib wl-clipboard zoxide
   ```
 
 #### Step 2: Clone & Set Up Virtual Environment
@@ -125,6 +146,10 @@ pip install -r requirements.txt
 #### Step 1: Prerequisites
 - Install **Python 3.11 or 3.12** from [python.org](https://www.python.org/downloads/) (check *"Add python.exe to PATH"* during installation).
 - Install **Git for Windows** from [git-scm.com](https://git-scm.com/).
+- Install **Zoxide** for lightning-fast directory navigation via winget:
+  ```powershell
+  winget install ajeetdsouza.zoxide
+  ```
 - Ensure **Visual C++ Redistributable 2015–2022** is installed.
 - Ensure microphone permissions are enabled under: `Settings → Privacy & security → Microphone → Let desktop apps access your microphone`.
 
@@ -153,8 +178,8 @@ pip install -r requirements.txt
 # Install Homebrew if not already present
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Install Python 3.12, ffmpeg, and portaudio
-brew install python@3.12 ffmpeg portaudio git
+# Install Python 3.12, ffmpeg, portaudio, git, and zoxide
+brew install python@3.12 ffmpeg portaudio git zoxide
 ```
 
 #### Step 2: System Permissions
@@ -210,17 +235,50 @@ AMATYA controls any Android TV (Redmi, Sony, Philips, TCL, Chromecast with Googl
 
 ---
 
+## Fast Directory Navigation (Zoxide) & DesktopAuto
+
+AMATYA includes frecency-based directory navigation powered by `zoxide` with seamless desktop integration:
+
+1. **Voice & Natural Language Jumping:**
+   - *"Jump to amatya"* (`action="jump" query="amatya"`)
+   - *"Jump to projects and open file manager"* (`action="jump" query="projects" open_file_manager=true`)
+   - *"Open terminal in mark lvi"* (`action="jump" query="mark-lvi" open_terminal=true`)
+   - *"List my most frequent folders"* (`action="list"`)
+
+2. **Cross-Platform File Manager & Terminal Launching:**
+   - **Linux:** Automatically launches Dolphin, Nautilus, Thunar, or `xdg-open`; terminals include Konsole, GNOME Terminal, Kitty, Alacritty, or xterm.
+   - **Windows:** Launches File Explorer and PowerShell / Windows Terminal directly at the resolved path.
+   - **macOS:** Launches Finder (`open`) and Terminal.app.
+
+3. **Zero Configuration Fallback:**
+   - Works immediately out-of-the-box without external binaries via AMATYA's internal JSON frecency engine (`core/zoxide_nav.py`).
+   - Automatically switches to native `zoxide` CLI when installed for maximum speed.
+
+---
+
 ## Verification & Automated Test Suite
 
-Run the full automated test suite (126 unit & acceptance tests):
+Run the full automated test suite (165 unit & acceptance tests across 14 test suites):
 ```bash
 PYTHONPATH=. ./AMATYA/bin/pytest tests/
 ```
 
 To run individual test suites:
 ```bash
+# Zoxide navigation and desktop automation tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_zoxide_nav.py
+
 # Android TV automation & pairing tests
 PYTHONPATH=. ./AMATYA/bin/pytest tests/test_tv_automation.py
+
+# OSINT intelligence and reconnaissance tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_osint.py
+
+# Radio and aerospace trajectory tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_radio_and_aerospace.py
+
+# World news and outage monitor tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_news.py
 
 # Universal core acceptance tests
 PYTHONPATH=. ./AMATYA/bin/pytest tests/test_amatya_suite.py

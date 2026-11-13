@@ -41,6 +41,14 @@ yt-dlp
 pyautogui
 pyperclip
 
+# ── Fast Directory Navigation (Zoxide) ─────────────────────────────────────────
+# AMATYA integrates zoxide for lightning-fast frecency directory jumping and
+# desktop navigation. Features a built-in pure-Python frecency fallback engine;
+# for maximum performance with native binary:
+#   Linux/macOS: curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+#   macOS (Homebrew): brew install zoxide
+#   Windows: winget install ajeetdsouza.zoxide (or scoop install zoxide)
+
 # ── Vision & media ────────────────────────────────────────────────────────────
 pillow>=10,<13
 opencv-python>=4.8,<5
