@@ -132,45 +132,78 @@ def track_trajectories_action(
         lat, lon = get_device_coordinates()
 
         flights = radio_aerospace.get_overhead_flights(user_lat=lat, user_lon=lon)
+        provider = flights[0].get("source", "Flightradar24 / OpenSky") if flights else "Flightradar24"
         md_lines = [
             f"# ✈️ Local Airspace Trajectory Tracker",
-            f"**Sector:** `{loc_name}` (`{lat:.2f}°, {lon:.2f}°`) | **Active Targets:** `{len(flights)}`",
+            f"**Sector:** `{loc_name}` (`{lat:.2f}°, {lon:.2f}°`) | **Active Targets:** `{len(flights)}` | **Radar:** `{provider}`",
             "---",
-            "| Callsign | Origin Country | Altitude | Velocity | Heading |",
-            "| :--- | :--- | :--- | :--- | :--- |",
+            "| Flight / Callsign | Route | Aircraft | Altitude | Velocity | Heading | Source |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
         ]
         for f in flights:
-            md_lines.append(f"| **{f['callsign']}** | {f['origin_country']} | {f['altitude_ft']:,} ft | {f['velocity_kmh']} km/h | {f['heading_deg']}° |")
+            route = f.get("route") or f.get("origin_country") or "En Route"
+            model = f.get("model") or "Airliner"
+            src = f.get("source") or provider
+            md_lines.append(f"| **{f['callsign']}** | {route} | {model} | {f['altitude_ft']:,} ft | {f['velocity_kmh']} km/h | {f['heading_deg']}° | {src} |")
 
         if player is not None:
             try:
                 player.show_content(f"Airspace: {loc_name}", "\n".join(md_lines))
-                player.write_log(f"AIRSPACE: Tracking {len(flights)} active flights over {loc_name}.")
+                player.write_log(f"AIRSPACE: Tracking {len(flights)} active flights over {loc_name} via {provider}.")
             except Exception:
                 pass
-        return f"Currently tracking {len(flights)} airborne flights in the local airspace over {loc_name} on your HUD."
+        return f"Currently tracking {len(flights)} airborne flights in the local airspace over {loc_name} via {provider} on your HUD."
 
     else:
         # Target is a specific flight callsign (e.g. 'AI101', 'BAW123')
         flight = radio_aerospace.track_flight(target)
+        provider = flight.get("source", "Flightradar24 / OpenSky")
+        flight_num = flight.get("flight_number") or flight["callsign"]
+        airline = flight.get("airline") or flight.get("origin_country") or "Commercial Airline"
+        route = flight.get("route") or (f"{flight.get('origin', '')} → {flight.get('destination', '')}".strip(" →"))
+
         md_lines = [
-            f"# ✈️ Flight Trajectory Telemetry: {flight['callsign']}",
-            f"**ICAO24 Address:** `{flight['icao24']}` | **Operator Country:** `{flight['origin_country']}`",
+            f"# ✈️ Flight Telemetry: {flight_num} ({flight['callsign']})",
+            f"**Operator:** `{airline}` | **Source:** `{provider}`",
             "---",
-            f"- **Current Altitude:** `{flight['altitude_ft']:,} ft` ({flight['altitude_m']:,} m)",
-            f"- **Ground Speed:** `{flight['velocity_kmh']} km/h` ({flight['velocity_kts']} knots)",
-            f"- **Current Heading:** `{flight['heading_deg']}°`",
-            f"- **Coordinates:** `{flight['latitude']}°, {flight['longitude']}°`",
-            f"- **Vertical Rate:** `{flight['vertical_rate_mps']} m/s`",
         ]
+        if route:
+            md_lines.append(f"- **Route:** `{route}`")
+        if flight.get("origin"):
+            md_lines.append(f"- **Origin Airport:** `{flight['origin']}`")
+        if flight.get("destination"):
+            md_lines.append(f"- **Destination Airport:** `{flight['destination']}`")
+        if flight.get("model"):
+            md_lines.append(f"- **Aircraft Type:** `{flight['model']}`")
+        if flight.get("registration"):
+            md_lines.append(f"- **Registration:** `{flight['registration']}`")
+        if flight.get("icao24"):
+            md_lines.append(f"- **ICAO24 Address:** `{flight['icao24']}`")
+        if flight.get("altitude_ft") is not None:
+            md_lines.append(f"- **Current Altitude:** `{flight['altitude_ft']:,} ft` ({flight.get('altitude_m', 0):,} m)")
+        if flight.get("velocity_kmh") is not None:
+            md_lines.append(f"- **Ground Speed:** `{flight['velocity_kmh']} km/h` ({flight.get('velocity_kts', 0)} knots)")
+        if flight.get("heading_deg") is not None:
+            md_lines.append(f"- **Current Heading:** `{flight['heading_deg']}°`")
+        if flight.get("latitude") is not None and flight.get("longitude") is not None:
+            md_lines.append(f"- **Coordinates:** `{flight['latitude']}°, {flight['longitude']}°`")
+        if flight.get("vertical_rate_mps") is not None:
+            md_lines.append(f"- **Vertical Rate:** `{flight['vertical_rate_mps']} m/s`")
+
         if player is not None:
             try:
-                player.show_content(f"Flight: {flight['callsign']}", "\n".join(md_lines))
-                player.write_log(f"FLIGHT: Locked telemetry for flight {flight['callsign']}")
+                player.show_content(f"Flight: {flight_num}", "\n".join(md_lines))
+                player.write_log(f"FLIGHT: Locked telemetry for flight {flight_num} via {provider}")
             except Exception:
                 pass
+
+        if route:
+            return (
+                f"Flight {flight_num} operated by {airline} flying {route} is tracked via {provider} "
+                f"cruising at {flight['altitude_ft']:,} feet at {flight['velocity_kmh']} kilometers per hour."
+            )
         return (
-            f"Flight {flight['callsign']} is cruising at {flight['altitude_ft']:,} feet "
+            f"Flight {flight_num} is cruising at {flight['altitude_ft']:,} feet "
             f"at a ground speed of {flight['velocity_kmh']} kilometers per hour, heading {flight['heading_deg']} degrees."
         )
 

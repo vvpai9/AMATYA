@@ -44,10 +44,11 @@ def news_briefing_action(
         scan = news_service.check_all_outages()
         active = scan.get("active_outages", [])
         services_map = scan.get("services", {})
+        downdetector_incidents = scan.get("downdetector_incidents", [])
 
         outage_lines = [
             f"# 📡 Global Service Outages & Infrastructure Telemetry",
-            f"**Monitored Services:** `{scan['total_monitored']}` | **Active Outages:** `{len(active)}`",
+            f"**Monitored Services:** `{scan['total_monitored']}` | **Active Outages:** `{len(active)}` | **Sources:** `Downdetector & Status APIs`",
             "---",
         ]
         if active:
@@ -57,12 +58,25 @@ def news_briefing_action(
         else:
             outage_lines.append("> 🟢 **All Monitored Global Services Operational (Zero Outages Detected)**\n")
 
+        if downdetector_incidents:
+            outage_lines.append("### 🔴 Downdetector Breaking Reports:")
+            for inc in downdetector_incidents[:3]:
+                title = inc.get("title", "")
+                link = inc.get("link", "")
+                src = inc.get("source", "Downdetector")
+                pub = f" ({inc['pubDate']})" if inc.get("pubDate") else ""
+                if link:
+                    outage_lines.append(f"• **[{title}]({link})** — *{src}*{pub}")
+                else:
+                    outage_lines.append(f"• **{title}** — *{src}*{pub}")
+            outage_lines.append("")
+
         outage_lines.append("| Service | Endpoint / Domain | Status | Latency | Outage Duration |")
         outage_lines.append("| :--- | :--- | :--- | :--- | :--- |")
         for s_name in sorted(services_map.keys()):
             item = services_map[s_name]
             is_up = item.get("is_up", True)
-            status_badge = "🟢 Operational" if is_up else "🔴 OUTAGE"
+            status_badge = "🟢 Operational" if is_up else item.get("status", "🔴 OUTAGE")
             lat = f"{item.get('latency_ms', 0):.1f} ms" if is_up else "Timeout"
             dur = item.get("duration_str", "None") if not is_up else "None"
             outage_lines.append(f"| **{s_name}** | `{item.get('domain', '')}` | {status_badge} | {lat} | {dur} |")
