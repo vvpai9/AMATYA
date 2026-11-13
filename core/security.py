@@ -760,6 +760,7 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     "web_search": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "osint_investigate": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "news_briefing": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "radio_and_aerospace": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "weather_report": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "flight_finder": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "youtube_video": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
