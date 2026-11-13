@@ -63,11 +63,12 @@ class TestSessionBugfixes(unittest.TestCase):
 
     def test_02_vad_turn_tuning_default(self):
         """Issue 2: Verify turn_tuning restores Mark-LVII defaults (enabled=False, silence_ms=550)."""
-        tt = get_turn_tuning()
-        self.assertFalse(tt["enabled"])
-        self.assertEqual(tt["silence_ms"], 550)
-        self.assertEqual(tt["prefix_ms"], 150)
-        self.assertEqual(tt["end_sensitivity"], "high")
+        with unittest.mock.patch("memory.config_manager.load_api_keys", return_value={}):
+            tt = get_turn_tuning()
+            self.assertFalse(tt["enabled"])
+            self.assertEqual(tt["silence_ms"], 550)
+            self.assertEqual(tt["prefix_ms"], 150)
+            self.assertEqual(tt["end_sensitivity"], "high")
 
     def test_03_text_only_mode_toggle(self):
         """Issue 3: Verify computer_settings toggles text-only interaction on and off."""

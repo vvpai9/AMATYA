@@ -306,8 +306,8 @@ def save_thinking_enabled(enabled: bool) -> None:
 def get_turn_tuning() -> dict:
     """How eagerly the server decides you have stopped speaking.
 
-    Default is now ENABLED with a fast, snappy 350ms silence detection and
-    high end-of-speech sensitivity so AMATYA answers immediately when you finish speaking.
+    OFF by default to match Mark-LVII defaults (enabled=False, silence_ms=550).
+    Can be enabled in api_keys.json with snappy settings (e.g. 350ms silence detection).
     """
     cfg = load_api_keys().get("turn_tuning")
     cfg = cfg if isinstance(cfg, dict) else {}
@@ -319,12 +319,12 @@ def get_turn_tuning() -> dict:
             return default
 
     return {
-        "enabled":    bool(cfg.get("enabled", True)),
-        "silence_ms": _int("silence_ms", 350, 150, 3000),
-        "prefix_ms":  _int("prefix_ms", 60, 0, 1000),
+        "enabled":    bool(cfg.get("enabled", False)),
+        "silence_ms": _int("silence_ms", 550, 150, 3000),
+        "prefix_ms":  _int("prefix_ms", 150, 0, 1000),
         # "high" = quicker to decide speech has ended.
         "end_sensitivity":   str(cfg.get("end_sensitivity", "high")).lower(),
-        "start_sensitivity": str(cfg.get("start_sensitivity", "high")).lower(),
+        "start_sensitivity": str(cfg.get("start_sensitivity", "high" if cfg.get("enabled") else "default")).lower(),
     }
 
 
