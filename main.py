@@ -2695,6 +2695,13 @@ class AmatyaLive:
             print(f"[Dashboard] Disabled: {e}")
             self._dashboard = None
 
+        # Start Global News & Outage Monitor
+        try:
+            from core.news_service import start_news_scheduler
+            start_news_scheduler(self.ui)
+        except Exception as _e:
+            print(f"[News] News scheduler start notice: {_e}")
+
         while True:
             try:
                 self._ensure_executor()

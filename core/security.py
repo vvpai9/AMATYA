@@ -758,6 +758,7 @@ def check_permission(
 TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     # Tier 0: General Conversation / Informational / Read-Only / Calculations
     "web_search": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "news_briefing": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "weather_report": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "flight_finder": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "youtube_video": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
