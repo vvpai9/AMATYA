@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar, QSlider,
+    QStackedWidget, QTextEdit, QTextBrowser, QVBoxLayout, QWidget, QProgressBar, QSlider,
 )
 
 from gui.theme import (
@@ -1859,7 +1859,8 @@ class MainWindow(QMainWindow):
         dismiss.clicked.connect(w.hide)
         w.add_header_widget(dismiss)
 
-        self._content_display = QTextEdit()
+        self._content_display = QTextBrowser()
+        self._content_display.setOpenExternalLinks(True)
         self._content_display.setReadOnly(True)
         self._content_display.setFont(px_font(13))
         self._content_display.setMinimumHeight(60)
@@ -1868,11 +1869,15 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._content_display.setStyleSheet(f"""
-            QTextEdit {{
+            QTextBrowser {{
                 background: transparent;
                 color: {C.TEXT};
                 border: none;
                 selection-background-color: {C.PRI_GHO};
+            }}
+            a {{
+                color: {C.PRI};
+                text-decoration: underline;
             }}
         """ + scroll_css())
         w.body.addWidget(self._content_display)
@@ -1909,7 +1914,14 @@ class MainWindow(QMainWindow):
         label, dash, rest = str(title or "").partition(" — ")
         self._content_title_lbl.setText((label.upper() + dash + rest)[:48])
         self._content_ts_lbl.setText(_time.strftime("%H:%M:%S"))
-        self._content_display.setPlainText(text)
+        text_str = str(text or "")
+        is_md = any(m in text_str for m in ("# ", "## ", "### ", "**", "](", "| :---", "• "))
+        if is_md:
+            self._content_display.setMarkdown(text_str)
+            html = self._content_display.toHtml().replace("color:#0000ff;", f"color:{C.PRI}; text-decoration:none;")
+            self._content_display.setHtml(html)
+        else:
+            self._content_display.setPlainText(text_str)
         self._content_display.moveCursor(
             self._content_display.textCursor().MoveOperation.Start
         )
