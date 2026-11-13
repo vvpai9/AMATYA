@@ -148,6 +148,57 @@ class SessionAuthState:
 
 
 _SESSION_STATE = SessionAuthState()
+_CONFIRMED_OPERATIONS: dict[str, float] = {}
+CONFIRMATION_GRACE_TTL_SEC: float = 60.0
+
+
+def mark_operation_confirmed(operation: str, ttl_sec: float = CONFIRMATION_GRACE_TTL_SEC) -> None:
+    """Record that an operation has been explicitly confirmed by the user or voice auth.
+
+    Subsequent checks for the same operation within the grace TTL window succeed autonomously,
+    preventing infinite confirmation popup loops.
+    """
+    if not operation:
+        return
+    with _LOCK:
+        op_clean = str(operation).strip().lower()
+        _CONFIRMED_OPERATIONS[op_clean] = time.time() + float(ttl_sec)
+        if ":" in op_clean:
+            root = op_clean.split(":", 1)[0]
+            _CONFIRMED_OPERATIONS[root] = time.time() + float(ttl_sec)
+
+
+def is_operation_confirmed(operation: str) -> bool:
+    """Check if an operation was recently confirmed within its grace TTL window."""
+    if not operation:
+        return False
+    with _LOCK:
+        now = time.time()
+        expired = [op for op, exp in _CONFIRMED_OPERATIONS.items() if now > exp]
+        for op in expired:
+            _CONFIRMED_OPERATIONS.pop(op, None)
+
+        op_clean = str(operation).strip().lower()
+        if op_clean in _CONFIRMED_OPERATIONS:
+            return True
+        if ":" in op_clean:
+            root = op_clean.split(":", 1)[0]
+            if root in _CONFIRMED_OPERATIONS:
+                return True
+        return False
+
+
+def clear_operation_confirmed(operation: str = "") -> None:
+    """Clear confirmation cache for an operation or all operations."""
+    with _LOCK:
+        if operation:
+            op_clean = str(operation).strip().lower()
+            _CONFIRMED_OPERATIONS.pop(op_clean, None)
+            if ":" in op_clean:
+                root = op_clean.split(":", 1)[0]
+                _CONFIRMED_OPERATIONS.pop(root, None)
+        else:
+            _CONFIRMED_OPERATIONS.clear()
 
 
 def _load_policy() -> dict[str, Any]:
@@ -434,6 +485,7 @@ def clear_session_auth() -> None:
         _SESSION_STATE.anti_spoof_passed = False
         _SESSION_STATE.verified_at = 0.0
         _SESSION_STATE.pin_verified_at = 0.0
+        _CONFIRMED_OPERATIONS.clear()
 
 
 def get_session_auth_status() -> dict[str, Any]:
@@ -512,6 +564,10 @@ def check_permission(
     if pin:
         verify_pin(pin)
     pin_ok = _SESSION_STATE.is_pin_active()
+
+    # If the operation was already confirmed within the grace TTL window, treat as confirmed
+    if is_operation_confirmed(operation):
+        confirmed = True
 
     # 1. Check Autonomy Level blocks for side-effecting operations (Tiers >= 2)
     if ptier >= PermissionTier.PRIVATE_FILES:
@@ -623,7 +679,10 @@ def check_permission(
                     )
                 except Exception:
                     approved = False
-                if not approved:
+                if approved:
+                    mark_operation_confirmed(operation)
+                    confirmed = True
+                else:
                     reason = f"User declined or confirmation timed out for '{operation}'."
                     log_audit_event("permission_denied", operation, ptier, False, reason)
                     return {
@@ -676,7 +735,10 @@ def check_permission(
                     )
                 except Exception:
                     approved = False
-                if not approved:
+                if approved:
+                    mark_operation_confirmed(operation)
+                    confirmed = True
+                else:
                     reason = f"Explicit confirmation required and not granted for '{operation}'."
                     log_audit_event("permission_denied", operation, ptier, False, reason)
                     return {
@@ -774,7 +836,10 @@ def check_permission(
                 )
             except Exception:
                 approved = False
-            if not approved:
+            if approved:
+                mark_operation_confirmed(operation)
+                confirmed = True
+            else:
                 reason = f"Critical security operation '{operation}' was not confirmed."
                 log_audit_event("permission_denied", operation, ptier, False, reason)
                 return {

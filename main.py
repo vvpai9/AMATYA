@@ -1205,7 +1205,9 @@ class AmatyaLive:
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
         try:
-            self._recent_user_audio.clear()
+            # When awaiting a confirmation, retain recent mic audio so voice biometrics can analyze it
+            if not confirm_gate.has_pending():
+                self._recent_user_audio.clear()
         except Exception:
             pass
         if self._turn_done_event:
@@ -1988,6 +1990,16 @@ class AmatyaLive:
                             if self._turn_done_event:
                                 self._turn_done_event.set()
 
+                            full_in = " ".join(in_buf).strip()
+
+                            # If an interactive confirmation is pending, prioritize evaluating the user's
+                            # voice response even if the turn was flagged as an interruption of the assistant's speech.
+                            if confirm_gate.has_pending() and full_in:
+                                recent_audio = b"".join(self._recent_user_audio) if self._recent_user_audio else None
+                                v_res = confirm_gate.voice_authorize(full_in, audio=recent_audio, require_biometrics=True)
+                                if v_res is not None:
+                                    self.ui.write_log(f"SYS: Voice authorization result: {'AUTHORIZED' if v_res else 'FAILED/PIN REQUIRED'}")
+
                             # If this turn_complete ends an interrupted response, clear the
                             # flag and skip all further processing for that turn.
                             if self._interrupted:
@@ -1997,16 +2009,10 @@ class AmatyaLive:
                                 self._visemes.reset()
                                 continue
 
-                            full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
-                                if confirm_gate.has_pending():
-                                    recent_audio = b"".join(self._recent_user_audio) if self._recent_user_audio else None
-                                    v_res = confirm_gate.voice_authorize(full_in, audio=recent_audio, require_biometrics=True)
-                                    if v_res is not None:
-                                        self.ui.write_log(f"SYS: Voice authorization result: {'AUTHORIZED' if v_res else 'FAILED/PIN REQUIRED'}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
                                         "type": "log", "speaker": "user",

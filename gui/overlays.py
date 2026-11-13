@@ -702,6 +702,11 @@ class ConfirmBanner(_HudOverlay):
             """)
             self._pin_edit.returnPressed.connect(self._on_confirm_click)
             lay.addWidget(self._pin_edit)
+        else:
+            voice_hint = QLabel("🎙 Speak 'Confirm' to authorize via Voice Biometrics (or click below)")
+            voice_hint.setFont(hud_font(8, QFont.Weight.Bold))
+            voice_hint.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+            lay.addWidget(voice_hint)
 
         row = QHBoxLayout(); row.setSpacing(8)
 
