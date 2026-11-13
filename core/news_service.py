@@ -434,31 +434,23 @@ def generate_news_briefing(
         f"# 🌍 AMATYA {period_label} Intelligence Briefing",
         f"**Date:** `{now_str}` | **Regional Scope:** `{location}`",
         "---",
-        "## 📡 Global Service Outages & Cloud Infrastructure",
     ]
 
     if active_outages:
+        md_lines.append("## 📡 Global Service Outage Alerts")
         for o in active_outages:
             dur = o.get("duration_str") or "Just detected"
             md_lines.append(f"> ⚠️ **OUTAGE DETECTED:** **{o['service']} ({o['domain']})** is **DOWN** for **{dur}** ({o.get('error', 'Unreachable')})")
         md_lines.append("")
-    else:
-        md_lines.append("> 🟢 **All Monitored Global Services Operational (Zero Outages Detected)**")
-        md_lines.append("")
-
-    # Full Telemetry Table
-    if services_map:
-        md_lines.append("| Monitored Platform | Domain / Endpoint | Status | Latency | Outage Duration |")
-        md_lines.append("| :--- | :--- | :--- | :--- | :--- |")
-        for s_name in sorted(services_map.keys()):
-            item = services_map[s_name]
-            is_up = item.get("is_up", True)
-            status_badge = "🟢 Operational" if is_up else "🔴 OUTAGE"
-            lat = f"{item.get('latency_ms', 0):.1f} ms" if is_up else "Timeout"
-            dur = item.get("duration_str", "None") if not is_up else "None"
-            md_lines.append(f"| **{s_name}** | `{item.get('domain', '')}` | {status_badge} | {lat} | {dur} |")
+        md_lines.append("| Affected Service | Domain | Status | Duration |")
+        md_lines.append("| :--- | :--- | :--- | :--- |")
+        for o in active_outages:
+            md_lines.append(f"| **{o['service']}** | `{o['domain']}` | 🔴 DOWN | {o.get('duration_str', 'Just detected')} |")
         md_lines.append("---")
     else:
+        avg_lat = sum(item.get("latency_ms", 0) for item in services_map.values()) / max(len(services_map), 1)
+        md_lines.append("## 📡 Global Cloud Infrastructure")
+        md_lines.append(f"> 🟢 **All {len(services_map)} Monitored Global Services Operational** (Avg Latency: `{avg_lat:.1f} ms` · Zero Outages)")
         md_lines.append("---")
 
     # Topic Sections
@@ -488,7 +480,7 @@ def generate_news_briefing(
             link = a.get("link", "")
             summary = a.get("summary", "")
 
-            source_tag = f" `[{source}]`" if source else ""
+            source_tag = f" — *{source}*" if source else ""
             if link:
                 md_lines.append(f"• **[{title}]({link})**{source_tag}")
             else:
