@@ -165,8 +165,10 @@ ipwhois>=1.3,<2
 piexif>=1.1,<2
 feedparser>=6.0,<7
 
-# ── Linux-only (pip skips these automatically on macOS / Windows) ────────────
-kwin-mcp>=0.12.0; sys_platform == "linux"    # KDE Wayland desktop automation & window focus
+# ── Optional: KDE Plasma 6 Wayland desktop automation ─────────────────────────
+# For native KDE Wayland desktop input emulation, window management, and capture:
+#   sudo apt install -y libcairo2-dev libgirepository1.0-dev pkg-config
+#   pip install kwin-mcp
 
 # ── Optional: local wake word ("Hey Amatya") ──────────────────────────────────
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
