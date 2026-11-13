@@ -1107,6 +1107,23 @@ def computer_settings(
         hud_str = format_command_centre_hud(tele)
         return outcome.done("computer_settings", result=hud_str, data=tele)
 
+    if action in ("hud_style", "set_hud_style", "toggle_hud", "switch_hud"):
+        raw_val = str(value if value is not None else description or "").strip().lower()
+        if not raw_val:
+            from memory.config_manager import get_hud_style
+            target = "core" if get_hud_style() == "face" else "face"
+        elif "face" in raw_val or "head" in raw_val or "avatar" in raw_val:
+            target = "face"
+        else:
+            target = "core"
+        if player is not None and hasattr(player, "set_hud_style"):
+            player.set_hud_style(target)
+        else:
+            from memory.config_manager import save_hud_style
+            save_hud_style(target)
+        label = "3-D Reactor Core" if target == "core" else "Animated Face"
+        return outcome.done("computer_settings", result=f"HUD centrepiece switched to {label}.")
+
     if action == "volume_set":
         try:
             target = int(value if value is not None else 50)
@@ -1280,7 +1297,7 @@ TOOL = {
                     "type_text | screenshot | lock_screen | open_settings | "
                     "file_explorer | open_run | dark_mode | toggle_wifi | "
                     "restart | shutdown | amatya_sleep | system_hud | "
-                    "get_time | text_only_mode | voice_mode"
+                    "get_time | text_only_mode | voice_mode | hud_style"
                 )
             },
             "confirmed": {

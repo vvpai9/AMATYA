@@ -1438,7 +1438,7 @@ class AmatyaLive:
         # before a reply actually is, and the default has to suit everybody, so
         # it is necessarily cautious.
         turn = get_turn_tuning()
-        if turn.get("enabled", False):
+        if turn.get("enabled", True):
             detect = types.AutomaticActivityDetection(
                 silence_duration_ms=turn["silence_ms"],
                 prefix_padding_ms=turn["prefix_ms"],
@@ -1740,7 +1740,7 @@ class AmatyaLive:
         _noise_gate_thresh = 0.012  # RMS level floor (~90 RMS)
         _last_voice_ts = [time.monotonic()]
         _pre_roll = collections.deque(maxlen=4)  # ~120ms ring buffer to preserve leading syllables
-        _HANGOVER_SEC = 0.65                     # keep stream open briefly after words end (rapid turn turnaround)
+        _HANGOVER_SEC = 0.35                     # keep stream open briefly after words end (snappy turnaround)
 
         def callback(indata, frames, time_info, status):
             # ── Wake-word gate ───────────────────────────────────────────────

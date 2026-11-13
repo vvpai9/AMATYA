@@ -382,3 +382,13 @@ class JarvisUI:
     def stop_speaking(self):
         if not self.muted:
             self.set_state("LISTENING")
+
+    def set_hud_style(self, style: str) -> None:
+        """Thread-safe: switch HUD centrepiece between 'core' (Reactor Core) and 'face' (Animated Face)."""
+        self._win._hud_style_sig.emit(str(style))
+
+    def toggle_hud_style(self) -> None:
+        """Thread-safe: toggle HUD centrepiece between Reactor Core and Animated Face."""
+        from memory.config_manager import get_hud_style
+        want = "core" if get_hud_style() == "face" else "face"
+        self._win._hud_style_sig.emit(want)

@@ -12,6 +12,7 @@ Implements comprehensive news aggregation across world affairs:
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import socket
@@ -143,6 +144,45 @@ def set_user_topics(topics: list[str]) -> dict[str, Any]:
 
 # ── RSS & Web News Gathering ──────────────────────────────────────────────────
 
+def _clean_headline_and_source(raw_title: str) -> tuple[str, str]:
+    """Clean raw RSS headline and extract source name.
+
+    Google News headlines typically look like 'Headline Text - Source Name'.
+    """
+    clean = html.unescape(raw_title or "").strip()
+    clean = re.sub(r"\s+", " ", clean)
+    if " - " in clean:
+        parts = clean.rsplit(" - ", 1)
+        title = parts[0].strip()
+        source = parts[1].strip()
+        return title, source
+    return clean, ""
+
+
+def _clean_summary(raw_summary: str, clean_title: str, source: str) -> str:
+    """Clean summary snippet, removing HTML entities and eliminating redundancy."""
+    if not raw_summary:
+        return ""
+    clean = html.unescape(raw_summary)
+    clean = re.sub(r"<[^>]+>", " ", clean)
+    clean = re.sub(r"&nbsp;|\xa0", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
+
+    # If the summary is essentially the title and source repeated, drop it
+    norm_clean = re.sub(r"[^\w\s]", "", clean.lower()).strip()
+    norm_title = re.sub(r"[^\w\s]", "", clean_title.lower()).strip()
+    norm_source = re.sub(r"[^\w\s]", "", source.lower()).strip()
+
+    if not norm_clean or norm_clean in norm_title or norm_clean == f"{norm_title} {norm_source}".strip():
+        return ""
+    if len(clean) < 25:
+        return ""
+
+    if len(clean) > 160:
+        clean = clean[:157].rsplit(" ", 1)[0] + "..."
+    return clean
+
+
 def _fetch_rss(url: str, timeout: float = 6.0) -> list[dict[str, str]]:
     """Fetch and parse RSS feed entries with fallback to standard xml."""
     items = []
@@ -150,15 +190,19 @@ def _fetch_rss(url: str, timeout: float = 6.0) -> list[dict[str, str]]:
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries[:8]:
-                title = entry.get("title", "").strip()
+                raw_title = entry.get("title", "").strip()
                 link = entry.get("link", "").strip()
-                summary = re.sub(r"<[^>]+>", "", entry.get("summary", "")).strip()
+                raw_summary = entry.get("summary", "").strip()
                 published = entry.get("published", "")
-                if title:
+                if raw_title:
+                    c_title, c_source = _clean_headline_and_source(raw_title)
+                    c_summary = _clean_summary(raw_summary, c_title, c_source)
                     items.append({
-                        "title": title,
+                        "title": raw_title,
+                        "clean_title": c_title,
+                        "source": c_source,
                         "link": link,
-                        "summary": summary[:250],
+                        "summary": c_summary,
                         "published": published,
                     })
             if items:
@@ -179,14 +223,18 @@ def _fetch_rss(url: str, timeout: float = 6.0) -> list[dict[str, str]]:
                 t = item.find("title")
                 l = item.find("link")
                 d = item.find("description")
-                title = t.text.strip() if t is not None and t.text else ""
+                raw_title = t.text.strip() if t is not None and t.text else ""
                 link = l.text.strip() if l is not None and l.text else ""
-                desc = re.sub(r"<[^>]+>", "", d.text).strip() if d is not None and d.text else ""
-                if title:
+                raw_summary = d.text.strip() if d is not None and d.text else ""
+                if raw_title:
+                    c_title, c_source = _clean_headline_and_source(raw_title)
+                    c_summary = _clean_summary(raw_summary, c_title, c_source)
                     items.append({
-                        "title": title,
+                        "title": raw_title,
+                        "clean_title": c_title,
+                        "source": c_source,
                         "link": link,
-                        "summary": desc[:250],
+                        "summary": c_summary,
                         "published": "",
                     })
     except Exception:
@@ -394,27 +442,45 @@ def generate_news_briefing(
         md_lines.append("---")
 
     # Topic Sections
+    topic_icons = {
+        "geopolitics": "🌐",
+        "politics": "🏛️",
+        "wars": "⚔️",
+        "current_affairs": "📰",
+        "tech": "💻",
+        "science": "🔬",
+        "sports": "⚽",
+        "business": "📈",
+        "local_news": "📍",
+    }
+
     speech_headlines = []
     for t in selected_topics:
         arts = aggregated_news.get(t, [])
         if not arts:
             continue
         display_topic = t.replace("_", " ").title()
-        md_lines.append(f"### {display_topic}")
+        icon = topic_icons.get(t.lower(), "📌")
+        md_lines.append(f"### {icon} {display_topic}")
         for a in arts:
-            title = a["title"]
+            title = a.get("clean_title") or a["title"]
+            source = a.get("source", "")
             link = a.get("link", "")
             summary = a.get("summary", "")
-            if link:
-                md_lines.append(f"- **[{title}]({link})**")
-            else:
-                md_lines.append(f"- **{title}**")
-            if summary:
-                md_lines.append(f"  > {summary}")
-        if arts:
-            speech_headlines.append(f"In {display_topic}, {arts[0]['title']}")
 
-    md_content = "\n".join(md_lines)
+            source_tag = f" `[{source}]`" if source else ""
+            if link:
+                md_lines.append(f"• **[{title}]({link})**{source_tag}")
+            else:
+                md_lines.append(f"• **{title}**{source_tag}")
+            if summary:
+                md_lines.append(f"  *{summary}*")
+        md_lines.append("")
+        if arts:
+            lead_title = arts[0].get("clean_title") or arts[0]["title"]
+            speech_headlines.append(f"In {display_topic}, {lead_title}")
+
+    md_content = "\n".join(md_lines).strip()
 
     # Spoken Summary Synthesis
     if speech_headlines:

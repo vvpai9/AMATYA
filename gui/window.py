@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
+    _hud_style_sig  = pyqtSignal(str)        # 'core' (Reactor Core) or 'face' (Animated Face)
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
@@ -401,6 +402,7 @@ class MainWindow(QMainWindow):
         self._camera_sig.connect(self._show_camera_frame)
         self._confirm_sig.connect(self._show_confirm_banner)
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
+        self._hud_style_sig.connect(self._apply_hud_style)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._wake_btns_sig.connect(self._refresh_wake_btns)
@@ -2513,21 +2515,26 @@ class MainWindow(QMainWindow):
             "A 3-D reactor core that turns with the state and moves with your "
             "voice. Tap to switch to the animated head.")
 
-    def _toggle_hud_style(self):
-        """Swap the centrepiece. Both objects stay in memory, so the change is
-        instant and switching back costs nothing."""
-        from memory.config_manager import get_hud_style, save_hud_style
-        want = "core" if get_hud_style() == "face" else "face"
-        save_hud_style(want)
+    def _apply_hud_style(self, want: str):
+        """Apply requested HUD centrepiece style ('core' for Reactor Core, 'face' for Animated Face)."""
+        from memory.config_manager import save_hud_style
+        target = "face" if "face" in str(want).lower() else "core"
+        save_hud_style(target)
         try:
-            self.hud.hud_style = want
+            self.hud.hud_style = target
             self.hud.update()
         except Exception:
             pass
         self._refresh_hud_btn()
         self._log.append_log(
-            "SYS: HUD switched to the animated face." if want == "face"
-            else "SYS: HUD switched to the reactor core.")
+            "SYS: HUD switched to the animated face." if target == "face"
+            else "SYS: HUD switched to the 3-D reactor core.")
+
+    def _toggle_hud_style(self):
+        """Swap the centrepiece between Animated Face and Reactor Core."""
+        from memory.config_manager import get_hud_style
+        want = "core" if get_hud_style() == "face" else "face"
+        self._apply_hud_style(want)
 
     def _toggle_ptt(self):
         from memory.config_manager import (get_push_to_talk_enabled,
