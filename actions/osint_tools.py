@@ -158,7 +158,8 @@ def analyze_domain(domain: str) -> dict[str, Any]:
 
     # 2. SSL/TLS Certificate & Subject Alternative Names (SAN)
     try:
-        ctx = ssl.create_default_context()
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         with socket.create_connection((clean_domain, 443), timeout=4.0) as sock:
@@ -570,9 +571,14 @@ def analyze_threat(indicator: str) -> dict[str, Any]:
 
 def _detect_category(target: str) -> str:
     t = target.strip()
-    if re.match(r"^https?://", t, re.I) and ("archive.org" in t or "snapshot" in t):
-        return "wayback"
-    if re.match(r"^https?://", t, re.I):
+    if t.lower().startswith(("http://", "https://")):
+        try:
+            parsed = urllib.parse.urlparse(t)
+            host = (parsed.hostname or "").lower()
+            if host == "archive.org" or host.endswith(".archive.org"):
+                return "wayback"
+        except Exception:
+            pass
         return "domain"
     if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", t):
         return "ip"
