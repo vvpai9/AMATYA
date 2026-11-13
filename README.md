@@ -22,8 +22,9 @@ AMATYA operates natively across all major desktop environments by detecting the 
 
 ## Core Capabilities
 
-### 1. Universal Desktop Automation (`core/desktop_agent.py`, `actions/desktop.py`)
+### 1. Universal Desktop Automation (`core/desktop_agent.py`, `actions/desktop.py`, `core/kwin_mcp_client.py`)
 - **Multi-OS UI Inspection:** Inspects windows, buttons, text fields, and accessibility trees using AT-SPI2 on Linux, UIAutomation on Windows, and AppleScript on macOS.
+- **KDE Plasma 6 Wayland Desktop Automation:** Native Model Context Protocol client (`kwin-mcp`) driving window focus, raising active application windows, screenshots, and input emulation on Wayland where legacy X11 tools fail.
 - **Visual Intelligence:** Full desktop, multi-monitor, active window, or rectangular region capture paired with OCR and multimodal vision model analysis.
 - **Autonomous Desktop Agent:** Accessibility-first `Observe → Plan → Act → Verify` loop with 5 autonomy levels (`L0 OBSERVE` through `L4 FULL AUTO`), emergency cancellation, and full session history.
 
@@ -34,6 +35,8 @@ AMATYA operates natively across all major desktop environments by detecting the 
   - Replay-attack detection cache, playback spectral heuristics, and randomized challenge-response phrase generation.
 - **6 Permission Tiers & 5 Autonomy Levels (`core/security.py`):**
   - Tiers `0` (`CONVERSATION`) through `5` (`CRITICAL_SECURITY`) with PBKDF2-HMAC-SHA256 PIN verification, automatic secret redaction, and structured JSONL audit logs (`memory/audit.log`).
+- **Encrypted Local Storage at Rest (`core/security.py`, `memory/memory_manager.py`, `core/geolocation.py`):**
+  - Resolves CWE-312 and CWE-359 by encrypting long-term memory (`long_term.json`) and device geolocation cache (`device_location.json`) using authenticated Fernet cryptography with strict `0o600` POSIX file permissions. Protects sensitive coordinates, personal profiles, and session histories from unauthorized local access.
 
 ### 3. Central Intelligence, Local AI Router & Hybrid RAG
 - **11-Role Hardware-Aware Model Router (`core/model_router.py`, `actions/model_router.py`):**
@@ -94,11 +97,13 @@ AMATYA operates natively across all major desktop environments by detecting the 
 
 ### 12. World News, Local Briefings & Global Outage Monitoring (`core/news_service.py`, `actions/news_service.py`)
 - **Thrice-Daily & Startup Briefings:** Automated briefings scheduled morning, afternoon, and evening, plus a comprehensive debrief on AMATYA startup across user-selected categories (geopolitics, wars, tech, sports, business, science).
-- **Global Service Outage Monitor:** Real-time synthetic outage detection for critical internet platforms (Google, Cloudflare, AWS, GitHub, YouTube, Reddit, X/Twitter, etc.) with live duration and HUD status cards.
+- **Dual Outage Monitoring (Downdetector & Synthetic Probes):** Real-time global outage detection cross-referencing official status APIs, HTTP/SSL latency probes, and live **Downdetector** user disruption spikes for major platforms (Microsoft 365, Outlook, Copilot, Google, Cloudflare, AWS, GitHub, YouTube, Reddit, X/Twitter, Claude, OpenAI). Flags incidents even during microservice or authentication breakdowns when homepages appear responsive.
+- **Device Geolocation Awareness:** Seamlessly resolves user coordinates and local region context to automatically tailor regional news and local time.
 
 ### 13. Global Radio Discovery & Aerospace Trajectory Tracking (`core/radio_aerospace.py`, `actions/radio_and_aerospace.py`)
 - **Global Radio Station Directory & Streaming:** Community-driven Radio Browser integration to search and stream worldwide radio stations directly from the HUD.
-- **Orbital Trajectory & Aerospace Tracking:** Real-time telemetry, latitude/longitude/altitude calculations, and flyover pass predictions for the International Space Station (ISS) and commercial flight tracking.
+- **Flightradar24 Commercial Airspace Tracking:** Real-time local airspace scanning via live Flightradar24 radar feeds displaying commercial flight numbers, operating carriers, aircraft types (e.g. `A320`, `B738`), routes (`Origin → Destination`), altitude, speed, and heading. Includes individual flight tracking by callsign with resilient fallback to OpenSky Network.
+- **Orbital Trajectory & Aerospace Tracking:** Real-time telemetry, latitude/longitude/altitude calculations, and flyover pass predictions for the International Space Station (ISS) and space stations.
 
 ---
 
