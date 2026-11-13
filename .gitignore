@@ -13,7 +13,6 @@ config/security_policy.json
 config/news_preferences.json
 config/outages_cache.json
 config/radio_state.json
-config/zoxide_history.json
 config/certs/
 config/tv_certs/
 *.pem

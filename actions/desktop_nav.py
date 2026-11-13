@@ -179,3 +179,4 @@ TOOL = {
 }
 
 execute = zoxide_nav_action
+

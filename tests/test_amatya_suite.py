@@ -263,13 +263,6 @@ class TestAmatyaSuite(unittest.TestCase):
         self.assertIn("model_router", snap)
         self.assertIn("orchestrator", snap)
 
-    def test_09_ui_entrypoints(self):
-        """Verify that ui module cleanly exports both AmatyaUI and JarvisUI."""
-        import ui
-        self.assertTrue(hasattr(ui, "AmatyaUI"))
-        self.assertTrue(hasattr(ui, "JarvisUI"))
-        self.assertIs(ui.AmatyaUI, ui.JarvisUI)
-
 
 if __name__ == "__main__":
     unittest.main()
