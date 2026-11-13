@@ -159,14 +159,25 @@ class JarvisUI:
     def on_audio_device_change(self, cb):
         self._win.on_audio_device_change = cb
 
+    def _safe_emit(self, sig_name: str, *args) -> None:
+        """Safely emit a signal on _win without raising RuntimeError if the window has closed."""
+        try:
+            win = getattr(self, "_win", None)
+            if win is not None:
+                sig = getattr(win, sig_name, None)
+                if sig is not None:
+                    sig.emit(*args)
+        except (RuntimeError, AttributeError):
+            pass
+
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
-        self._win._confirm_sig.emit(str(title)[:120], str(detail)[:300])
+        self._safe_emit("_confirm_sig", str(title)[:120], str(detail)[:300])
 
     def hide_confirm(self) -> None:
         """Thread-safe: take the gate down."""
-        self._win._confirm_hide_sig.emit()
+        self._safe_emit("_confirm_hide_sig")
 
     @property
     def get_plugins(self):
@@ -253,7 +264,7 @@ class JarvisUI:
         self._win.notify_phone_connected()
 
     def set_state(self, state: str):
-        self._win._state_sig.emit(state)
+        self._safe_emit("_state_sig", state)
 
     def write_log(self, text: str):
         try:
@@ -261,63 +272,53 @@ class JarvisUI:
             safe = redact_secrets(str(text or ""))
         except Exception:
             safe = str(text or "")
-        self._win._log_sig.emit(safe)
+        self._safe_emit("_log_sig", safe)
 
     def open_pin_modal(self):
         """Thread-safe: open the security PIN setup/update dialog on screen."""
-        self._win._pin_modal_sig.emit()
+        self._safe_emit("_pin_modal_sig")
 
     def set_pin_mode(self, enabled: bool):
         """Thread-safe: toggle PIN input masking mode on the main text input field."""
-        self._win._pin_mode_sig.emit(bool(enabled))
+        self._safe_emit("_pin_mode_sig", bool(enabled))
 
     def wait_for_api_key(self):
-        while not self._win._ready:
+        while not getattr(getattr(self, "_win", None), "_ready", False):
             time.sleep(0.1)
 
     def show_content(self, title: str, text: str):
         """Thread-safe: display content in the panel below the HUD."""
-        self._win._content_sig.emit(title[:48], text[:4000])
+        self._safe_emit("_content_sig", title[:48], text[:4000])
 
     def show_code_job(self, job: dict) -> None:
         """Thread-safe: draw the coding agent's live progress in the panel."""
-        self._win._codejob_sig.emit(dict(job))
+        self._safe_emit("_codejob_sig", dict(job))
 
     def show_quiz(self, topic: str, questions, grade=None) -> None:
-        """Thread-safe: put an interactive quiz on the board.
-
-        `grade(question, given)` decides each answer — the plugin supplies it so
-        the marking rules live with the questions rather than being duplicated
-        here. Returning None from it means "JARVIS should judge this one", which
-        is how open answers and near-miss gap-fills are handled.
-
-        Returns immediately: the user answers at their own pace and the finished
-        result is delivered back through on_text_command.
-        """
-        self._win._quiz_sig.emit(str(topic or ""), list(questions or []), grade)
+        """Thread-safe: put an interactive quiz on the board."""
+        self._safe_emit("_quiz_sig", str(topic or ""), list(questions or []), grade)
 
     def hide_quiz(self) -> None:
         """Thread-safe: clear any quiz currently on the board."""
-        self._win._quiz_hide_sig.emit()
+        self._safe_emit("_quiz_hide_sig")
 
     def show_review(self, title: str, summary: str, findings, unclear=None) -> None:
-        """Thread-safe: lay a document review into the panel below the HUD.
-
-        `findings` is a list of {heading, detail, severity, quote, suggestion};
-        severity is one of 'serious' / 'caution' / 'note' and decides colour and
-        order here, so the caller supplies no styling of its own.
-        """
-        self._win._review_sig.emit(str(title or ""), str(summary or ""),
-                                   list(findings or []), list(unclear or []))
+        """Thread-safe: lay a document review into the panel below the HUD."""
+        self._safe_emit("_review_sig", str(title or ""), str(summary or ""),
+                        list(findings or []), list(unclear or []))
 
     def prompt_reconfig(self):
         """Thread-safe: show the API key setup overlay (e.g. after an auth error)."""
-        self._win._ready = False
-        self._win._reconfig_sig.emit()
+        try:
+            if hasattr(self, "_win") and self._win is not None:
+                self._win._ready = False
+        except Exception:
+            pass
+        self._safe_emit("_reconfig_sig")
 
     def show_camera_frame(self, img_bytes: bytes):
         """Thread-safe: show a webcam frame in the small overlay (screen captures)."""
-        self._win._camera_sig.emit(img_bytes)
+        self._safe_emit("_camera_sig", img_bytes)
 
     def show_video(self, source: str, title: str = "", muted: bool = True,
                    audio_source: str = "") -> None:

@@ -673,6 +673,7 @@ class AmatyaLive:
         # ahead of the words and cut every schedule short. 0 = nothing playing.
         self._play_cursor          = 0.0
         self._recent_user_audio    = collections.deque(maxlen=50)
+        self._recent_tool_calls    = collections.deque(maxlen=30)
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
         self.ui.on_text_command   = self._on_text_command
@@ -1490,6 +1491,22 @@ class AmatyaLive:
 
         print(f"[AMATYA] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
+
+        # Tool execution loop throttling (prevent infinite tool invocation storms)
+        now = time.monotonic()
+        call_sig = (name, tuple(sorted((k, str(v)) for k, v in args.items())))
+        matching = [ts for sig, ts in self._recent_tool_calls if sig == call_sig and (now - ts) <= 10.0]
+        self._recent_tool_calls.append((call_sig, now))
+        if len(matching) >= 3:
+            err_msg = f"Tool '{name}' was invoked {len(matching)+1} times in 10s with identical arguments. Throttled to prevent infinite loop."
+            print(f"[AMATYA] 🛡️ {err_msg}")
+            self.ui.write_log(f"SYS: {err_msg}")
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": outcome.failed(name, err_msg)}
+            )
 
         # Mandatory Centralized Security Gateway (Phase 15.2 / Section 5)
         try:

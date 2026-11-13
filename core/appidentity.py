@@ -803,26 +803,26 @@ def _hwnds_for(pid: int) -> list[int]:
         return []
 
 
-def focus(match: "Match") -> bool:
+def focus(match: Union["Match", str]) -> bool:
     """Bring an already-running application to the front. -> did it work.
 
-    WHY OPENING SOMETHING THAT IS ALREADY OPEN IS NOT A NO-OP
-        "Open WhatsApp" when WhatsApp is running behind three other windows is
-        still a request to SEE WhatsApp. Reporting "it was already open" and
-        doing nothing is technically true and completely useless: nothing
-        changes on screen, and from the user's chair the assistant did not open
-        anything. That is exactly how this read when it shipped.
-
-        So the running case raises the window instead of reporting at it. This
-        is also what the operating system itself does when you click a taskbar
-        icon for a running app, which is the behaviour people already expect.
-
-    A process with no visible window — a background service, a tray-only app —
-    returns False rather than pretending, and the caller falls through to
-    launching it, which is what brings a tray app back.
+    Accepts either a Match instance or a string name/label of the app.
     """
+    if isinstance(match, str):
+        label = match
+        name = match
+        titles = [match]
+        pid = None
+    else:
+        label = getattr(match, "label", "") or ""
+        name = getattr(match, "name", "") or ""
+        titles = getattr(match, "titles", []) or []
+        pid = getattr(match, "pid", None)
+
     if _OS == "Windows":
-        hwnds = _hwnds_for(match.pid)
+        if not pid:
+            return False
+        hwnds = _hwnds_for(pid)
         if not hwnds:
             return False
         try:
@@ -833,21 +833,6 @@ def focus(match: "Match") -> bool:
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             SW_RESTORE = 9
 
-            # WINDOWS REFUSES TO LET A BACKGROUND PROCESS STEAL FOCUS.
-            #
-            # SetForegroundWindow only succeeds when the calling process
-            # already owns the foreground — a rule that exists so a background
-            # program cannot yank the screen away mid-sentence. It is also
-            # exactly our situation: the user says "open WhatsApp" while
-            # working in something else, so the assistant is NOT in front and
-            # the call is refused. Seen directly in testing — the same code
-            # succeeded twelve times in a row with the HUD in front, and failed
-            # every time with another window focused.
-            #
-            # The documented way through is to borrow the foreground thread's
-            # input queue for the length of the call: while two threads share
-            # one queue, Windows treats them as the same context and allows the
-            # change. Attach, raise, detach.
             def _raise(hwnd) -> bool:
                 if user32.IsIconic(hwnd):
                     user32.ShowWindow(hwnd, SW_RESTORE)
@@ -878,11 +863,13 @@ def focus(match: "Match") -> bool:
             return False
 
     if _OS == "Darwin":
+        if not pid:
+            return False
         try:
             r = subprocess.run(
                 ["osascript", "-e",
                  f'tell application "System Events" to set frontmost of the '
-                 f'first process whose unix id is {match.pid} to true'],
+                 f'first process whose unix id is {pid} to true'],
                 capture_output=True, timeout=5)
             return r.returncode == 0
         except Exception:
@@ -893,36 +880,50 @@ def focus(match: "Match") -> bool:
         from core.kwin_mcp_client import get_client
         c = get_client()
         if c.ensure_started():
+            title_list = [t.lower() for t in titles if isinstance(t, str)]
+            targets = [label.lower(), name.lower()] + title_list
+            if any(t in ("terminal", "konsole", "console", "bash") for t in targets):
+                targets.extend(["konsole", "terminal", "org.kde.konsole"])
+
+            # Direct app focus with KWin
+            for target in targets:
+                if target and len(target) >= 3:
+                    res = c.focus_window(app_name=target)
+                    if res and not res.get("isError"):
+                        return True
+
+            # Match against open KWin windows
             windows = c.get_kwin_windows()
-            targets = [match.label.lower(), match.exe.lower()] + [t.lower() for t in (match.titles or [])]
             for w in windows:
                 caption = str(w.get("caption", "")).lower()
                 app_id = str(w.get("app_id") or w.get("app") or "").lower()
                 for target in targets:
                     if target and (target in caption or target in app_id):
-                        wid = w.get("id")
-                        c.focus_window(window_id=wid)
-                        return True
+                        res = c.focus_window(app_name=caption or app_id or target)
+                        if res and not res.get("isError"):
+                            return True
     except Exception:
         pass
 
     # X11 tools fallback
-    try:
-        r = subprocess.run(
-            ["xdotool", "search", "--pid", str(match.pid), "windowactivate"],
-            capture_output=True, timeout=5)
-        if r.returncode == 0:
-            return True
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
+    if pid:
+        try:
+            r = subprocess.run(
+                ["xdotool", "search", "--pid", str(pid), "windowactivate"],
+                capture_output=True, timeout=5)
+            if r.returncode == 0:
+                return True
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
 
-    for title in (match.titles or [match.label]):
+    titles_to_try = [t for t in (titles or [label]) if t]
+    for title in titles_to_try:
         if not title:
             continue
         try:
-            r = subprocess.run(["wmctrl", "-a", title],
+            r = subprocess.run(["wmctrl", "-a", str(title)],
                                capture_output=True, timeout=5)
             if r.returncode == 0:
                 return True
