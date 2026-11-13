@@ -164,7 +164,8 @@ def get_device_location(force_refresh: bool = False) -> dict[str, Any]:
         # 2. File cache check (< 24 hours old)
         if not force_refresh and LOCATION_CACHE_FILE.is_file():
             try:
-                cached = json.loads(LOCATION_CACHE_FILE.read_text(encoding="utf-8"))
+                from core.security import decrypt_sensitive_data
+                cached = decrypt_sensitive_data(LOCATION_CACHE_FILE.read_text(encoding="utf-8"))
                 if isinstance(cached, dict) and "latitude" in cached and "longitude" in cached:
                     # Validate freshness
                     up_str = cached.get("updated_at")
@@ -197,7 +198,8 @@ def get_device_location(force_refresh: bool = False) -> dict[str, Any]:
         # 5. Stored cache fallback if network failed
         if LOCATION_CACHE_FILE.is_file():
             try:
-                cached = json.loads(LOCATION_CACHE_FILE.read_text(encoding="utf-8"))
+                from core.security import decrypt_sensitive_data
+                cached = decrypt_sensitive_data(LOCATION_CACHE_FILE.read_text(encoding="utf-8"))
                 if isinstance(cached, dict) and "latitude" in cached:
                     _CACHED_LOCATION = cached
                     return cached
@@ -232,15 +234,21 @@ def get_device_location(force_refresh: bool = False) -> dict[str, Any]:
 
 
 def _save_location(data: dict[str, Any]) -> None:
-    """Persist location data to cache and sync with memory."""
+    """Persist location data to encrypted cache and sync display name with memory."""
     try:
+        from core.security import encrypt_sensitive_data
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        LOCATION_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        # Sync with memory manager
+        encrypted_payload = encrypt_sensitive_data(data)
+        LOCATION_CACHE_FILE.write_text(encrypted_payload, encoding="utf-8")
+        try:
+            os.chmod(LOCATION_CACHE_FILE, 0o600)
+        except Exception:
+            pass
+
+        # Sync location display name with memory manager (avoid storing raw coordinates in cleartext memory)
         from memory.memory_manager import load_memory, save_memory
         mem = load_memory()
-        mem["user_location"] = data["display_name"]
-        mem["coordinates"] = {"latitude": data["latitude"], "longitude": data["longitude"]}
+        mem["user_location"] = data.get("display_name") or data.get("city") or "Local Region"
         save_memory(mem)
     except Exception:
         pass

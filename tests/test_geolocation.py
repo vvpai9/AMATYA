@@ -51,6 +51,18 @@ class TestGeolocation(unittest.TestCase):
         # Cleanup/restore auto-detected location
         geolocation.get_device_location(force_refresh=True)
 
+    def test_05_encrypted_storage_at_rest(self):
+        """Verify that location cache on disk is encrypted and not clear-text JSON."""
+        loc = geolocation.get_device_location()
+        geolocation._save_location(loc)
+        raw_text = geolocation.LOCATION_CACHE_FILE.read_text(encoding="utf-8").strip()
+        # Must not start with cleartext JSON '{'
+        self.assertFalse(raw_text.startswith("{"))
+        # Must decrypt back to original location dictionary
+        from core.security import decrypt_sensitive_data
+        dec = decrypt_sensitive_data(raw_text)
+        self.assertEqual(dec.get("display_name"), loc.get("display_name"))
+
 
 if __name__ == "__main__":
     unittest.main()

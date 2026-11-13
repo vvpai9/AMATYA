@@ -8,6 +8,8 @@
 # ── Secrets. Committing any of these publishes them. ──────────────────────────
 config/api_keys.json
 config/api_keys*.json
+config/.storage_key
+config/.*key*
 !config/*.example.json
 config/security_policy.json
 config/news_preferences.json
