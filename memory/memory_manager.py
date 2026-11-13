@@ -59,7 +59,11 @@ def load_memory() -> dict:
         return _empty_memory()
     with _lock:
         try:
-            data = json.loads(MEMORY_PATH.read_text(encoding="utf-8"))
+            from core.security import decrypt_sensitive_data
+            raw = MEMORY_PATH.read_text(encoding="utf-8")
+            data = decrypt_sensitive_data(raw)
+            if not isinstance(data, dict):
+                data = json.loads(raw)
             if isinstance(data, dict):
                 base = _empty_memory()
                 for key in base:
@@ -121,10 +125,20 @@ def save_memory(memory: dict) -> None:
     memory = _trim_to_limit(memory)
     MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        MEMORY_PATH.write_text(
-            json.dumps(memory, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            from core.security import encrypt_sensitive_data
+            encrypted_payload = encrypt_sensitive_data(memory)
+            MEMORY_PATH.write_text(encrypted_payload, encoding="utf-8")
+            try:
+                import os
+                os.chmod(MEMORY_PATH, 0o600)
+            except Exception:
+                pass
+        except Exception:
+            MEMORY_PATH.write_text(
+                json.dumps(memory, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
 
 def _truncate_value(val: str) -> str:
@@ -457,12 +471,7 @@ def save_session_summary(summary: str, language: str = "") -> None:
         entry["language"] = language
     sessions.append(entry)
     memory["sessions"] = sessions[-_SESSION_MAX:]
-    with _lock:
-        MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        MEMORY_PATH.write_text(
-            json.dumps(memory, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+    save_memory(memory)
     print(f"[Memory] 📝 Session saved ({entry['date']}): {summary[:60]}…")
 
 
@@ -472,23 +481,14 @@ def pop_last_session() -> dict | None:
     Calling this consumes the entry so it is never repeated in future briefings.
     """
     with _lock:
-        if not MEMORY_PATH.exists():
+        memory = load_memory()
+        sessions = memory.get("sessions", [])
+        if not isinstance(sessions, list) or not sessions:
             return None
-        try:
-            memory   = json.loads(MEMORY_PATH.read_text(encoding="utf-8"))
-            sessions = memory.get("sessions", [])
-            if not isinstance(sessions, list) or not sessions:
-                return None
-            entry = sessions.pop()          # remove the last entry
-            memory["sessions"] = sessions
-            MEMORY_PATH.write_text(
-                json.dumps(memory, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            return entry
-        except Exception as e:
-            print(f"[Memory] ⚠️ pop_last_session error: {e}")
-            return None
+        entry = sessions.pop()          # remove the last entry
+        memory["sessions"] = sessions
+        save_memory(memory)
+        return entry
 
 
 def export_memory(export_path: str | Path | None = None) -> tuple[bool, str]:

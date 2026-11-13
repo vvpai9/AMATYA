@@ -270,6 +270,85 @@ def _encrypt_and_encode_audit_entry(entry: dict[str, Any]) -> str:
     return bytes.fromhex(raw_hex).decode("utf-8")
 
 
+_STORAGE_KEY_FILE = CONFIG_DIR / ".storage_key"
+
+
+def _get_or_create_storage_key() -> bytes:
+    """Return persistent local storage encryption key, creating one if not present."""
+    with _LOCK:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        if _STORAGE_KEY_FILE.is_file():
+            try:
+                k = _STORAGE_KEY_FILE.read_bytes().strip()
+                if len(k) == 44:  # standard Fernet key length
+                    return k
+            except Exception:
+                pass
+        from cryptography.fernet import Fernet
+        new_key = Fernet.generate_key()
+        _STORAGE_KEY_FILE.write_bytes(new_key)
+        try:
+            os.chmod(_STORAGE_KEY_FILE, 0o600)
+        except Exception:
+            pass
+        return new_key
+
+
+def encrypt_sensitive_data(data: Any) -> str:
+    """Encrypt sensitive data (string, bytes, or dict/list) using Fernet authenticated encryption."""
+    if data is None:
+        return ""
+    from cryptography.fernet import Fernet
+    key = _get_or_create_storage_key()
+    cipher = Fernet(key)
+    if isinstance(data, (dict, list)):
+        raw_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    elif isinstance(data, str):
+        raw_bytes = data.encode("utf-8")
+    elif isinstance(data, (bytes, bytearray)):
+        raw_bytes = bytes(data)
+    else:
+        raw_bytes = str(data).encode("utf-8")
+    token = cipher.encrypt(raw_bytes)
+    return token.decode("ascii")
+
+
+def decrypt_sensitive_data(payload: str | bytes) -> Any:
+    """Decrypt sensitive data. Falls back to plain JSON parsing if payload is legacy unencrypted text."""
+    if not payload:
+        return None
+    if isinstance(payload, bytes):
+        payload_str = payload.decode("utf-8", errors="ignore").strip()
+    else:
+        payload_str = str(payload).strip()
+
+    # Legacy clear-text fallback (starts with { or [)
+    if payload_str.startswith("{") or payload_str.startswith("["):
+        try:
+            return json.loads(payload_str)
+        except Exception:
+            pass
+
+    from cryptography.fernet import Fernet
+    try:
+        key = _get_or_create_storage_key()
+        cipher = Fernet(key)
+        raw_bytes = cipher.decrypt(payload_str.encode("ascii"))
+        decoded_text = raw_bytes.decode("utf-8")
+        if (decoded_text.startswith("{") and decoded_text.endswith("}")) or (decoded_text.startswith("[") and decoded_text.endswith("]")):
+            try:
+                return json.loads(decoded_text)
+            except Exception:
+                return decoded_text
+        return decoded_text
+    except Exception:
+        # Fallback to plain JSON or string
+        try:
+            return json.loads(payload_str)
+        except Exception:
+            return payload_str
+
+
 def log_audit_event(
     event_type: str,
     operation: str,
