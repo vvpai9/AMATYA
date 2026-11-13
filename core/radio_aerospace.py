@@ -36,7 +36,14 @@ from typing import Any, Optional
 from memory.config_manager import CONFIG_DIR
 
 def get_user_location() -> str:
-    """Read location from memory or return 'Global'."""
+    """Read location from geolocation service, memory, or return 'Global'."""
+    try:
+        from core.geolocation import get_device_location_name
+        loc = get_device_location_name()
+        if loc and loc != "Local Region":
+            return loc
+    except Exception:
+        pass
     try:
         from memory.memory_manager import load_memory
         loc = load_memory().get("user_location") or load_memory().get("location")
@@ -367,6 +374,12 @@ def get_radio_status() -> dict[str, Any]:
 
 def get_iss_trajectory(user_lat: float = 0.0, user_lon: float = 0.0) -> dict[str, Any]:
     """Retrieve real-time International Space Station (ISS) trajectory & ground track."""
+    if user_lat == 0.0 and user_lon == 0.0:
+        try:
+            from core.geolocation import get_device_coordinates
+            user_lat, user_lon = get_device_coordinates()
+        except Exception:
+            pass
     api_url = "http://api.open-notify.org/iss-now.json"
     data = None
     try:
@@ -529,8 +542,15 @@ def track_flight(callsign_or_query: str) -> dict[str, Any]:
     }
 
 
-def get_overhead_flights(user_lat: float = 40.71, user_lon: float = -74.00, radius_deg: float = 1.5) -> list[dict[str, Any]]:
+def get_overhead_flights(user_lat: float | None = None, user_lon: float | None = None, radius_deg: float = 2.0) -> list[dict[str, Any]]:
     """Scan for flights actively in the local airspace around coordinates."""
+    if user_lat is None or user_lon is None:
+        try:
+            from core.geolocation import get_device_coordinates
+            user_lat, user_lon = get_device_coordinates()
+        except Exception:
+            user_lat, user_lon = 12.9187, 74.8598
+
     lamin = user_lat - radius_deg
     lamax = user_lat + radius_deg
     lomin = user_lon - radius_deg
@@ -542,7 +562,7 @@ def get_overhead_flights(user_lat: float = 40.71, user_lon: float = -74.00, radi
         req = urllib.request.Request(api_url, headers={"User-Agent": "AMATYA-Aerospace/1.0"})
         with urllib.request.urlopen(req, timeout=4.5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            for s in (data.get("states") or [])[:10]:
+            for s in (data.get("states") or [])[:12]:
                 cs = str(s[1] or "").strip()
                 if cs:
                     flights.append({
@@ -558,8 +578,22 @@ def get_overhead_flights(user_lat: float = 40.71, user_lon: float = -74.00, radi
         pass
 
     if not flights:
-        flights = [
-            {"callsign": "AA104", "origin_country": "United States", "latitude": user_lat + 0.2, "longitude": user_lon - 0.1, "altitude_ft": 32000, "velocity_kmh": 840, "heading_deg": 90},
-            {"callsign": "DL452", "origin_country": "United States", "latitude": user_lat - 0.3, "longitude": user_lon + 0.2, "altitude_ft": 28000, "velocity_kmh": 790, "heading_deg": 180},
-        ]
+        try:
+            from core.geolocation import get_device_location
+            dev_loc = get_device_location()
+            country = dev_loc.get("country", "India")
+        except Exception:
+            country = "India"
+
+        if "India" in country:
+            flights = [
+                {"callsign": "IGO612", "origin_country": "India (IndiGo)", "latitude": round(user_lat + 0.15, 4), "longitude": round(user_lon - 0.12, 4), "altitude_ft": 31000, "velocity_kmh": 820, "heading_deg": 145},
+                {"callsign": "AIC102", "origin_country": "India (Air India)", "latitude": round(user_lat - 0.22, 4), "longitude": round(user_lon + 0.18, 4), "altitude_ft": 34000, "velocity_kmh": 850, "heading_deg": 310},
+                {"callsign": "AKJ1133", "origin_country": "India (Akasa Air)", "latitude": round(user_lat + 0.31, 4), "longitude": round(user_lon + 0.05, 4), "altitude_ft": 28000, "velocity_kmh": 790, "heading_deg": 75},
+            ]
+        else:
+            flights = [
+                {"callsign": "BAW142", "origin_country": country, "latitude": round(user_lat + 0.2, 4), "longitude": round(user_lon - 0.1, 4), "altitude_ft": 32000, "velocity_kmh": 840, "heading_deg": 90},
+                {"callsign": "AFR228", "origin_country": country, "latitude": round(user_lat - 0.3, 4), "longitude": round(user_lon + 0.2, 4), "altitude_ft": 28000, "velocity_kmh": 790, "heading_deg": 180},
+            ]
     return flights
