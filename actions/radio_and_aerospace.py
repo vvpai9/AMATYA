@@ -127,10 +127,14 @@ def track_trajectories_action(
         return f"Tracking {len(sats)} orbital space stations and satellites. Real-time telemetry is live on your HUD."
 
     elif target in ("overhead_flights", "airspace", "flights"):
-        flights = radio_aerospace.get_overhead_flights()
+        from core.geolocation import get_device_location_name, get_device_coordinates
+        loc_name = get_device_location_name()
+        lat, lon = get_device_coordinates()
+
+        flights = radio_aerospace.get_overhead_flights(user_lat=lat, user_lon=lon)
         md_lines = [
             f"# ✈️ Local Airspace Trajectory Tracker",
-            f"**Airborne Targets in Region:** `{len(flights)}`",
+            f"**Sector:** `{loc_name}` (`{lat:.2f}°, {lon:.2f}°`) | **Active Targets:** `{len(flights)}`",
             "---",
             "| Callsign | Origin Country | Altitude | Velocity | Heading |",
             "| :--- | :--- | :--- | :--- | :--- |",
@@ -140,11 +144,11 @@ def track_trajectories_action(
 
         if player is not None:
             try:
-                player.show_content("Airspace Trajectory Tracker", "\n".join(md_lines))
-                player.write_log(f"AIRSPACE: {len(flights)} active flights tracked in local region.")
+                player.show_content(f"Airspace: {loc_name}", "\n".join(md_lines))
+                player.write_log(f"AIRSPACE: Tracking {len(flights)} active flights over {loc_name}.")
             except Exception:
                 pass
-        return f"Currently tracking {len(flights)} airborne flights in the local airspace on your HUD."
+        return f"Currently tracking {len(flights)} airborne flights in the local airspace over {loc_name} on your HUD."
 
     else:
         # Target is a specific flight callsign (e.g. 'AI101', 'BAW123')

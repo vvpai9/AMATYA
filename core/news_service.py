@@ -34,7 +34,14 @@ except ImportError:
 from memory.config_manager import CONFIG_DIR, get_user_name
 
 def get_user_location() -> str:
-    """Read location from config or memory, or fallback to 'Global'."""
+    """Read location from geolocation service, memory, or fallback to 'Global'."""
+    try:
+        from core.geolocation import get_device_location_name
+        loc = get_device_location_name()
+        if loc and loc != "Local Region":
+            return loc
+    except Exception:
+        pass
     try:
         from memory.memory_manager import load_memory
         loc = load_memory().get("user_location") or load_memory().get("location")
