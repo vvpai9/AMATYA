@@ -371,6 +371,13 @@ def execute(
 
     if action == "set_pin":
         pin = str(parameters.get("pin", "") or "")
+        if not pin:
+            if player and hasattr(player, "open_pin_modal"):
+                player.open_pin_modal()
+            return outcome.done(
+                "voice_auth",
+                result="I have opened the security PIN management window on your screen, sir. Please enter and confirm your PIN safely there.",
+            )
         ok, msg = set_pin(pin)
         return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 

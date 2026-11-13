@@ -150,7 +150,12 @@ class LogWidget(QTextEdit):
         self._sig.connect(self._enqueue)
 
     def append_log(self, text: str):
-        self._sig.emit(text)
+        try:
+            from core.security import redact_secrets
+            safe_text = redact_secrets(str(text or ""))
+        except Exception:
+            safe_text = text
+        self._sig.emit(safe_text)
 
     def _enqueue(self, text: str):
         self._queue.append(text)

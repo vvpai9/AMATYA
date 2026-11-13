@@ -69,16 +69,17 @@ _lock = threading.Lock()
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
 # and () -> None for hide. Both are marshalled onto the Qt thread by the UI.
-_show_cb:  Optional[Callable[[str, str], None]] = None
-_hide_cb:  Optional[Callable[[], None]] = None
-_log_cb:   Optional[Callable[[str], None]] = None
-_speak_cb: Optional[Callable[[str], None]] = None
+_show_cb:     Optional[Callable[[str, str], None]] = None
+_hide_cb:     Optional[Callable[[], None]] = None
+_log_cb:      Optional[Callable[[str], None]] = None
+_speak_cb:    Optional[Callable[[str], None]] = None
+_pin_mode_cb: Optional[Callable[[bool], None]] = None
 
 
-def bind(show, hide, log=None, speak=None) -> None:
+def bind(show, hide, log=None, speak=None, pin_mode=None) -> None:
     """Wire this module to the HUD and speech. Called once from main.py at startup."""
-    global _show_cb, _hide_cb, _log_cb, _speak_cb
-    _show_cb, _hide_cb, _log_cb, _speak_cb = show, hide, log, speak
+    global _show_cb, _hide_cb, _log_cb, _speak_cb, _pin_mode_cb
+    _show_cb, _hide_cb, _log_cb, _speak_cb, _pin_mode_cb = show, hide, log, speak, pin_mode
 
 
 def _log(msg: str) -> None:
@@ -129,6 +130,11 @@ def set_awaiting_pin(awaiting: bool = True) -> None:
         if _pending is not None:
             _pending.awaiting_pin = awaiting
             _pending.at = time.monotonic()
+    if _pin_mode_cb:
+        try:
+            _pin_mode_cb(awaiting)
+        except Exception:
+            pass
 
 
 def voice_authorize(
@@ -256,8 +262,12 @@ def pin_authorize(candidate_pin: str) -> tuple[bool, str]:
         return False, "No confirmation is pending."
 
     clean = (candidate_pin or "").strip()
-    if clean.lower().startswith("pin"):
-        clean = re.sub(r"^pin\s*[:=]?\s*", "", clean, flags=re.IGNORECASE).strip()
+    clean = re.sub(
+        r"^(?:authorise|authorize|auth)?\s*(?:with\s+)?pin\s*[:=]?\s*",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    ).strip()
 
     if not has_pin():
         msg = "No security PIN is configured yet. Set a PIN using 'set_pin <PIN>' first."
@@ -426,6 +436,12 @@ def resolve(accepted: bool) -> None:
 
     with _lock:
         p, _pending = _pending, None
+
+    if _pin_mode_cb:
+        try:
+            _pin_mode_cb(False)
+        except Exception:
+            pass
 
     if _hide_cb:
         try:

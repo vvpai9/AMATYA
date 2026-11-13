@@ -1043,6 +1043,12 @@ class AmatyaLive:
         lower = clean.lower()
 
         # Handle PIN configuration / clearing commands directly in the input field
+        if lower in ("set_pin", "setpin", "pin", "setup_pin", "change_pin", "configure_pin"):
+            self.ui.open_pin_modal()
+            self.ui.write_log("SYS: Opened on-screen security PIN management dialog.")
+            confirm_gate._speak("Opening the PIN configuration window on your screen, sir.")
+            return
+
         if lower.startswith("set_pin ") or lower.startswith("setpin "):
             parts = clean.split(None, 1)
             candidate = parts[1].strip() if len(parts) > 1 else ""
@@ -2671,6 +2677,7 @@ class AmatyaLive:
             hide  = self.ui.hide_confirm,
             log   = self.ui.write_log,
             speak = self.speak,
+            pin_mode = self.ui.set_pin_mode,
         )
         set_trim_notifier(self.ui.write_log)
 

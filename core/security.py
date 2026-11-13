@@ -97,6 +97,33 @@ def redact_secrets(text: str) -> str:
     for pat in _SECRET_PATTERNS[:5]:
         out = pat.sub("[REDACTED_SECRET]", out)
     out = _SECRET_PATTERNS[5].sub(r"\1=[REDACTED_SECRET]", out)
+
+    # Redact PIN variations in speech/text/commands/logs
+    out = re.sub(
+        r"(?i)\b(authorise|authorize|auth)\s+(with\s+)?(pin)\s*[:=]?\s*([0-9a-zA-Z\-_]{3,})",
+        r"\1 \2\3 **** (REDACTED)",
+        out,
+    )
+    out = re.sub(
+        r"(?i)\b(set_?pin|clear_?pin|verify_?pin)\s*[:=]?\s*([0-9a-zA-Z\-_]{3,})",
+        r"\1 **** (REDACTED)",
+        out,
+    )
+    out = re.sub(
+        r"(?i)\b(pin|passcode|passwd|password)\s*[:=]\s*['\"]?([0-9a-zA-Z\-_]{3,})['\"]?",
+        r"\1: **** (REDACTED)",
+        out,
+    )
+    out = re.sub(
+        r"(?i)\b(my\s+pin\s+is|pin\s+is|code\s+is)\s*[:=]?\s*([0-9a-zA-Z\-_]{3,})",
+        r"\1 **** (REDACTED)",
+        out,
+    )
+    out = re.sub(
+        r"(?i)\b(pin)\s+([0-9]{4,16})\b",
+        r"\1 **** (REDACTED)",
+        out,
+    )
     return out
 
 
@@ -689,6 +716,40 @@ def check_permission(
         }
 
     # 6. Tier 5: Critical Security Actions
+    # 6a. Bootstrap: Initial PIN setup when no PIN is currently configured
+    if op_lower in ("set_pin", "voice_auth:set_pin") and not has_pin():
+        log_audit_event("permission_granted", operation, ptier, True, "Initial PIN bootstrap setup permitted.")
+        return {
+            "allowed": True,
+            "tier": int(ptier),
+            "tier_label": TIER_LABELS[ptier],
+            "autonomy_level": autonomy,
+            "reason": "Initial security PIN bootstrap permitted.",
+            "requires_confirmation": False,
+            "requires_voice_auth": False,
+            "requires_pin": False,
+        }
+
+    # 6b. Bootstrap: Initial owner voice enrollment when no voice profiles exist yet
+    if op_lower in ("voice_auth:enroll", "voice_auth:re_enroll", "enroll", "enroll_voice_profile"):
+        try:
+            from core.voice_auth import get_voice_authenticator
+            has_profiles = bool(get_voice_authenticator().list_profiles())
+        except Exception:
+            has_profiles = False
+        if not has_profiles:
+            log_audit_event("permission_granted", operation, ptier, True, "Initial voice profile enrollment bootstrap permitted.")
+            return {
+                "allowed": True,
+                "tier": int(ptier),
+                "tier_label": TIER_LABELS[ptier],
+                "autonomy_level": autonomy,
+                "reason": "Initial voice profile enrollment permitted.",
+                "requires_confirmation": False,
+                "requires_voice_auth": False,
+                "requires_pin": False,
+            }
+
     # Explicit confirmation AND PIN (if configured)
     if has_pin() and not pin_ok:
         reason = f"Critical security operation '{operation}' requires a valid security PIN."

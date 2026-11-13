@@ -80,6 +80,7 @@ from gui.overlays import (
     PluginManagerOverlay,
     PluginSettingsOverlay,
     RemoteKeyOverlay,
+    SecurityPinOverlay,
     SetupOverlay,
 )
 from gui.providers_panel import (
@@ -115,6 +116,8 @@ class MainWindow(QMainWindow):
     _confirm_hide_sig = pyqtSignal()
     _hud_style_sig  = pyqtSignal(str)        # 'core' (Reactor Core) or 'face' (Animated Face)
     _clock_fmt_sig  = pyqtSignal(str)        # '12h' or '24h' time format
+    _pin_modal_sig  = pyqtSignal()           # on-screen PIN management dialog
+    _pin_mode_sig   = pyqtSignal(bool)       # toggle masked password entry for PIN on input box
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
@@ -405,6 +408,8 @@ class MainWindow(QMainWindow):
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._hud_style_sig.connect(self._apply_hud_style)
         self._clock_fmt_sig.connect(self._apply_clock_format)
+        self._pin_modal_sig.connect(self._open_pin_modal)
+        self._pin_mode_sig.connect(self._set_pin_mode)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._wake_btns_sig.connect(self._refresh_wake_btns)
@@ -1726,6 +1731,10 @@ class MainWindow(QMainWindow):
         self._clock_btn.clicked.connect(self._toggle_clock_format)
         self._refresh_clock_btn()
 
+        self._pin_btn = _row(QPushButton())
+        self._pin_btn.clicked.connect(self._open_pin_modal)
+        self._refresh_pin_btn()
+
         w.adjustSize()
         return w
 
@@ -1808,8 +1817,10 @@ class MainWindow(QMainWindow):
         prompt = QLabel("›")
         prompt.setFont(px_font(20, QFont.Weight.Light))
         prompt.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        self._prompt_lbl = prompt
         row.addWidget(prompt)
 
+        self._pin_mode = False
         self._input = QLineEdit()
         self._input.setPlaceholderText("Type a command or question…")
         self._input.setFont(px_font(13))
@@ -1820,6 +1831,7 @@ class MainWindow(QMainWindow):
                 selection-background-color: {C.PRI_GHO};
             }}
         """)
+        self._input.textChanged.connect(self._on_input_text_changed)
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input, stretch=1)
 
@@ -2585,6 +2597,27 @@ class MainWindow(QMainWindow):
             self._refresh_clock_btn()
         self._log.append_log(f"SYS: HUD clock switched to {target.upper()} format.")
 
+    def _refresh_pin_btn(self):
+        try:
+            from core.security import has_pin
+            configured = has_pin()
+        except Exception:
+            configured = False
+        if hasattr(self, "_pin_btn"):
+            self._pin_btn.setText("🔒  PIN: CONFIGURED" if configured else "🔒  PIN: NOT SET")
+            self._pin_btn.setStyleSheet(btn_css("choice"))
+            self._pin_btn.setToolTip("Click to configure, update, or remove the PBKDF2 security PIN on screen.")
+
+    def _open_pin_modal(self):
+        """Open the secure on-screen SecurityPinOverlay modal."""
+        cw = self.centralWidget()
+        ov = SecurityPinOverlay(parent=cw)
+        ov.closed.connect(self._refresh_pin_btn)
+        self._centre_overlay(ov)
+        ov.show()
+        ov.raise_()
+        self._pin_overlay = ov
+
     def _toggle_ptt(self):
         from memory.config_manager import (get_push_to_talk_enabled,
                                            save_push_to_talk_enabled)
@@ -2952,11 +2985,66 @@ class MainWindow(QMainWindow):
             self._mute_btn.set_look("mic", "MIC ACTIVE", "GREEN")
         self._refresh_status_strip()
 
+    def _on_input_text_changed(self, text: str):
+        tl = (text or "").lower().strip()
+        pin_prefixes = (
+            "set_pin ", "setpin ", "clear_pin ", "clearpin ", "pin ",
+            "authorise with pin", "authorize with pin", "auth with pin"
+        )
+        if any(tl.startswith(pfx) for pfx in pin_prefixes):
+            if self._input.echoMode() != QLineEdit.EchoMode.Password:
+                self._input.setEchoMode(QLineEdit.EchoMode.Password)
+                if hasattr(self, "_prompt_lbl"):
+                    self._prompt_lbl.setText("🔒")
+                    self._prompt_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+            return
+        if not getattr(self, "_pin_mode", False) and self._input.echoMode() == QLineEdit.EchoMode.Password:
+            self._input.setEchoMode(QLineEdit.EchoMode.Normal)
+            if hasattr(self, "_prompt_lbl"):
+                self._prompt_lbl.setText("›")
+                self._prompt_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+
+    def _set_pin_mode(self, enabled: bool):
+        self._pin_mode = bool(enabled)
+        if enabled:
+            self._input.setEchoMode(QLineEdit.EchoMode.Password)
+            self._input.setPlaceholderText("Enter Security PIN (masked) — Press Enter to submit…")
+            if hasattr(self, "_prompt_lbl"):
+                self._prompt_lbl.setText("🔒")
+                self._prompt_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+            self._input.setFocus()
+        else:
+            self._input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._input.setPlaceholderText("Type a command or question…")
+            if hasattr(self, "_prompt_lbl"):
+                self._prompt_lbl.setText("›")
+                self._prompt_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+
     def _send(self):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        self._log.append_log(f"You: {txt}")
+
+        try:
+            from core.confirm import is_awaiting_pin
+            awaiting_pin = is_awaiting_pin()
+        except Exception:
+            awaiting_pin = False
+
+        if (awaiting_pin or getattr(self, "_pin_mode", False)) and not txt.lower().startswith(("cancel", "no", "abort")):
+            log_txt = "•••• [PIN ENTERED - MASKED]"
+        else:
+            try:
+                from core.security import redact_secrets
+                log_txt = redact_secrets(txt)
+            except Exception:
+                log_txt = txt
+
+        self._log.append_log(f"You: {log_txt}")
+
+        if getattr(self, "_pin_mode", False):
+            self._set_pin_mode(False)
+
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 

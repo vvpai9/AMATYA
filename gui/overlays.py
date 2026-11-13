@@ -40,7 +40,7 @@ from gui.theme import (
     qcol,
 )
 
-from gui.style import hud_font
+from gui.style import hud_font, mono_font, px_font
 
 
 class SetupOverlay(QWidget):
@@ -680,6 +680,29 @@ class ConfirmBanner(_HudOverlay):
             dtl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             lay.addWidget(dtl)
 
+        from core.confirm import is_awaiting_pin
+        self._awaiting_pin = is_awaiting_pin()
+        if self._awaiting_pin:
+            pin_hdr = QLabel("SECURITY PIN (MASKED):")
+            pin_hdr.setFont(hud_font(8, QFont.Weight.Bold))
+            pin_hdr.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+            lay.addWidget(pin_hdr)
+
+            self._pin_edit = QLineEdit()
+            self._pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self._pin_edit.setPlaceholderText("Enter PIN (masked)…")
+            self._pin_edit.setFont(mono_font(12))
+            self._pin_edit.setStyleSheet(f"""
+                QLineEdit {{
+                    background: #000d12; color: {C.TEXT};
+                    border: 1px solid {C.BORDER}; border-radius: 3px;
+                    padding: 4px 8px;
+                }}
+                QLineEdit:focus {{ border: 1px solid {C.ACC}; }}
+            """)
+            self._pin_edit.returnPressed.connect(self._on_confirm_click)
+            lay.addWidget(self._pin_edit)
+
         row = QHBoxLayout(); row.setSpacing(8)
 
         yes = QPushButton("▸  CONFIRM")
@@ -691,7 +714,7 @@ class ConfirmBanner(_HudOverlay):
                 border: 1px solid {C.ACC}; border-radius: 3px; }}
             QPushButton:hover {{ background: rgba(255,107,0,40); }}
         """)
-        yes.clicked.connect(lambda: self.answered.emit(True))
+        yes.clicked.connect(self._on_confirm_click)
         row.addWidget(yes)
 
         no = QPushButton("CANCEL")
@@ -707,10 +730,251 @@ class ConfirmBanner(_HudOverlay):
         row.addWidget(no)
         lay.addLayout(row)
 
-        # Default focus on CANCEL: if someone hits Enter without reading, the
-        # safe answer wins.
-        no.setDefault(True)
-        no.setFocus()
+        if self._awaiting_pin and hasattr(self, "_pin_edit"):
+            self._pin_edit.setFocus()
+        else:
+            no.setDefault(True)
+            no.setFocus()
+
+    def _on_confirm_click(self):
+        if getattr(self, "_awaiting_pin", False) and hasattr(self, "_pin_edit"):
+            pin = self._pin_edit.text().strip()
+            if not pin:
+                self._pin_edit.setPlaceholderText("PIN required to authorize!")
+                self._pin_edit.setFocus()
+                return
+            from core.confirm import pin_authorize
+            ok, msg = pin_authorize(pin)
+            if not ok:
+                self._pin_edit.clear()
+                self._pin_edit.setPlaceholderText(f"Invalid PIN: {msg}")
+                self._pin_edit.setFocus()
+                return
+        self.answered.emit(True)
+
+
+class SecurityPinOverlay(_HudOverlay):
+    """Secure on-screen interface for configuring, updating, and removing the security PIN.
+
+    Ensures the PIN is:
+      1. Entered securely via QLineEdit.EchoMode.Password (never visible while typing).
+      2. Stored using PBKDF2-HMAC-SHA256 with 0600 file permissions.
+      3. Never spoken aloud, never sent over voice/LLM session, never printed in communication logs.
+    """
+    closed = pyqtSignal()
+    _OW = 440
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            SecurityPinOverlay {{
+                background: rgba(10, 16, 24, 252);
+                border: 1px solid {C.PRI_DIM};
+                border-radius: 8px;
+            }}
+        """)
+        self.setFixedWidth(self._OW)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.setSpacing(10)
+
+        hdr = QLabel("🔒  SECURITY PIN MANAGEMENT")
+        hdr.setFont(hud_font(11, QFont.Weight.Bold))
+        hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        lay.addWidget(hdr)
+
+        from core.security import has_pin
+        self._is_configured = has_pin()
+
+        sub = QLabel(
+            "Manage your local security PIN (PBKDF2-HMAC-SHA256). "
+            "Input is masked to prevent shoulder-surfing."
+        )
+        sub.setWordWrap(True)
+        sub.setFont(hud_font(8))
+        sub.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        lay.addWidget(sub)
+
+        # Current PIN (if already set)
+        self._cur_edit = None
+        if self._is_configured:
+            lay.addWidget(self._field_label("CURRENT PIN"))
+            self._cur_edit = self._make_pin_input("Enter current PIN…")
+            lay.addWidget(self._cur_edit)
+
+        # New PIN
+        lay.addWidget(self._field_label("NEW PIN (4–32 CHARACTERS)"))
+        self._new_edit = self._make_pin_input("Enter new PIN…")
+        lay.addWidget(self._new_edit)
+
+        # Confirm New PIN
+        lay.addWidget(self._field_label("CONFIRM NEW PIN"))
+        self._confirm_edit = self._make_pin_input("Re-enter new PIN…")
+        lay.addWidget(self._confirm_edit)
+
+        # Mask toggle row
+        opt_row = QHBoxLayout()
+        self._show_chk = QPushButton("👁  Show Characters")
+        self._show_chk.setFixedHeight(24)
+        self._show_chk.setFont(hud_font(8))
+        self._show_chk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._show_chk.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_DIM}; border: none; text-align: left; }}
+            QPushButton:hover {{ color: {C.PRI}; }}
+        """)
+        self._show_chk.clicked.connect(self._toggle_mask)
+        self._masked = True
+        opt_row.addWidget(self._show_chk)
+        opt_row.addStretch(1)
+        lay.addLayout(opt_row)
+
+        # Status / Feedback label
+        self._status_lbl = QLabel("")
+        self._status_lbl.setFont(hud_font(8, QFont.Weight.Bold))
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        lay.addWidget(self._status_lbl)
+
+        # Action Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        save_txt = "▸  UPDATE PIN" if self._is_configured else "▸  SAVE PIN"
+        save_btn = QPushButton(save_txt)
+        save_btn.setFixedHeight(34)
+        save_btn.setFont(hud_font(9, QFont.Weight.Bold))
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{ background: {C.PRI_GHO}; color: {C.PRI};
+                border: 1px solid {C.PRI}; border-radius: 4px; }}
+            QPushButton:hover {{ background: rgba(0, 230, 153, 30); }}
+        """)
+        save_btn.clicked.connect(self._on_save)
+        btn_row.addWidget(save_btn)
+
+        if self._is_configured:
+            rem_btn = QPushButton("REMOVE PIN")
+            rem_btn.setFixedHeight(34)
+            rem_btn.setFont(hud_font(9))
+            rem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            rem_btn.setStyleSheet(f"""
+                QPushButton {{ background: transparent; color: {C.RED};
+                    border: 1px solid {C.RED}; border-radius: 4px; }}
+                QPushButton:hover {{ background: rgba(255, 60, 60, 30); }}
+            """)
+            rem_btn.clicked.connect(self._on_remove)
+            btn_row.addWidget(rem_btn)
+
+        cancel_btn = QPushButton("CLOSE")
+        cancel_btn.setFixedHeight(34)
+        cancel_btn.setFont(hud_font(9))
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 4px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
+        """)
+        cancel_btn.clicked.connect(self._close)
+        btn_row.addWidget(cancel_btn)
+
+        lay.addLayout(btn_row)
+
+    def _field_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setFont(hud_font(8, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        return lbl
+
+    def _make_pin_input(self, placeholder: str) -> QLineEdit:
+        w = QLineEdit()
+        w.setEchoMode(QLineEdit.EchoMode.Password)
+        w.setPlaceholderText(placeholder)
+        w.setFixedHeight(32)
+        w.setFont(mono_font(12))
+        w.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        w.returnPressed.connect(self._on_save)
+        return w
+
+    def _toggle_mask(self):
+        self._masked = not self._masked
+        mode = QLineEdit.EchoMode.Password if self._masked else QLineEdit.EchoMode.Normal
+        if self._cur_edit:
+            self._cur_edit.setEchoMode(mode)
+        self._new_edit.setEchoMode(mode)
+        self._confirm_edit.setEchoMode(mode)
+        self._show_chk.setText("🔒  Mask Characters" if not self._masked else "👁  Show Characters")
+
+    def _on_save(self):
+        from core.security import verify_pin, set_pin, has_pin
+        if self._cur_edit:
+            cur = self._cur_edit.text().strip()
+            if not cur:
+                self._show_status("Current PIN required to make changes.", is_error=True)
+                self._cur_edit.setFocus()
+                return
+            ok, msg = verify_pin(cur)
+            if not ok:
+                self._show_status(f"Current PIN incorrect: {msg}", is_error=True)
+                self._cur_edit.clear()
+                self._cur_edit.setFocus()
+                return
+
+        new_val = self._new_edit.text().strip()
+        conf_val = self._confirm_edit.text().strip()
+        if len(new_val) < 4 or len(new_val) > 32:
+            self._show_status("PIN must be between 4 and 32 characters.", is_error=True)
+            self._new_edit.setFocus()
+            return
+        if new_val != conf_val:
+            self._show_status("New PIN and Confirm PIN do not match.", is_error=True)
+            self._confirm_edit.setFocus()
+            return
+
+        ok, msg = set_pin(new_val)
+        if ok:
+            self._show_status("✓ Security PIN updated successfully.", is_error=False)
+            QTimer.singleShot(1100, self._close)
+        else:
+            self._show_status(f"Failed to set PIN: {msg}", is_error=True)
+
+    def _on_remove(self):
+        from core.security import clear_pin
+        if not self._cur_edit:
+            return
+        cur = self._cur_edit.text().strip()
+        if not cur:
+            self._show_status("Current PIN required to remove PIN.", is_error=True)
+            self._cur_edit.setFocus()
+            return
+        ok, msg = clear_pin(cur)
+        if ok:
+            self._show_status("✓ Security PIN removed.", is_error=False)
+            QTimer.singleShot(1100, self._close)
+        else:
+            self._show_status(f"Failed to remove PIN: {msg}", is_error=True)
+
+    def _show_status(self, text: str, is_error: bool = False):
+        color = C.RED if is_error else C.PRI
+        self._status_lbl.setStyleSheet(f"color: {color}; background: transparent;")
+        self._status_lbl.setText(text)
+
+    def _close(self):
+        if self._cur_edit:
+            self._cur_edit.clear()
+        self._new_edit.clear()
+        self._confirm_edit.clear()
+        self.closed.emit()
+        self.hide()
+        self.deleteLater()
 
 
 class AudioDeviceOverlay(_HudOverlay):

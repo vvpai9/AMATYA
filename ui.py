@@ -256,7 +256,20 @@ class JarvisUI:
         self._win._state_sig.emit(state)
 
     def write_log(self, text: str):
-        self._win._log_sig.emit(text)
+        try:
+            from core.security import redact_secrets
+            safe = redact_secrets(str(text or ""))
+        except Exception:
+            safe = str(text or "")
+        self._win._log_sig.emit(safe)
+
+    def open_pin_modal(self):
+        """Thread-safe: open the security PIN setup/update dialog on screen."""
+        self._win._pin_modal_sig.emit()
+
+    def set_pin_mode(self, enabled: bool):
+        """Thread-safe: toggle PIN input masking mode on the main text input field."""
+        self._win._pin_mode_sig.emit(bool(enabled))
 
     def wait_for_api_key(self):
         while not self._win._ready:
