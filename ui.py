@@ -415,3 +415,8 @@ class JarvisUI:
         from memory.config_manager import get_clock_format
         want = "24h" if get_clock_format() == "12h" else "12h"
         self._win._clock_fmt_sig.emit(want)
+
+
+# Re-export AmatyaUI as alias to JarvisUI for main.py and plugin compatibility
+AmatyaUI = JarvisUI
+__all__ = ["JarvisUI", "AmatyaUI"]
