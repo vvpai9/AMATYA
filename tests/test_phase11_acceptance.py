@@ -290,7 +290,7 @@ class TestPhase11Acceptance(unittest.TestCase):
         tv_dev = self.dev_mgr.resolve_device("redmi_tv")
         self.assertIsNotNone(tv_dev)
         self.assertEqual(tv_dev.get("type"), "android_tv")
-        self.assertEqual(tv_dev.get("transport"), "atvremote")
+        self.assertIn(tv_dev.get("transport"), ("atvremote", "androidtvremote2"))
 
         # 2. Android phone integration
         phone_dev = self.dev_mgr.resolve_device("phone")

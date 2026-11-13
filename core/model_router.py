@@ -77,7 +77,10 @@ def detect_hardware() -> HardwareInfo:
 
     # Try NVIDIA via pynvml
     try:
-        import pynvml  # type: ignore[import-untyped]
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         gpu_name = pynvml.nvmlDeviceGetName(handle)

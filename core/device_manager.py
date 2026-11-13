@@ -116,7 +116,7 @@ DEFAULT_CONNECTED_DEVICES: dict[str, dict[str, Any]] = {
         "device_id": "redmi_tv",
         "name": "Living Room Android TV",
         "type": "android_tv",
-        "transport": "androidtvremote2",
+        "transport": "atvremote",
         "ip_address": "",
         "cert_file": str(DEFAULT_CERT_FILE),
         "key_file": str(DEFAULT_KEY_FILE),
@@ -792,7 +792,7 @@ class ConnectedDeviceManager:
                     dev["ip_address"] = p_host
                 dev["cert_file"] = str(DEFAULT_CERT_FILE)
                 dev["key_file"] = str(DEFAULT_KEY_FILE)
-                dev["transport"] = "androidtvremote2"
+                dev["transport"] = "atvremote"
                 self._save_devices()
                 return {
                     "ok": True,

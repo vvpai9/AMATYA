@@ -530,7 +530,8 @@ class Vision:
         import mss  # type: ignore[import-untyped]
         import mss.tools  # type: ignore[import-untyped]
 
-        with mss.mss() as sct:
+        factory = getattr(mss, "MSS", None) or mss.mss
+        with factory() as sct:
             monitors = sct.monitors  # [0] = all, [1..n] = real screens
             if kind == "monitor" and 1 <= monitor < len(monitors):
                 target = monitors[monitor]

@@ -128,7 +128,8 @@ class ScreenAutomation:
                 mss_mod = installed("mss")
                 if mss_mod:
                     import mss  # type: ignore[import-untyped]
-                    with mss.mss() as sct:
+                    factory = getattr(mss, "MSS", None) or mss.mss
+                    with factory() as sct:
                         for i, mon in enumerate(sct.monitors):
                             if i == 0:
                                 continue  # skip "all combined"
