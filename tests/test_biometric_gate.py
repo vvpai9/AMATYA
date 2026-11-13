@@ -220,6 +220,93 @@ class TestBiometricVoiceAndPinGate(unittest.TestCase):
         time.sleep(0.05)
         self.assertEqual(executed, [])
 
+    def test_08_operation_confirmation_cache_prevents_infinite_loop(self):
+        """Once confirmed, operation cache allows subsequent calls without re-prompting."""
+        op = "phone_ring:pair_agentring"
+        self.assertFalse(security.is_operation_confirmed(op))
+
+        # Confirm the operation
+        security.mark_operation_confirmed(op, ttl_sec=60.0)
+        self.assertTrue(security.is_operation_confirmed(op))
+        self.assertTrue(security.is_operation_confirmed("phone_ring"))
+
+        # Checking permission should now pass with confirmed=True
+        perm = security.check_permission(
+            operation=op,
+            tier=security.PermissionTier.REMOTE_DEVICE_CONTROL,
+            interactive_confirm=False,
+        )
+        self.assertTrue(perm["allowed"])
+        self.assertFalse(perm["requires_confirmation"])
+
+        # Clearing cache resets it
+        security.clear_operation_confirmed(op)
+        self.assertFalse(security.is_operation_confirmed(op))
+
+    def test_09_unverified_ambient_speech_does_not_cancel(self):
+        """TV or background ambient speaker saying negative words does not abort confirmation."""
+        confirm.request("act_9", "Format Volume", "volume", run=lambda: None)
+        self.assertTrue(confirm.has_pending())
+
+        dummy_audio = (np.sin(np.linspace(0, 100, 3200)) * 10000).astype(np.int16).tobytes()
+
+        # Unverified speaker (e.g. TV background dialogue)
+        mock_vr = voice_auth.VerificationResult(
+            verified=False,
+            matched_user="",
+            confidence=0.25,
+            threshold=0.72,
+            anti_spoof=voice_auth.AntiSpoofResult(
+                passed=True, is_replay=False, replay_similarity=0.0,
+                playback_artifact_score=0.0, voiced_ratio=0.5, snr_db=20.0, reason="OK"
+            ),
+            reason="Voice does not match enrolled profile",
+        )
+
+        with patch("core.confirm.get_voice_auth_enabled", return_value=True), \
+             patch("core.confirm.get_voice_authenticator") as mock_get_auth:
+            mock_auth = MagicMock()
+            mock_auth.list_profiles.return_value = [{"user_name": "Varun"}]
+            mock_auth.verify_speaker.return_value = mock_vr
+            mock_get_auth.return_value = mock_auth
+
+            res = confirm.voice_authorize("no stop that", audio=dummy_audio)
+            # Must be ignored (None), confirmation remains active
+            self.assertIsNone(res)
+            self.assertTrue(confirm.has_pending())
+
+    def test_10_verified_user_cancellation_cancels_cleanly(self):
+        """Verified user saying cancel aborts the confirmation."""
+        confirm.request("act_10", "Wipe Cache", "cache", run=lambda: None)
+        self.assertTrue(confirm.has_pending())
+
+        dummy_audio = (np.sin(np.linspace(0, 100, 3200)) * 10000).astype(np.int16).tobytes()
+
+        # Verified speaker
+        mock_vr = voice_auth.VerificationResult(
+            verified=True,
+            matched_user="Varun",
+            confidence=0.91,
+            threshold=0.72,
+            anti_spoof=voice_auth.AntiSpoofResult(
+                passed=True, is_replay=False, replay_similarity=0.0,
+                playback_artifact_score=0.0, voiced_ratio=0.5, snr_db=25.0, reason="OK"
+            ),
+            reason="Verified speaker Varun",
+        )
+
+        with patch("core.confirm.get_voice_auth_enabled", return_value=True), \
+             patch("core.confirm.get_voice_authenticator") as mock_get_auth:
+            mock_auth = MagicMock()
+            mock_auth.list_profiles.return_value = [{"user_name": "Varun"}]
+            mock_auth.verify_speaker.return_value = mock_vr
+            mock_get_auth.return_value = mock_auth
+
+            res = confirm.voice_authorize("cancel that please", audio=dummy_audio)
+            self.assertFalse(res)
+            self.assertFalse(confirm.has_pending())
+            self.assertTrue(any("cancelled" in s.lower() for s in self.spoken))
+
 
 if __name__ == "__main__":
     unittest.main()

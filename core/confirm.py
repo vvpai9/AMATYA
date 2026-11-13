@@ -180,22 +180,29 @@ def voice_authorize(
     # 2. Negative / Cancel check
     negative = ("cancel", "no", "abort", "don't", "stop", "deny", "reject", "never mind", "do not")
     if any(re.search(rf"\b{re.escape(w)}\b", text) for w in negative):
+        # In multi-speaker or ambient environments (e.g. TV playing), verify that the negative
+        # command was actually spoken by an enrolled user before cancelling the confirmation.
+        voice_auth_on = get_voice_auth_enabled()
+        auth = get_voice_authenticator()
+        profiles = auth.list_profiles()
+        if voice_auth_on and bool(profiles) and (audio is not None) and len(audio) >= 1600:
+            try:
+                v_res = auth.verify_speaker(audio=audio)
+            except Exception:
+                v_res = None
+            if not (v_res and v_res.verified):
+                _log(f"SYS: Spoken cancellation ignored — speaker voice did not match enrolled profile ({v_res.reason if v_res else 'unknown'}).")
+                return None
+
         _speak("Command cancelled, sir.")
         resolve(False)
         return False
 
     # 3. Affirmative check
-    affirmative = ("confirm", "yes", "proceed", "authorize", "authorise", "go ahead", "approved", "run it", "execute", "do it")
+    affirmative = ("confirm", "yes", "proceed", "authorize", "authorise", "go ahead", "approved", "run it", "execute", "do it", "sure", "accept", "okay", "ok")
     is_affirmative = any(re.search(rf"\b{re.escape(w)}\b", text) for w in affirmative)
     if not is_affirmative:
         return None
-
-    # If the confirmation has already failed voice verification and is awaiting PIN,
-    # repeated spoken 'confirm' is not accepted.
-    if is_awaiting_pin():
-        _speak("Security PIN required. Please type your PIN in the input field to authorize.")
-        _log("SYS: Confirmation awaiting PIN input; spoken affirmation rejected.")
-        return False
 
     # 4. Biometric Speaker Verification
     voice_auth_on = get_voice_auth_enabled()
@@ -219,6 +226,15 @@ def voice_authorize(
                 with _lock:
                     if _pending:
                         _pending.auth_method = "voice_biometrics"
+                        _pending.awaiting_pin = False
+                try:
+                    from core.security import mark_voice_verified, mark_operation_confirmed
+                    mark_voice_verified(v_res.matched_user, v_res.confidence)
+                    with _lock:
+                        if _pending:
+                            mark_operation_confirmed(_pending.key)
+                except Exception:
+                    pass
                 resolve(True)
                 return True
             else:
@@ -227,12 +243,18 @@ def voice_authorize(
         else:
             _log("SYS: Biometric verification required but no audio frame provided. Requiring PIN fallback.")
 
-        # Biometric check failed or uncertain -> transition to PIN fallback
+        # If already awaiting PIN or verification failed, check if PIN is set
         set_awaiting_pin(True)
         if has_pin():
             _speak("Voice verification uncertain. For security, please enter your PIN in the input field to authorize.")
         else:
             _speak("Voice verification uncertain and no security PIN is set. Please set a security PIN in the input field using set_pin.")
+        return False
+
+    # If already awaiting PIN and no biometrics required:
+    if is_awaiting_pin():
+        _speak("Security PIN required. Please type your PIN in the input field to authorize.")
+        _log("SYS: Confirmation awaiting PIN input; spoken affirmation rejected.")
         return False
 
     # If voice auth is enabled and profiles exist, but require_biometrics was None and audio was None:
@@ -375,40 +397,51 @@ def request_confirmation(
     timeout: float = 30.0,
 ) -> bool:
     """Request interactive confirmation from the user on the HUD.
-    Blocks the calling worker thread until the user clicks CONFIRM or CANCEL,
+    Blocks the calling worker thread until the user speaks 'confirm' or clicks CONFIRM or CANCEL,
     or until timeout expires. Returns True if confirmed, False otherwise.
     """
     global _pending
+
+    try:
+        from core.security import is_operation_confirmed
+        if is_operation_confirmed(operation):
+            _log(f"SYS: Operation '{operation}' already authorized via recent confirmation cache.")
+            return True
+    except Exception:
+        pass
 
     if _show_cb is None:
         # Headless or UI not bound
         _log(f"SYS: Confirmation requested for '{operation}' but HUD interface is not bound.")
         return False
 
-    evt = threading.Event()
-    item = _Pending(
-        key=operation,
-        title=f"Confirm: {operation}",
-        detail=description or f"Do you confirm: {operation}?",
-        run=None,
-        event=evt,
-        result=None,
-        at=time.monotonic(),
-    )
     with _lock:
-        _pending = item
+        if _pending is not None and _pending.key == operation and (time.monotonic() - _pending.at <= TIMEOUT_SECONDS):
+            item = _pending
+            evt = item.event or threading.Event()
+            item.event = evt
+        else:
+            evt = threading.Event()
+            item = _Pending(
+                key=operation,
+                title=f"Confirm: {operation}",
+                detail=description or f"Do you confirm: {operation}?",
+                run=None,
+                event=evt,
+                result=None,
+                at=time.monotonic(),
+            )
+            _pending = item
+            try:
+                _show_cb(f"Confirm: {operation}", description or f"Do you confirm: {operation}?")
+            except Exception as e:
+                if _pending is item:
+                    _pending = None
+                _log(f"ERR: Failed to display confirmation dialog: {e}")
+                return False
 
-    try:
-        _show_cb(f"Confirm: {operation}", description or f"Do you confirm: {operation}?")
-    except Exception as e:
-        with _lock:
-            if _pending is item:
-                _pending = None
-        _log(f"ERR: Failed to display confirmation dialog: {e}")
-        return False
-
-    _log(f"SYS: Awaiting interactive confirmation for {operation} (timeout {timeout}s)...")
-    _speak(f"Sir, confirmation required for {description or operation}. Please say confirm or cancel.")
+    _log(f"SYS: Awaiting voice confirmation for {operation} (timeout {timeout}s)...")
+    _speak(f"Sir, confirmation required for {description or operation}. Please say confirm to authorize with your voice, or cancel to abort.")
     completed = evt.wait(timeout=timeout)
 
     if not completed:
@@ -451,6 +484,20 @@ def resolve(accepted: bool) -> None:
 
     if p is None:
         return
+
+    # Update operation confirmation cache in core.security
+    if accepted:
+        try:
+            from core.security import mark_operation_confirmed
+            mark_operation_confirmed(p.key)
+        except Exception:
+            pass
+    else:
+        try:
+            from core.security import clear_operation_confirmed
+            clear_operation_confirmed(p.key)
+        except Exception:
+            pass
 
     if time.monotonic() - p.at > TIMEOUT_SECONDS:
         _log(f"SYS: Confirmation expired — {p.title}")
