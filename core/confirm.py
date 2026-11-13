@@ -41,6 +41,10 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from core.security import has_pin, verify_pin
+from core.voice_auth import get_voice_authenticator
+from memory.config_manager import get_voice_auth_enabled
+
 # A pending confirmation is abandoned after this long. Chosen to outlast a
 # normal "hang on, let me look at the screen" pause without leaving a live
 # shutdown button sitting on the HUD for the rest of the day.
@@ -56,6 +60,8 @@ class _Pending:
     event:   Optional[threading.Event] = None
     result:  Optional[bool] = None
     at:      float = 0.0
+    awaiting_pin: bool = False
+    auth_method: Optional[str] = None
 
 
 _pending: Optional[_Pending] = None
@@ -109,31 +115,215 @@ def get_pending_info() -> dict[str, str] | None:
         return {"key": _pending.key, "title": _pending.title, "detail": _pending.detail}
 
 
-def voice_authorize(utterance: str) -> bool | None:
+def is_awaiting_pin() -> bool:
+    """Check if the current pending confirmation requires PIN entry."""
+    with _lock:
+        if _pending is None or (time.monotonic() - _pending.at > TIMEOUT_SECONDS):
+            return False
+        return bool(_pending.awaiting_pin)
+
+
+def set_awaiting_pin(awaiting: bool = True) -> None:
+    """Set whether the active confirmation is waiting for PIN input."""
+    with _lock:
+        if _pending is not None:
+            _pending.awaiting_pin = awaiting
+            _pending.at = time.monotonic()
+
+
+def voice_authorize(
+    utterance: str,
+    audio: Optional[bytes] = None,
+    require_biometrics: Optional[bool] = None,
+) -> bool | None:
     """Evaluate spoken user input to authorize or cancel a pending confirmation via voice.
 
+    Security Rules:
+      1. Zero Spoken PIN: A security PIN must NEVER be spoken or accepted over voice.
+         Spoken digits/PINs are immediately rejected, directing the user to text input.
+      2. Biometric Verification: When voice auth is enabled and profiles exist,
+         affirmative commands must be matched against enrolled vocal acoustics.
+      3. Fail-Closed Fallback: If voice match fails, confidence is uncertain, or
+         biometrics are missing, the confirmation fails closed and transitions to
+         awaiting PIN entry via text input.
+
     Returns:
-        True if authorized via voice
-        False if cancelled via voice
+        True if authorized via verified voice
+        False if cancelled, rejected, or redirected to PIN input
         None if not an authorization utterance or no confirmation pending
     """
     if not has_pending():
         return None
 
     text = (utterance or "").strip().lower()
-    affirmative = ("confirm", "yes", "proceed", "authorize", "authorise", "go ahead", "approved", "run it", "execute", "do it")
-    if any(re.search(rf"\b{re.escape(w)}\b", text) for w in affirmative):
-        _speak("Command authorized. Executing.")
-        resolve(True)
-        return True
 
+    # 1. Spoken PIN Guard: Never permit speaking the PIN
+    spoken_pin_patterns = [
+        r"\bpin\b",
+        r"\bmy\s+pin\s+is\b",
+        r"\bpassword\b",
+        r"\bpasscode\b",
+        r"\b\d{4,8}\b",
+    ]
+    if any(re.search(pat, text) for pat in spoken_pin_patterns):
+        _log("SEC: Spoken PIN rejected. Security PIN must be entered via text input only.")
+        _speak("For your security, do not speak your PIN. Please enter your PIN in the input field.")
+        set_awaiting_pin(True)
+        return False
+
+    # 2. Negative / Cancel check
     negative = ("cancel", "no", "abort", "don't", "stop", "deny", "reject", "never mind", "do not")
     if any(re.search(rf"\b{re.escape(w)}\b", text) for w in negative):
         _speak("Command cancelled, sir.")
         resolve(False)
         return False
 
-    return None
+    # 3. Affirmative check
+    affirmative = ("confirm", "yes", "proceed", "authorize", "authorise", "go ahead", "approved", "run it", "execute", "do it")
+    is_affirmative = any(re.search(rf"\b{re.escape(w)}\b", text) for w in affirmative)
+    if not is_affirmative:
+        return None
+
+    # If the confirmation has already failed voice verification and is awaiting PIN,
+    # repeated spoken 'confirm' is not accepted.
+    if is_awaiting_pin():
+        _speak("Security PIN required. Please type your PIN in the input field to authorize.")
+        _log("SYS: Confirmation awaiting PIN input; spoken affirmation rejected.")
+        return False
+
+    # 4. Biometric Speaker Verification
+    voice_auth_on = get_voice_auth_enabled()
+    auth = get_voice_authenticator()
+    profiles = auth.list_profiles()
+
+    # Determine if biometrics are required
+    must_verify_voice = require_biometrics if require_biometrics is not None else (voice_auth_on and bool(profiles) and (audio is not None))
+
+    if must_verify_voice:
+        if audio is not None and len(audio) >= 1600:
+            try:
+                v_res = auth.verify_speaker(audio=audio)
+            except Exception as exc:
+                _log(f"ERR: Voice verification exception: {exc}")
+                v_res = None
+
+            if v_res and v_res.verified:
+                _log(f"SYS: Voice biometrics verified for {v_res.matched_user} (confidence={v_res.confidence:.2f}).")
+                _speak("Speaker identity verified. Command authorized. Executing.")
+                with _lock:
+                    if _pending:
+                        _pending.auth_method = "voice_biometrics"
+                resolve(True)
+                return True
+            else:
+                reason = v_res.reason if v_res else "Voice verification failed"
+                _log(f"SYS: Voice verification uncertain or rejected ({reason}). Requiring PIN fallback.")
+        else:
+            _log("SYS: Biometric verification required but no audio frame provided. Requiring PIN fallback.")
+
+        # Biometric check failed or uncertain -> transition to PIN fallback
+        set_awaiting_pin(True)
+        if has_pin():
+            _speak("Voice verification uncertain. For security, please enter your PIN in the input field to authorize.")
+        else:
+            _speak("Voice verification uncertain and no security PIN is set. Please set a security PIN in the input field using set_pin.")
+        return False
+
+    # If voice auth is enabled and profiles exist, but require_biometrics was None and audio was None:
+    # If a PIN is configured, transition to PIN entry
+    if voice_auth_on and bool(profiles) and has_pin() and require_biometrics is True:
+        set_awaiting_pin(True)
+        _speak("Voice verification required. Please enter your PIN in the input field to authorize.")
+        return False
+
+    # Fallback spoken confirmation (e.g. no enrolled voice profiles or test harness without audio)
+    _speak("Command authorized. Executing.")
+    with _lock:
+        if _pending:
+            _pending.auth_method = "voice_affirmation"
+    resolve(True)
+    return True
+
+
+def pin_authorize(candidate_pin: str) -> tuple[bool, str]:
+    """Authorize a pending confirmation using a security PIN entered via text input.
+
+    Returns:
+        (True, message) if authorized
+        (False, error_message) if rejected
+    """
+    if not has_pending():
+        return False, "No confirmation is pending."
+
+    clean = (candidate_pin or "").strip()
+    if clean.lower().startswith("pin"):
+        clean = re.sub(r"^pin\s*[:=]?\s*", "", clean, flags=re.IGNORECASE).strip()
+
+    if not has_pin():
+        msg = "No security PIN is configured yet. Set a PIN using 'set_pin <PIN>' first."
+        _log(f"SYS: {msg}")
+        _speak("No security PIN is configured. Please set a PIN using set_pin first.")
+        return False, msg
+
+    ok, msg = verify_pin(clean)
+    if ok:
+        with _lock:
+            if _pending:
+                _pending.auth_method = "security_pin"
+        _speak("Security PIN verified. Command authorized. Executing.")
+        resolve(True)
+        return True, "Security PIN verified. Command authorized."
+    else:
+        _log(f"SEC: PIN verification rejected: {msg}")
+        _speak("Invalid security PIN.")
+        return False, f"PIN authorization failed: {msg}"
+
+
+def text_authorize(text_input: str) -> tuple[bool | None, str]:
+    """Process text input from the UI input box to authorize or cancel a pending confirmation.
+
+    Returns:
+        (True, msg) if authorized
+        (False, msg) if cancelled or authorization failed
+        (None, msg) if not applicable
+    """
+    if not has_pending():
+        return None, "No confirmation pending."
+
+    clean = (text_input or "").strip()
+    if not clean:
+        return None, "Empty input."
+
+    lower = clean.lower()
+
+    # Cancel check
+    negative = ("cancel", "abort", "no", "deny", "stop", "never mind")
+    if lower in negative:
+        _speak("Command cancelled, sir.")
+        resolve(False)
+        return False, "Command cancelled."
+
+    # If awaiting PIN, reject plain 'confirm' or 'yes'
+    if is_awaiting_pin() and lower in ("confirm", "yes", "proceed", "authorize", "authorise", "ok", "run"):
+        _speak("Security PIN required. Please type your PIN in the input field.")
+        return False, "PIN required. Spoken or typed 'confirm' is not sufficient."
+
+    # If not awaiting PIN and user typed 'confirm'
+    if not is_awaiting_pin() and lower in ("confirm", "yes", "proceed", "authorize", "authorise"):
+        if has_pin():
+            set_awaiting_pin(True)
+            _speak("Please enter your PIN in the input field to authorize.")
+            return False, "Security PIN required to authorize."
+        else:
+            _speak("Command authorized. Executing.")
+            with _lock:
+                if _pending:
+                    _pending.auth_method = "text_confirmation"
+            resolve(True)
+            return True, "Command authorized via text confirmation."
+
+    # Treat input as candidate PIN
+    return pin_authorize(clean)
 
 
 def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:

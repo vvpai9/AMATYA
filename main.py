@@ -672,6 +672,7 @@ class AmatyaLive:
         # handed to the device far faster than they play, so "now" ran the lips
         # ahead of the words and cut every schedule short. 0 = nothing playing.
         self._play_cursor          = 0.0
+        self._recent_user_audio    = collections.deque(maxlen=50)
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
         self.ui.on_text_command   = self._on_text_command
@@ -1037,11 +1038,42 @@ class AmatyaLive:
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
-        # If an interactive confirmation is pending, allow text-based authorization
+
+        clean = (text or "").strip()
+        lower = clean.lower()
+
+        # Handle PIN configuration / clearing commands directly in the input field
+        if lower.startswith("set_pin ") or lower.startswith("setpin "):
+            parts = clean.split(None, 1)
+            candidate = parts[1].strip() if len(parts) > 1 else ""
+            from core.security import set_pin
+            ok, msg = set_pin(candidate)
+            if ok:
+                self.ui.write_log("SYS: Security PIN configured successfully.")
+                confirm_gate._speak("Security PIN configured successfully.")
+            else:
+                self.ui.write_log(f"SYS: Failed to set PIN: {msg}")
+                confirm_gate._speak(f"Failed to set PIN. {msg}")
+            return
+
+        if lower.startswith("clear_pin ") or lower.startswith("clearpin "):
+            parts = clean.split(None, 1)
+            candidate = parts[1].strip() if len(parts) > 1 else ""
+            from core.security import clear_pin
+            ok, msg = clear_pin(candidate)
+            if ok:
+                self.ui.write_log("SYS: Security PIN cleared.")
+                confirm_gate._speak("Security PIN cleared.")
+            else:
+                self.ui.write_log(f"SYS: Failed to clear PIN: {msg}")
+                confirm_gate._speak(f"Failed to clear PIN. {msg}")
+            return
+
+        # If an interactive confirmation is pending, prioritize PIN/text authorization
         if confirm_gate.has_pending():
-            v_res = confirm_gate.voice_authorize(text)
-            if v_res is not None:
-                self.ui.write_log(f"SYS: Authorization via input: {'AUTHORIZED' if v_res else 'CANCELLED'}")
+            t_res, t_msg = confirm_gate.text_authorize(clean)
+            if t_res is not None:
+                self.ui.write_log(f"SYS: Confirmation via input: {'AUTHORIZED' if t_res else 'REJECTED'} ({t_msg})")
                 return
         # Respect wake-word sleep: a typed command must not be answered while
         # asleep either (the sleep gate is not just for the mic). Wake first with
@@ -1166,6 +1198,10 @@ class AmatyaLive:
         # The words we were about to mouth are never going to be spoken now.
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
+        try:
+            self._recent_user_audio.clear()
+        except Exception:
+            pass
         if self._turn_done_event:
             self._turn_done_event.clear()
         # Draining the queue stops the speakers, but a local engine is still
@@ -1673,6 +1709,11 @@ class AmatyaLive:
         drop the oldest frame so fresh realtime audio is prioritized and
         QueueFull is never thrown into the asyncio callback loop.
         """
+        if item and "data" in item:
+            try:
+                self._recent_user_audio.append(item["data"])
+            except Exception:
+                pass
         if self.out_queue is None:
             return
         try:
@@ -1956,9 +1997,10 @@ class AmatyaLive:
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 if confirm_gate.has_pending():
-                                    v_res = confirm_gate.voice_authorize(full_in)
+                                    recent_audio = b"".join(self._recent_user_audio) if self._recent_user_audio else None
+                                    v_res = confirm_gate.voice_authorize(full_in, audio=recent_audio, require_biometrics=True)
                                     if v_res is not None:
-                                        self.ui.write_log(f"SYS: Voice authorization result: {'AUTHORIZED' if v_res else 'CANCELLED'}")
+                                        self.ui.write_log(f"SYS: Voice authorization result: {'AUTHORIZED' if v_res else 'FAILED/PIN REQUIRED'}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
                                         "type": "log", "speaker": "user",
@@ -1966,6 +2008,7 @@ class AmatyaLive:
                                         "ts": datetime.now().isoformat(),
                                     }))
                             in_buf = []
+                            self._recent_user_audio.clear()
 
                             full_out = " ".join(out_buf).strip()
                             # Second line of defence: even if a repeat slips
