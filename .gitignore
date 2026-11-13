@@ -10,6 +10,9 @@ config/api_keys.json
 config/api_keys*.json
 !config/*.example.json
 config/security_policy.json
+config/news_preferences.json
+config/outages_cache.json
+config/radio_state.json
 config/certs/
 config/tv_certs/
 *.pem
