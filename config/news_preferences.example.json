@@ -1,0 +1,23 @@
+{
+  "initialized": false,
+  "topics": [
+    "politics",
+    "geopolitics",
+    "ongoing_wars",
+    "current_affairs",
+    "new_developments",
+    "tech",
+    "sports",
+    "science",
+    "business",
+    "local_news"
+  ],
+  "briefing_times": {
+    "morning": "08:00",
+    "afternoon": "13:00",
+    "evening": "19:00"
+  },
+  "brief_on_startup": true,
+  "location": "Global",
+  "last_briefing": ""
+}
