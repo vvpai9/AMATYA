@@ -73,18 +73,31 @@ TOPIC_QUERIES = {
     "local_news": "local city community municipal regional news",
 }
 
+KNOWN_STATUS_APIS = {
+    "Anthropic Claude": "https://status.anthropic.com/api/v2/status.json",
+    "OpenAI": "https://status.openai.com/api/v2/status.json",
+    "Cloudflare": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "GitHub": "https://www.githubstatus.com/api/v2/status.json",
+    "Discord": "https://discordstatus.com/api/v2/status.json",
+    "Reddit": "https://redditstatus.com/api/v2/status.json",
+}
+
 MONITORED_SERVICES = {
-    "Google": "google.com",
-    "Cloudflare": "cloudflare.com",
-    "AWS": "aws.amazon.com",
-    "GitHub": "github.com",
+    "Anthropic Claude": "claude.ai",
+    "OpenAI": "openai.com",
+    "Outlook / Hotmail": "outlook.live.com",
+    "Microsoft Copilot": "copilot.microsoft.com",
+    "OneDrive": "onedrive.live.com",
     "Microsoft 365": "microsoft.com",
+    "Google": "google.com",
+    "AWS": "aws.amazon.com",
+    "Cloudflare": "cloudflare.com",
+    "GitHub": "github.com",
+    "Discord": "discord.com",
+    "Reddit": "reddit.com",
+    "WhatsApp": "whatsapp.com",
     "X / Twitter": "x.com",
     "YouTube": "youtube.com",
-    "WhatsApp": "whatsapp.com",
-    "Reddit": "reddit.com",
-    "OpenAI": "openai.com",
-    "Discord": "discord.com",
     "Wikipedia": "wikipedia.org",
 }
 
@@ -260,41 +273,83 @@ def fetch_topic_news(topic: str, location: str = "") -> list[dict[str, str]]:
     return articles[:4]
 
 
-# ── Outage Monitor (downforeveryoneorjustme.com telemetry) ────────────────────
+# ── Outage Monitor (Statuspage APIs, HTTP Probes & Breaking Incidents) ───────
+
+def fetch_trending_outages() -> list[dict[str, str]]:
+    """Scan news feeds for breaking and active global cloud/service outages."""
+    try:
+        articles = _fetch_rss(
+            "https://news.google.com/rss/search?q=outage+down+service+issues&hl=en-US&gl=US&ceid=US:en"
+        )
+        incidents = []
+        keywords = ("outage", "down", "offline", "disruption", "crash", "issues", "problem")
+        for a in articles:
+            title_lower = (a.get("clean_title") or a.get("title") or "").lower()
+            if any(k in title_lower for k in keywords):
+                incidents.append(a)
+        return incidents[:3]
+    except Exception:
+        return []
+
 
 def check_service_status(service_name: str, domain: str) -> dict[str, Any]:
-    """Query service availability and latency."""
+    """Query service availability and latency via official Statuspage API or HTTP probe."""
     now = time.time()
-
-    # 1. Direct TCP handshake probe to port 443 / 80
     t0 = time.perf_counter()
-    is_up = False
-    status_code = 0
+    is_up = True
+    status_label = "Operational"
     err_msg = ""
-    try:
-        with socket.create_connection((domain, 443), timeout=3.5):
-            is_up = True
-            status_code = 200
-    except Exception as exc:
-        err_msg = str(exc)
+
+    # 1. Official status API (e.g. Anthropic, OpenAI, Cloudflare, GitHub, Discord, Reddit)
+    status_api = KNOWN_STATUS_APIS.get(service_name)
+    if status_api:
+        try:
+            req = urllib.request.Request(
+                status_api,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AMATYA-Monitor/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                st = data.get("status", {})
+                ind = str(st.get("indicator", "none")).lower()
+                desc = st.get("description", "")
+                if ind in ("major", "critical"):
+                    is_up = False
+                    status_label = "OUTAGE"
+                    err_msg = f"Status API: {desc or ind.title()}"
+                elif ind in ("minor", "degraded"):
+                    status_label = "DEGRADED"
+                    err_msg = f"Degraded: {desc or ind.title()}"
+        except Exception:
+            pass
+
+    # 2. HTTP / SSL Probe with strict timeout (not just TCP socket SYN)
+    if is_up:
+        try:
+            url = f"https://{domain}"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AMATYA-Monitor/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                pass
+        except urllib.error.HTTPError as he:
+            if he.code in (500, 502, 503, 504):
+                is_up = False
+                status_label = "OUTAGE"
+                err_msg = f"HTTP {he.code} {he.reason}"
+        except Exception as exc:
+            # Check TCP port 443 before declaring full failure
+            try:
+                with socket.create_connection((domain, 443), timeout=2.0):
+                    status_label = "DEGRADED"
+                    err_msg = "SSL handshake latency / Slow response"
+            except Exception:
+                is_up = False
+                status_label = "OUTAGE"
+                err_msg = str(exc)
 
     latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-
-    # 2. Check downforeveryoneorjustme API as secondary source if available
-    try:
-        api_url = f"https://downforeveryoneorjustme.com/api/v2/status/{domain}"
-        req = urllib.request.Request(
-            api_url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AMATYA-Monitor/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            # downforeveryone returns isDown: bool
-            if data.get("isDown") is True:
-                is_up = False
-                err_msg = "Confirmed down by downforeveryoneorjustme.com"
-    except Exception:
-        pass
 
     with _LOCK:
         prev = _OUTAGE_HISTORY.get(service_name)
@@ -308,6 +363,7 @@ def check_service_status(service_name: str, domain: str) -> dict[str, Any]:
                 "service": service_name,
                 "domain": domain,
                 "is_up": False,
+                "status": status_label,
                 "latency_ms": latency_ms,
                 "down_since": down_since,
                 "duration_seconds": duration_sec,
@@ -319,11 +375,12 @@ def check_service_status(service_name: str, domain: str) -> dict[str, Any]:
                 "service": service_name,
                 "domain": domain,
                 "is_up": True,
+                "status": status_label,
                 "latency_ms": latency_ms,
                 "down_since": 0.0,
                 "duration_seconds": 0,
                 "duration_str": "",
-                "error": "",
+                "error": err_msg,
             }
         _OUTAGE_HISTORY[service_name] = entry
 
@@ -342,7 +399,7 @@ def _format_duration(seconds: int) -> str:
 
 
 def check_all_outages() -> dict[str, Any]:
-    """Scan all major monitored services in parallel."""
+    """Scan all major monitored services in parallel and retrieve trending incidents."""
     results = {}
     threads = []
 
@@ -354,10 +411,40 @@ def check_all_outages() -> dict[str, Any]:
         threads.append(t)
         t.start()
 
+    # Fetch trending incidents in parallel
+    trending_incidents = []
+    def _fetch_trend():
+        nonlocal trending_incidents
+        trending_incidents = fetch_trending_outages()
+
+    trend_th = threading.Thread(target=_fetch_trend, daemon=True)
+    trend_th.start()
+
+    deadline = time.time() + 3.8
     for t in threads:
-        t.join(timeout=4.5)
+        rem = max(0.02, deadline - time.time())
+        t.join(timeout=rem)
+
+    rem_trend = max(0.02, deadline - time.time())
+    trend_th.join(timeout=rem_trend)
+
+    # Any service that didn't complete within timeout is considered timed out / degraded
+    for name, domain in MONITORED_SERVICES.items():
+        if name not in results:
+            results[name] = {
+                "service": name,
+                "domain": domain,
+                "is_up": False,
+                "status": "OUTAGE",
+                "latency_ms": 3800.0,
+                "down_since": time.time(),
+                "duration_seconds": 0,
+                "duration_str": "Just detected",
+                "error": "Connection timed out (>3.8s)",
+            }
 
     active_outages = [item for item in results.values() if not item.get("is_up")]
+    degraded = [item for item in results.values() if item.get("is_up") and item.get("status") == "DEGRADED"]
 
     # Persist cache
     try:
@@ -370,6 +457,8 @@ def check_all_outages() -> dict[str, Any]:
         "total_monitored": len(results),
         "active_outages_count": len(active_outages),
         "active_outages": active_outages,
+        "degraded_services": degraded,
+        "trending_incidents": trending_incidents,
         "services": results,
     }
 
@@ -421,11 +510,13 @@ def generate_news_briefing(
     outage_th.start()
 
     for th in threads:
-        th.join(timeout=5.0)
-    outage_th.join(timeout=4.0)
+        th.join(timeout=4.0)
+    outage_th.join(timeout=4.5)
 
     services_map = scan_res.get("services", {})
     active_outages = scan_res.get("active_outages", [])
+    degraded_services = scan_res.get("degraded_services", [])
+    trending_incidents = scan_res.get("trending_incidents", [])
 
     # Build Markdown HUD Briefing
     period_label = period.replace("_", " ").title()
@@ -436,16 +527,33 @@ def generate_news_briefing(
         "---",
     ]
 
-    if active_outages:
-        md_lines.append("## 📡 Global Service Outage Alerts")
-        for o in active_outages:
-            dur = o.get("duration_str") or "Just detected"
-            md_lines.append(f"> ⚠️ **OUTAGE DETECTED:** **{o['service']} ({o['domain']})** is **DOWN** for **{dur}** ({o.get('error', 'Unreachable')})")
+    if active_outages or degraded_services or trending_incidents:
+        md_lines.append("## 📡 Global Cloud & Service Outages")
+        if active_outages:
+            for o in active_outages:
+                dur = o.get("duration_str") or "Just detected"
+                md_lines.append(f"> ⚠️ **OUTAGE DETECTED:** **{o['service']} ({o['domain']})** is **DOWN** for **{dur}** ({o.get('error', 'Unreachable')})")
+        if degraded_services:
+            for d in degraded_services:
+                md_lines.append(f"> 🟡 **SERVICE DEGRADED:** **{d['service']} ({d['domain']})** — *{d.get('error', 'Performance degraded')}*")
+        if trending_incidents:
+            md_lines.append("")
+            md_lines.append("**Breaking Outage Reports:**")
+            for inc in trending_incidents[:3]:
+                title = inc.get("clean_title") or inc.get("title", "")
+                link = inc.get("link", "")
+                source = inc.get("source", "")
+                source_tag = f" — *{source}*" if source else ""
+                if link:
+                    md_lines.append(f"• **[{title}]({link})**{source_tag}")
+                else:
+                    md_lines.append(f"• **{title}**{source_tag}")
         md_lines.append("")
-        md_lines.append("| Affected Service | Domain | Status | Duration |")
-        md_lines.append("| :--- | :--- | :--- | :--- |")
-        for o in active_outages:
-            md_lines.append(f"| **{o['service']}** | `{o['domain']}` | 🔴 DOWN | {o.get('duration_str', 'Just detected')} |")
+        if active_outages:
+            md_lines.append("| Affected Service | Domain | Status | Duration |")
+            md_lines.append("| :--- | :--- | :--- | :--- |")
+            for o in active_outages:
+                md_lines.append(f"| **{o['service']}** | `{o['domain']}` | 🔴 DOWN | {o.get('duration_str', 'Just detected')} |")
         md_lines.append("---")
     else:
         avg_lat = sum(item.get("latency_ms", 0) for item in services_map.values()) / max(len(services_map), 1)
@@ -500,6 +608,8 @@ def generate_news_briefing(
         outage_speech = ""
         if active_outages:
             outage_speech = f" Note: global outage detected for {', '.join(o['service'] for o in active_outages[:2])}."
+        elif degraded_services:
+            outage_speech = f" Note: service degradation reported for {', '.join(d['service'] for d in degraded_services[:2])}."
         spoken = f"Here is your {period} news briefing, sir. " + ". ".join(top_slice) + "." + outage_speech
     else:
         spoken = f"Your {period} briefing is ready on the HUD with the latest global and local reports."
