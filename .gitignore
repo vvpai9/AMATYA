@@ -63,6 +63,7 @@ dist/
 # ── Local logs, reports and artifacts ─────────────────────────────────────────
 reports/
 session_errors*.txt
+docs/session_history/
 Desktop/
 memory/episodic_memory.json
 *.tar.gz
