@@ -733,8 +733,8 @@ class ConfirmBanner(_HudOverlay):
         if self._awaiting_pin and hasattr(self, "_pin_edit"):
             self._pin_edit.setFocus()
         else:
-            no.setDefault(True)
-            no.setFocus()
+            yes.setDefault(True)
+            yes.setFocus()
 
     def _on_confirm_click(self):
         if getattr(self, "_awaiting_pin", False) and hasattr(self, "_pin_edit"):

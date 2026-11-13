@@ -113,6 +113,7 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
     urgent = bool(params.get("urgent", True))
 
     ringer = get_phone_ringer()
+    player = kwargs.get("player") or params.get("player")
 
     # 1. Status query
     if action in ("status", "diagnostics", "check"):
@@ -158,10 +159,24 @@ def phone_ring(parameters: dict[str, Any] | None = None, **kwargs: Any) -> str:
                 f"Token: {res_pair.get('qr_payload', '')}"
             )
             return outcome.done("phone_ring", result=msg, data=res_pair)
-        return outcome.failed(
-            "phone_ring",
-            reason=res_pair.get("error", "Failed to initiate AgentRing pairing. Make sure relay is configured: agentring init"),
+
+        from core.phone_ring import get_kdeconnect_devices
+        devs = get_kdeconnect_devices()
+        reachable = [d["name"] for d in devs if d.get("reachable")]
+        alt_note = ""
+        if reachable:
+            alt_note = f"\n\nGood news: Your phone ({', '.join(reachable)}) is ALREADY paired and reachable right now via KDE Connect! You can ring it anytime by saying 'Ring my phone'."
+
+        err_msg = (
+            f"AgentRing is installed but requires a relay connection before generating a pairing token.\n"
+            f"To configure AgentRing relay: `agentring init --relay <url> --api-key <key>` or provide your relay details in chat.{alt_note}"
         )
+        if player is not None:
+            try:
+                player.show_content("AgentRing Pairing Status", err_msg)
+            except Exception:
+                pass
+        return outcome.failed("phone_ring", reason=err_msg, data={"unconfigured": True, "kdeconnect_devices": reachable})
 
     # 3. Direct VoIP Call via AgentRing with Automatic Phone Ring Fallback
     if action in ("call", "voip_call", "agentring_call"):

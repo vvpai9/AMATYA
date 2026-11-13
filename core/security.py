@@ -931,6 +931,10 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     "phone_ring": {
         "default_tier": PermissionTier.REMOTE_DEVICE_CONTROL,
         "status": PermissionTier.GENERAL_CONVERSATION,
+        "pair_agentring": PermissionTier.GENERAL_CONVERSATION,
+        "init_agentring": PermissionTier.GENERAL_CONVERSATION,
+        "pair_kdeconnect": PermissionTier.GENERAL_CONVERSATION,
+        "pair": PermissionTier.GENERAL_CONVERSATION,
         "ring": PermissionTier.REMOTE_DEVICE_CONTROL,
         "call": PermissionTier.REMOTE_DEVICE_CONTROL,
     },
