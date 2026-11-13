@@ -35,6 +35,8 @@ SKILL_METADATA = {
         "tv_launch_app",
         "tv_cast_url",
         "tv_status",
+        "setup_tv",
+        "pair_tv",
         "ssh_exec",
         "ssh_transfer",
         "ssh_status",
@@ -60,8 +62,8 @@ TOOL = {
                 "description": (
                     "Action: 'discover', 'register', 'send_file', 'ring_phone', "
                     "'share_clipboard', 'phone_status', 'phone_launch_app', "
-                    "'tv_key', 'tv_volume', 'tv_launch_app', 'tv_cast_url', "
-                    "'tv_status', 'ssh_exec', 'ssh_transfer', 'ssh_status'."
+                    "'tv_key', 'tv_power', 'tv_volume', 'tv_launch_app', 'tv_cast_url', "
+                    "'tv_status', 'setup_tv', 'pair_tv', 'ssh_exec', 'ssh_transfer', 'ssh_status'."
                 ),
             },
             "device": {
@@ -99,6 +101,10 @@ TOOL = {
             "remote_command": {
                 "type": "STRING",
                 "description": "Shell command to run on remote SSH host.",
+            },
+            "code": {
+                "type": "STRING",
+                "description": "Pairing code (PIN) displayed on TV screen for 'pair_tv'.",
             },
             "ip_address": {"type": "STRING"},
             "device_type": {"type": "STRING"},
@@ -163,7 +169,10 @@ def execute(
         return outcome.done("device_control", result=msg, data=res)
 
     # TV actions
-    if action in ("tv_key", "tv_power", "tv_volume", "tv_launch_app", "tv_cast_url", "tv_status"):
+    if action in (
+        "tv_key", "tv_power", "tv_volume", "tv_launch_app", "tv_cast_url",
+        "tv_status", "setup_tv", "pair_tv"
+    ):
         sub_map = {
             "tv_key": "key",
             "tv_power": "key",
@@ -171,6 +180,8 @@ def execute(
             "tv_launch_app": "launch_app",
             "tv_cast_url": "cast_url",
             "tv_status": "status",
+            "setup_tv": "setup_tv",
+            "pair_tv": "pair_tv",
         }
         k_cmd = "power" if action == "tv_power" else parameters.get("key_command")
         res = mgr.tv_action(
@@ -180,12 +191,21 @@ def execute(
             app_name=parameters.get("app_name"),
             media_url=parameters.get("media_url"),
             volume_pct=parameters.get("volume_pct"),
+            code=parameters.get("code") or parameters.get("pin"),
+            ip_address=parameters.get("ip_address"),
+            require_configured=(action not in ("setup_tv", "pair_tv")),
         )
         if not res.get("ok"):
+            if res.get("not_configured"):
+                return outcome.done("device_control", result=res.get("error", "No TV configured."), data=res)
             return outcome.failed("device_control", res.get("error", "TV action failed."), data=res)
+
+        if action in ("setup_tv", "pair_tv"):
+            return outcome.done("device_control", result=res.get("message", "TV configuration updated."), data=res)
+
         st = res.get("status", {})
-        msg = (
-            f"{res['mode_label']} {res['device']}: power={st.get('power')}, "
+        msg = res.get("message") or (
+            f"{res.get('mode_label', '[TV]')} {res.get('device', 'TV')}: power={st.get('power')}, "
             f"app={st.get('current_app')}, volume={st.get('volume_pct')}%."
         )
         return outcome.done("device_control", result=msg, data=res)

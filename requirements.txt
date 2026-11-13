@@ -61,6 +61,13 @@ qrcode[pil]>=7,<9
 # ── Phone Ring & VoIP ─────────────────────────────────────────────────────────
 agentring @ git+https://github.com/mutonby/agentring.git#subdirectory=daemon
 
+# ── Android TV & Smart Media Automation ────────────────────────────────────────
+androidtvremote2>=0.3.2
+aiofiles>=24.1.0
+zeroconf>=0.132.0
+PyChromecast>=13.0.0
+casttube>=0.2.1
+
 # ── Plugin extras ─────────────────────────────────────────────────────────────
 # Plugins are downloaded one file at a time from the community, so their
 # dependencies are installed UP FRONT: dropping a .py into plugins/ should make

@@ -47,25 +47,17 @@ _TV_APP_MAP: dict[str, str] = {
     "com.netflix.ninja": "Netflix",
     "com.amazon.amazonvideo.livingroom": "Prime Video",
     "com.google.android.tvlauncher": "Android TV Launcher",
-
 }
 
 
-def _get_tv_control_cls():
-    import sys
-    home_dir = Path.home()
-    v5_dir = home_dir / "atvremote" / "redmi_tv_automation_v5"
-    venv_site = home_dir / "atvremote" / "androidtv-remote-env" / "lib" / "python3.12" / "site-packages"
-    if venv_site.exists() and str(venv_site) not in sys.path:
-        sys.path.insert(0, str(venv_site))
-    if v5_dir.exists() and str(v5_dir) not in sys.path:
-        sys.path.insert(0, str(v5_dir))
-    try:
-        from tv_control import TvControl
-        return TvControl
-    except Exception as exc:
-        print(f"[DeviceManager] TvControl import unavailable: {exc}")
-        return None
+from core.tv_control import (
+    DEFAULT_CERT_FILE,
+    DEFAULT_KEY_FILE,
+    AndroidTVController,
+    async_finish_pairing_flow,
+    async_start_pairing_flow,
+    is_tv_configured,
+)
 
 # Android TV Keyevent codes
 ANDROID_KEYCODES: dict[str, int] = {
@@ -124,13 +116,13 @@ DEFAULT_CONNECTED_DEVICES: dict[str, dict[str, Any]] = {
         "device_id": "redmi_tv",
         "name": "Living Room Android TV",
         "type": "android_tv",
-        "transport": "atvremote",
-        "ip_address": "192.168.1.200",
-        "atvremote_bin": "",
-        "cert_file": "",
-        "key_file": "",
+        "transport": "androidtvremote2",
+        "ip_address": "",
+        "cert_file": str(DEFAULT_CERT_FILE),
+        "key_file": str(DEFAULT_KEY_FILE),
         "authorized": True,
         "paired": False,
+        "configured": False,
         "connectivity": "offline",
         "status": {
             "power": "standby",
@@ -727,199 +719,207 @@ class ConnectedDeviceManager:
         app_name: str | None = None,
         media_url: str | None = None,
         volume_pct: int | None = None,
+        code: str | None = None,
+        ip_address: str | None = None,
+        require_configured: bool = False,
     ) -> dict[str, Any]:
         dev = self.resolve_device(device_query)
         if not dev or dev.get("type") != "android_tv":
-            return {"ok": False, "error": f"Android TV '{device_query}' not found."}
+            # If redmi_tv was requested but not found, check default or create placeholder
+            if device_query in ("redmi_tv", "tv", "android_tv"):
+                with _LOCK:
+                    dev = self._devices.get("redmi_tv")
+                    if not dev:
+                        dev = dict(DEFAULT_CONNECTED_DEVICES.get("redmi_tv", {}))
+                        self._devices["redmi_tv"] = dev
+                        self._save_devices()
+            if not dev:
+                return {"ok": False, "error": f"Android TV '{device_query}' not found."}
 
         act = (sub_action or "status").strip().lower()
+
+        # Handle TV Setup & Pairing flows
+        if act in ("setup_tv", "pair_initiate", "pair_start"):
+            target_ip = (ip_address or dev.get("ip_address") or "").strip()
+            if not target_ip:
+                # Attempt to find discovered Android TV from LAN scan
+                disc = self.discover_devices().get("discovered", {})
+                for nh in disc.get("nmap_hosts", []):
+                    if "tv" in nh.get("name", "").lower():
+                        target_ip = nh.get("ip", "")
+                        break
+            if not target_ip:
+                return {
+                    "ok": False,
+                    "error": (
+                        "Please specify your Android TV IP address to initiate pairing, e.g.: "
+                        "device_control action='setup_tv' ip_address='192.168.1.5' "
+                        "(or run action='discover' to scan your network)."
+                    ),
+                }
+
+            import asyncio
+            ok_start, msg_start = asyncio.run(async_start_pairing_flow(host=target_ip))
+            if ok_start:
+                dev["ip_address"] = target_ip
+                dev["configured"] = False
+                dev["paired"] = False
+                self._save_devices()
+                return {
+                    "ok": True,
+                    "mode_label": "[TV PAIRING INITIATED]",
+                    "message": msg_start,
+                    "status": dev.get("status", {}),
+                }
+            return {"ok": False, "error": msg_start}
+
+        if act in ("pair_tv", "pair_finish", "pair_code"):
+            p_code = (code or key_command or "").strip()
+            if not p_code:
+                return {
+                    "ok": False,
+                    "error": "Pairing code is required. Please provide the 6-character code shown on your TV screen: action='pair_tv' code='<CODE>'.",
+                }
+
+            import asyncio
+            ok_fin, msg_fin, p_host = asyncio.run(async_finish_pairing_flow(code=p_code))
+            if ok_fin:
+                dev["configured"] = True
+                dev["paired"] = True
+                dev["authorized"] = True
+                dev["connectivity"] = "online"
+                if p_host:
+                    dev["ip_address"] = p_host
+                dev["cert_file"] = str(DEFAULT_CERT_FILE)
+                dev["key_file"] = str(DEFAULT_KEY_FILE)
+                dev["transport"] = "androidtvremote2"
+                self._save_devices()
+                return {
+                    "ok": True,
+                    "mode_label": "[TV PAIRED]",
+                    "message": msg_fin,
+                    "status": dev.get("status", {}),
+                }
+            return {"ok": False, "error": msg_fin}
+
+        # Check if TV is configured initially
+        if not is_tv_configured(dev):
+            if require_configured:
+                return {
+                    "ok": False,
+                    "not_configured": True,
+                    "mode_label": "[TV NOT CONFIGURED]",
+                    "error": (
+                        "No Android TV is configured yet. Please configure your TV by running: "
+                        "device_control with action='setup_tv' and ip_address='<TV_IP>' (or 'discover' to scan your network). "
+                        "AMATYA will initiate pairing and display a 6-character code on your TV screen."
+                    ),
+                }
+            # Unconfigured programmatic call fallback to simulated mode
+            dev["status"]["current_app"] = app_name or dev["status"].get("current_app", "Home")
+            if volume_pct is not None:
+                dev["status"]["volume_pct"] = volume_pct
+            self._save_devices()
+            return {
+                "ok": True,
+                "simulated": True,
+                "mode_label": "[SIMULATED ANDROID TV]",
+                "device": dev["name"],
+                "status": dev["status"],
+            }
+
         ok_auth, reason = self._check_device_auth(dev, f"tv_{act}")
         if not ok_auth:
             return {"ok": False, "error": reason}
 
-        # Check if local atvremote binary and pairing certs are available
-        home_dir = Path.home()
-        atv_bin = dev.get("atvremote_bin") or str(home_dir / "atvremote" / "atvremote")
-        if os.path.isdir(atv_bin):
-            atv_bin = str(Path(atv_bin) / "atvremote")
-        atv_cert = dev.get("cert_file") or str(home_dir / "atvremote" / "cert.pem")
-        atv_key = dev.get("key_file") or str(home_dir / "atvremote" / "key.pem")
-        atv_ip = dev.get("ip_address") or "192.168.1.200"
+        atv_cert = dev.get("cert_file") or str(DEFAULT_CERT_FILE)
+        atv_key = dev.get("key_file") or str(DEFAULT_KEY_FILE)
+        atv_ip = dev.get("ip_address", "").strip()
 
-        has_atvremote = (
-            os.path.exists(atv_bin)
-            and os.access(atv_bin, os.X_OK)
-            and os.path.exists(atv_cert)
-            and os.path.exists(atv_key)
-        )
-        TvControlCls = _get_tv_control_cls() if (os.path.exists(atv_cert) and os.path.exists(atv_key)) else None
-
-        def _exec_atv(extra_args: list[str]) -> subprocess.CompletedProcess:
-            base_cmd = [
-                atv_bin,
-                f"-ip={atv_ip}",
-                f"-cert={atv_cert}",
-                f"-key={atv_key}",
-                "-version=2",
-            ]
-            return subprocess.run(base_cmd + extra_args, capture_output=True, text=True, timeout=6)
-
-        # 1. Status / Info / Connect via real TvControl / atvremote
+        # 1. Status / Info / Connect via native AndroidTVController
         if act in ("status", "info", "connect"):
-            if TvControlCls:
-                try:
-                    import asyncio
-                    async def _query_status():
-                        tv = TvControlCls(host=atv_ip, cert=atv_cert, key=atv_key)
-                        ok = await tv.connect(timeout=4.0, settle=0.5)
-                        if not ok:
-                            tv.disconnect()
-                            return None
-                        is_on = tv.is_on
-                        pkg = tv.current_app
-                        app_label = _TV_APP_MAP.get(pkg, pkg or "Unknown")
-                        vol_cur, vol_max = tv.volume
+            try:
+                import asyncio
+                async def _query_status():
+                    tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                    ok = await tv.connect(timeout=4.0, settle=0.3)
+                    if not ok:
                         tv.disconnect()
-                        return {
-                            "is_on": is_on,
-                            "package": pkg,
-                            "current_app": app_label,
-                            "volume": vol_cur,
-                            "volume_max": vol_max,
-                        }
-                    res_status = asyncio.run(_query_status())
-                    if res_status:
-                        dev["status"]["power"] = "on" if res_status["is_on"] else "standby"
-                        dev["status"]["is_on"] = bool(res_status["is_on"])
-                        dev["status"]["current_app"] = res_status["current_app"]
-                        if res_status["volume"] is not None:
-                            dev["status"]["volume_pct"] = int(res_status["volume"])
-                        dev["connectivity"] = "online"
-                        self._save_devices()
-                        return {
-                            "ok": True,
-                            "simulated": False,
-                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                            "device": dev["name"],
-                            "status": dev["status"],
-                            "details": res_status,
-                        }
-                except Exception as exc:
-                    print(f"[DeviceManager] TvControl status query error: {exc}")
+                        return None
+                    st = tv.get_status_dict()
+                    tv.disconnect()
+                    return st
 
-            if has_atvremote:
-                try:
-                    proc = _exec_atv(["-info"])
-                    if proc.returncode == 0 and proc.stdout.strip():
-                        info_data = json.loads(proc.stdout.strip())
-                        pow_on = bool(info_data.get("powered", {}).get("powered", False))
-                        vol_info = info_data.get("volume", {})
-                        dev_info = info_data.get("device", {})
-                        dev["status"]["power"] = "on" if pow_on else "standby"
-                        dev["status"]["volume_pct"] = int(vol_info.get("level", dev["status"].get("volume_pct", 10)))
-                        dev["status"]["muted"] = bool(vol_info.get("muted", False))
-                        dev["status"]["model"] = f"{dev_info.get('vendor', 'Android')} {dev_info.get('model', 'TV')}"
-                        dev["connectivity"] = "online"
-                        self._save_devices()
-                        return {
-                            "ok": True,
-                            "simulated": False,
-                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                            "device": dev["name"],
-                            "status": dev["status"],
-                            "details": info_data,
-                        }
-                except Exception as exc:
-                    print(f"[DeviceManager] atvremote info error: {exc}")
-
-        adb_target = str(dev.get("adb_serial") or f"{dev.get('ip_address', '')}:5555").strip()
-        live_adb = False
-        if shutil.which("adb") and dev.get("connectivity") == "online":
-            live_adb = True
+                res_status = asyncio.run(_query_status())
+                if res_status:
+                    dev["status"]["power"] = res_status["power"]
+                    dev["status"]["is_on"] = res_status["is_on"]
+                    dev["status"]["current_app"] = res_status["current_app"]
+                    dev["status"]["volume_pct"] = res_status["volume_pct"]
+                    dev["connectivity"] = "online"
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "simulated": False,
+                        "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                        "device": dev["name"],
+                        "status": dev["status"],
+                        "details": res_status,
+                    }
+            except Exception as exc:
+                print(f"[DeviceManager] AndroidTVController status error: {exc}")
 
         # 2. Key navigation / remote button press / Power
         if act in ("key", "navigate", "power", "mute", "play_pause"):
             kname = (key_command or act).strip().lower()
             if kname == "power":
-                if TvControlCls:
-                    try:
-                        import asyncio
-                        async def _toggle_power():
-                            tv = TvControlCls(host=atv_ip, cert=atv_cert, key=atv_key)
-                            ok = await tv.connect(timeout=6.0, settle=0.5)
-                            if not ok:
-                                tv.disconnect()
-                                return False, False, "Failed to connect to TV."
-                            was_on = bool(tv.is_on)
-                            if not was_on:
-                                ok_pow = await tv.power_on(verify_seconds=20, poll=2.0, settle=2.0)
-                            else:
-                                ok_pow = await tv.power_off(verify_seconds=15, poll=2.0)
-                            now_on = bool(tv.is_on)
+                try:
+                    import asyncio
+                    async def _toggle_power():
+                        tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                        ok = await tv.connect(timeout=5.0, settle=0.3)
+                        if not ok:
                             tv.disconnect()
-                            return ok_pow, now_on, None
+                            return False, False, "Failed to connect to TV."
+                        was_on = bool(tv.is_on)
+                        if not was_on:
+                            ok_pow = await tv.power_on(verify_seconds=15)
+                        else:
+                            ok_pow = await tv.power_off(verify_seconds=10)
+                        now_on = bool(tv.is_on)
+                        tv.disconnect()
+                        return ok_pow, now_on, None
 
-                        ok_pow, now_on, err = asyncio.run(_toggle_power())
-                        dev["status"]["power"] = "on" if now_on else "standby"
-                        dev["status"]["is_on"] = now_on
-                        dev["connectivity"] = "online"
-                        self._save_devices()
-                        if not ok_pow and not now_on:
-                            return {
-                                "ok": False,
-                                "simulated": False,
-                                "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                                "device": dev["name"],
-                                "status": dev["status"],
-                                "error": f"Attempted to power ON {dev['name']}, but the TV screen did not turn on (remains in standby). Please check TV power socket/mains switch.",
-                            }
-                        return {
-                            "ok": True,
-                            "simulated": False,
-                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                            "device": dev["name"],
-                            "key": "power",
-                            "status": dev["status"],
-                            "message": f"{dev['name']} is now {'ON' if now_on else 'OFF (standby)'}.",
-                        }
-                    except Exception as exc:
-                        print(f"[DeviceManager] TvControl power error: {exc}")
+                    ok_pow, now_on, err = asyncio.run(_toggle_power())
+                    dev["status"]["power"] = "on" if now_on else "standby"
+                    dev["status"]["is_on"] = now_on
+                    dev["connectivity"] = "online"
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "simulated": False,
+                        "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                        "device": dev["name"],
+                        "key": "power",
+                        "status": dev["status"],
+                        "message": f"{dev['name']} is now {'ON' if now_on else 'OFF (standby)'}.",
+                    }
+                except Exception as exc:
+                    print(f"[DeviceManager] AndroidTVController power error: {exc}")
 
-                if has_atvremote:
-                    try:
-                        p = _exec_atv(["-command=PWR"])
-                        if p.returncode == 0:
-                            # Note: cannot verify physical power without TvControl feedback
-                            dev["status"]["power"] = "off" if dev["status"].get("power") == "on" else "on"
-                            dev["connectivity"] = "online"
-                            self._save_devices()
-                            return {
-                                "ok": True,
-                                "simulated": False,
-                                "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                                "device": dev["name"],
-                                "key": "power",
-                                "command": "PWR",
-                                "status": dev["status"],
-                            }
-                    except Exception as exc:
-                        print(f"[DeviceManager] atvremote power error: {exc}")
-
-            if TvControlCls and kname != "power":
+            else:
                 try:
                     import asyncio
                     async def _send_key():
-                        tv = TvControlCls(host=atv_ip, cert=atv_cert, key=atv_key)
-                        ok = await tv.connect(timeout=4.0, settle=0.5)
+                        tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                        ok = await tv.connect(timeout=4.0, settle=0.3)
                         if not ok:
                             tv.disconnect()
                             return False
-                        k_target = kname.upper()
-                        if k_target == "ENTER":
-                            k_target = "DPAD_CENTER"
-                        ok_k = await tv.key(k_target)
+                        ok_k = await tv.send_key(kname)
                         tv.disconnect()
                         return ok_k
+
                     ok_k = asyncio.run(_send_key())
                     if ok_k:
                         dev["status"]["last_key"] = kname
@@ -932,169 +932,61 @@ class ConnectedDeviceManager:
                             "device": dev["name"],
                             "key": kname,
                             "status": dev["status"],
+                            "message": f"Sent key '{kname}' to {dev['name']}.",
                         }
                 except Exception as exc:
-                    print(f"[DeviceManager] TvControl key error: {exc}")
-
-            atv_key_map = {
-                "power": "PWR",
-                "mute": "MUTE",
-                "volume_up": "VOLP",
-                "volume_down": "VOLM",
-                "home": "HOME",
-                "back": "BACK",
-                "up": "UP",
-                "down": "DOWN",
-                "left": "LEFT",
-                "right": "RIGHT",
-                "enter": "ENTER",
-                "select": "ENTER",
-                "play": "ENTER",
-                "pause": "ENTER",
-                "play_pause": "ENTER",
-            }
-            if has_atvremote and kname in atv_key_map:
-                try:
-                    p = _exec_atv([f"-command={atv_key_map[kname]}"])
-                    if p.returncode == 0:
-                        if kname == "power":
-                            dev["status"]["power"] = "off" if dev["status"].get("power") == "on" else "on"
-                        elif kname == "mute":
-                            dev["status"]["muted"] = not bool(dev["status"].get("muted", False))
-                        else:
-                            dev["status"]["last_key"] = kname
-                        dev["connectivity"] = "online"
-                        self._save_devices()
-                        return {
-                            "ok": True,
-                            "simulated": False,
-                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                            "device": dev["name"],
-                            "key": kname,
-                            "command": atv_key_map[kname],
-                            "status": dev["status"],
-                        }
-                except Exception as exc:
-                    print(f"[DeviceManager] atvremote key error: {exc}")
-
-            keycode = ANDROID_KEYCODES.get(kname, 23)
-            if live_adb:
-                subprocess.run(
-                    ["adb", "-s", adb_target, "shell", "input", "keyevent", str(keycode)],
-                    capture_output=True, text=True, timeout=4,
-                )
-            if kname == "power":
-                dev["status"]["power"] = "off" if dev["status"].get("power") == "on" else "on"
-            elif kname == "mute":
-                dev["status"]["muted"] = not bool(dev["status"].get("muted", False))
-            else:
-                dev["status"]["last_key"] = kname
-            self._save_devices()
-            return {
-                "ok": True,
-                "simulated": not live_adb,
-                "mode_label": "[LIVE ANDROID TV]" if live_adb else "[SIMULATED REDMI TV]",
-                "device": dev["name"],
-                "key": kname,
-                "keycode": keycode,
-                "status": dev["status"],
-            }
+                    print(f"[DeviceManager] AndroidTVController key error: {exc}")
 
         # 3. Volume control
         if act in ("set_volume", "volume"):
             vol = max(0, min(100, int(volume_pct if volume_pct is not None else 35)))
-            if TvControlCls:
-                try:
-                    import asyncio
-                    async def _adjust_volume():
-                        tv = TvControlCls(host=atv_ip, cert=atv_cert, key=atv_key)
-                        ok = await tv.connect(timeout=5.0, settle=0.5)
-                        if not ok:
-                            tv.disconnect()
-                            return None
-                        await tv.set_volume(vol)
-                        curr_vol, _ = tv.volume
+            try:
+                import asyncio
+                async def _adjust_volume():
+                    tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                    ok = await tv.connect(timeout=5.0, settle=0.3)
+                    if not ok:
                         tv.disconnect()
-                        return curr_vol
-                    res_vol = asyncio.run(_adjust_volume())
-                    if res_vol is not None:
-                        dev["status"]["volume_pct"] = int(res_vol)
-                        dev["connectivity"] = "online"
-                        self._save_devices()
-                        return {
-                            "ok": True,
-                            "simulated": False,
-                            "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
-                            "device": dev["name"],
-                            "volume_pct": dev["status"]["volume_pct"],
-                            "status": dev["status"],
-                            "message": f"Volume on {dev['name']} set to {dev['status']['volume_pct']}%.",
-                        }
-                except Exception as exc:
-                    print(f"[DeviceManager] TvControl volume error: {exc}")
+                        return None
+                    await tv.set_volume(vol)
+                    st = tv.get_status_dict()
+                    tv.disconnect()
+                    return st.get("volume_pct", vol)
 
-            dev["status"]["volume_pct"] = vol
-            if has_atvremote:
-                try:
-                    curr_vol = 10
-                    p_info = _exec_atv(["-info"])
-                    if p_info.returncode == 0 and p_info.stdout.strip():
-                        try:
-                            curr_vol = int(json.loads(p_info.stdout.strip()).get("volume", {}).get("level", 10))
-                        except Exception:
-                            pass
-                    diff = vol - curr_vol
-                    if diff != 0:
-                        cmd_k = "VOLP" if diff > 0 else "VOLM"
-                        steps = min(abs(diff), 30)
-                        key_seq = ";".join([cmd_k] * steps)
-                        _exec_atv([f"-command={key_seq}"])
+                res_vol = asyncio.run(_adjust_volume())
+                if res_vol is not None:
+                    dev["status"]["volume_pct"] = int(res_vol)
                     dev["connectivity"] = "online"
-                    dev["status"]["volume_pct"] = vol
                     self._save_devices()
                     return {
                         "ok": True,
                         "simulated": False,
                         "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
                         "device": dev["name"],
-                        "volume_pct": vol,
+                        "volume_pct": dev["status"]["volume_pct"],
                         "status": dev["status"],
-                        "message": f"Set volume on {dev['name']} to {vol}%.",
+                        "message": f"Volume on {dev['name']} set to {dev['status']['volume_pct']}%.",
                     }
-                except Exception as exc:
-                    print(f"[DeviceManager] atvremote volume error: {exc}")
-            self._save_devices()
-            return {
-                "ok": True,
-                "simulated": not live_adb,
-                "mode_label": "[LIVE ANDROID TV]" if live_adb else "[SIMULATED REDMI TV]",
-                "device": dev["name"],
-                "volume_pct": vol,
-                "status": dev["status"],
-            }
+            except Exception as exc:
+                print(f"[DeviceManager] AndroidTVController volume error: {exc}")
 
-        # 4. Launch TV App (YouTube, Netflix, Prime Video, VLC)
+        # 4. Launch TV App (YouTube, Netflix, Prime Video, VLC, etc.)
         if act == "launch_app":
             app_key = (app_name or "youtube").strip().lower().replace(" ", "_")
-            pkg = ANDROID_TV_APPS.get(app_key, app_key)
-            app_links = {
-                "youtube": "https://www.youtube.com",
-                "netflix": "https://www.netflix.com",
-                "prime_video": "https://www.amazon.com/gp/video",
-                "prime": "https://www.amazon.com/gp/video",
-            }
-            if has_atvremote:
-                try:
-                    if app_key in app_links:
-                        _exec_atv([f"-link={app_links[app_key]}"])
-                    elif app_key == "vlc":
-                        vlc_script = home_dir / "atvremote" / "launch_vlc_nav.py"
-                        if vlc_script.exists():
-                            venv_py = home_dir / "atvremote" / "androidtv-remote-env" / "bin" / "python"
-                            py_bin = str(venv_py) if venv_py.exists() else "python3"
-                            subprocess.Popen([py_bin, str(vlc_script)], cwd=str(home_dir / "atvremote"))
-                        else:
-                            _exec_atv(["-open=org.videolan.vlc/.gui.MainActivity"])
+            try:
+                import asyncio
+                async def _launch():
+                    tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                    ok = await tv.connect(timeout=4.0, settle=0.3)
+                    if not ok:
+                        tv.disconnect()
+                        return False
+                    ok_l = await tv.launch_app(app_key)
+                    tv.disconnect()
+                    return ok_l
+
+                ok_launch = asyncio.run(_launch())
+                if ok_launch:
                     dev["status"]["current_app"] = app_name or app_key
                     dev["status"]["power"] = "on"
                     dev["connectivity"] = "online"
@@ -1105,55 +997,55 @@ class ConnectedDeviceManager:
                         "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
                         "device": dev["name"],
                         "app": dev["status"]["current_app"],
-                        "package": pkg,
                         "status": dev["status"],
+                        "message": f"Launched {dev['status']['current_app']} on {dev['name']}.",
                     }
-                except Exception as exc:
-                    print(f"[DeviceManager] atvremote launch error: {exc}")
+            except Exception as exc:
+                print(f"[DeviceManager] AndroidTVController launch error: {exc}")
 
-            if live_adb:
-                subprocess.run(
-                    ["adb", "-s", adb_target, "shell", "monkey", "-p", pkg, "1"],
-                    capture_output=True, text=True, timeout=5,
-                )
-            dev["status"]["current_app"] = app_name or app_key
-            dev["status"]["power"] = "on"
-            self._save_devices()
-            return {
-                "ok": True,
-                "simulated": not live_adb,
-                "mode_label": "[LIVE ANDROID TV]" if live_adb else "[SIMULATED REDMI TV]",
-                "device": dev["name"],
-                "app": dev["status"]["current_app"],
-                "package": pkg,
-                "status": dev["status"],
-            }
-
-        # 4. Cast / Open Media URL on TV
+        # 5. Cast / Open Media URL on TV
         if act in ("cast_url", "open_url"):
             if not media_url:
                 return {"ok": False, "error": "media_url is required for cast_url."}
-            if live_adb:
-                subprocess.run(
-                    ["adb", "-s", adb_target, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", media_url],
-                    capture_output=True, text=True, timeout=6,
-                )
-            dev["status"]["last_url"] = media_url
-            dev["status"]["power"] = "on"
-            self._save_devices()
-            return {
-                "ok": True,
-                "simulated": not live_adb,
-                "mode_label": "[LIVE ANDROID TV]" if live_adb else "[SIMULATED REDMI TV]",
-                "device": dev["name"],
-                "media_url": media_url,
-                "status": dev["status"],
-            }
+            try:
+                import asyncio
+                async def _cast():
+                    tv = AndroidTVController(host=atv_ip, cert_file=atv_cert, key_file=atv_key)
+                    ok = await tv.connect(timeout=4.0, settle=0.3)
+                    if not ok:
+                        tv.disconnect()
+                        return False
+                    ok_c = await tv.launch_app(media_url)
+                    tv.disconnect()
+                    return ok_c
 
+                ok_cast = asyncio.run(_cast())
+                if ok_cast:
+                    dev["status"]["last_url"] = media_url
+                    dev["status"]["power"] = "on"
+                    dev["connectivity"] = "online"
+                    self._save_devices()
+                    return {
+                        "ok": True,
+                        "simulated": False,
+                        "mode_label": f"[LIVE ANDROID TV ({atv_ip})]",
+                        "device": dev["name"],
+                        "media_url": media_url,
+                        "status": dev["status"],
+                        "message": f"Casting URL to {dev['name']}.",
+                    }
+            except Exception as exc:
+                print(f"[DeviceManager] AndroidTVController cast error: {exc}")
+
+        # Simulated fallback if offline
+        dev["status"]["current_app"] = app_name or dev["status"].get("current_app", "Home")
+        if volume_pct is not None:
+            dev["status"]["volume_pct"] = volume_pct
+        self._save_devices()
         return {
             "ok": True,
-            "simulated": not live_adb,
-            "mode_label": "[LIVE ANDROID TV]" if live_adb else "[SIMULATED REDMI TV]",
+            "simulated": True,
+            "mode_label": "[SIMULATED ANDROID TV]",
             "device": dev["name"],
             "status": dev["status"],
         }
