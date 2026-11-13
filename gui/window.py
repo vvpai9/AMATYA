@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
     _hud_style_sig  = pyqtSignal(str)        # 'core' (Reactor Core) or 'face' (Animated Face)
+    _clock_fmt_sig  = pyqtSignal(str)        # '12h' or '24h' time format
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
@@ -403,6 +404,7 @@ class MainWindow(QMainWindow):
         self._confirm_sig.connect(self._show_confirm_banner)
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._hud_style_sig.connect(self._apply_hud_style)
+        self._clock_fmt_sig.connect(self._apply_clock_format)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._wake_btns_sig.connect(self._refresh_wake_btns)
@@ -1261,10 +1263,13 @@ class MainWindow(QMainWindow):
 
         clock_col = QVBoxLayout()
         clock_col.setSpacing(0)
-        self._clock_lbl = QLabel("00:00:00")
-        self._clock_lbl.setFont(px_font(22, QFont.Weight.Light, mono=True, spacing=1))
+        self._clock_lbl = QLabel("12:00:00 PM")
+        self._clock_lbl.setFont(px_font(21, QFont.Weight.Light, mono=True, spacing=1))
         self._clock_lbl.setStyleSheet(f"color: {C.WHITE}; background: transparent;")
         self._clock_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._clock_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clock_lbl.setToolTip("Click to toggle between 12-hour (AM/PM) and 24-hour format")
+        self._clock_lbl.mousePressEvent = lambda e: self._toggle_clock_format()
         clock_col.addWidget(self._clock_lbl)
         self._date_lbl = QLabel("")
         self._date_lbl.setFont(px_font(9, QFont.Weight.DemiBold, spacing=1.6))
@@ -1280,8 +1285,23 @@ class MainWindow(QMainWindow):
         return w
 
     def _tick_clock(self):
-        self._clock_lbl.setText(time.strftime("%H:%M:%S"))
-        self._date_lbl.setText(time.strftime("%a %d %b %Y"))
+        from memory.config_manager import get_clock_format
+        fmt = get_clock_format()
+        now = time.localtime()
+        tz_name = time.strftime("%Z", now) or "Local"
+        tz_offset = time.strftime("%z", now)
+        if tz_offset and len(tz_offset) == 5:
+            formatted_offset = f"UTC{tz_offset[:3]}:{tz_offset[3:]}"
+            tz_str = f"{tz_name} ({formatted_offset})"
+        else:
+            tz_str = tz_name
+
+        if fmt == "24h":
+            self._clock_lbl.setText(time.strftime("%H:%M:%S", now))
+        else:
+            self._clock_lbl.setText(time.strftime("%I:%M:%S %p", now))
+
+        self._date_lbl.setText(f"{time.strftime('%a %d %b %Y', now)} · {tz_str}")
 
     @staticmethod
     def _subtitle(display: str) -> str:
@@ -1701,6 +1721,10 @@ class MainWindow(QMainWindow):
         self._hud_btn = _row(QPushButton())
         self._hud_btn.clicked.connect(self._toggle_hud_style)
         self._refresh_hud_btn()
+
+        self._clock_btn = _row(QPushButton())
+        self._clock_btn.clicked.connect(self._toggle_clock_format)
+        self._refresh_clock_btn()
 
         w.adjustSize()
         return w
@@ -2535,6 +2559,31 @@ class MainWindow(QMainWindow):
         from memory.config_manager import get_hud_style
         want = "core" if get_hud_style() == "face" else "face"
         self._apply_hud_style(want)
+
+    def _refresh_clock_btn(self):
+        from memory.config_manager import get_clock_format
+        is_12h = get_clock_format() == "12h"
+        self._clock_btn.setText("⏰  CLOCK: 12-HOUR (AM/PM)" if is_12h else "⏰  CLOCK: 24-HOUR")
+        self._clock_btn.setStyleSheet(btn_css("choice"))
+        self._clock_btn.setToolTip(
+            "Clock format: 12-hour with AM/PM. Tap to switch to 24-hour format."
+            if is_12h else
+            "Clock format: 24-hour. Tap to switch to 12-hour format.")
+
+    def _toggle_clock_format(self):
+        """Swap clock between 12-hour (AM/PM) and 24-hour format."""
+        from memory.config_manager import get_clock_format
+        want = "24h" if get_clock_format() == "12h" else "12h"
+        self._apply_clock_format(want)
+
+    def _apply_clock_format(self, want: str):
+        from memory.config_manager import save_clock_format
+        target = "24h" if "24" in str(want).lower() else "12h"
+        save_clock_format(target)
+        self._tick_clock()
+        if hasattr(self, "_clock_btn"):
+            self._refresh_clock_btn()
+        self._log.append_log(f"SYS: HUD clock switched to {target.upper()} format.")
 
     def _toggle_ptt(self):
         from memory.config_manager import (get_push_to_talk_enabled,

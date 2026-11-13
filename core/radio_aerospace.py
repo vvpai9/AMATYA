@@ -49,13 +49,89 @@ def get_user_location() -> str:
 RADIO_CONFIG_FILE = CONFIG_DIR / "radio_state.json"
 
 CURATED_STATIONS = [
+    # ── Local & National Indian Stations (Karnataka, Dharwad & National) ───────
+    {
+        "id": "dharwad_vividh_bharati",
+        "name": "AIR Dharwad / Akashvani Vividh Bharati (Karnataka)",
+        "genre": "Local Kannada / Folk / News / Classical",
+        "country": "India (Karnataka / Dharwad)",
+        "bitrate": "128k",
+        "url": "https://airhlspush.pc.cdn.bitgravity.com/httppush/hlspbaudio030/hlspbaudio030_Auto.m3u8",
+        "aliases": ["dharwad", "akashvani dharwad", "air dharwad", "vividh bharati dharwad", "karnataka"],
+    },
+    {
+        "id": "air_vividh_bharati",
+        "name": "All India Radio — Vividh Bharati National (AIR VBS)",
+        "genre": "Golden Hits / Classic Bollywood / News",
+        "country": "India",
+        "bitrate": "128k",
+        "url": "http://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8",
+        "aliases": ["vividh bharati", "vividhbharati", "air vbs", "akashvani", "vbs"],
+    },
+    {
+        "id": "red_fm_india",
+        "name": "93.5 Red FM (Bajaate Raho!)",
+        "genre": "Superhits / Bollywood / Desi Pop",
+        "country": "India",
+        "bitrate": "128k",
+        "url": "https://stream-281.surfernetwork.com/9phrkb1e3v8uv",
+        "aliases": ["red fm", "redfm", "93.5", "bajaate raho"],
+    },
+    {
+        "id": "radio_mirchi",
+        "name": "Radio Mirchi 98.3 FM / Mirchi Top 20",
+        "genre": "Bollywood Top 20 / Regional Hits / Pop",
+        "country": "India",
+        "bitrate": "128k",
+        "url": "https://mirchiplaylive.akamaized.net/hls/live/2036929-b/MUM/CLUBMI_Auto.m3u8",
+        "aliases": ["radio mirchi", "radiomirchi", "mirchi", "98.3", "mirchi top 20"],
+    },
+    {
+        "id": "kle_dhwani",
+        "name": "KLE Dhwani 90.4 FM (Dharwad / Belagavi Community Radio)",
+        "genre": "Community Radio / Local Kannada / Education / Dharwad",
+        "country": "India (Karnataka / Dharwad)",
+        "bitrate": "128k",
+        "url": "https://stream.zeno.fm/bbs8prb015quv",
+        "aliases": ["kle dhwani", "kledhwani", "kle", "dhwani", "kle 90.4", "bvb"],
+    },
+    {
+        "id": "air_rainbow_kannada",
+        "name": "AIR FM Rainbow Bangalore / Karnataka",
+        "genre": "Kannada Hits / Current Affairs / Pop",
+        "country": "India (Karnataka)",
+        "bitrate": "128k",
+        "url": "https://air.pc.cdn.bitgravity.com/air/live/pbaudio031/playlist.m3u8",
+        "aliases": ["fm rainbow", "air rainbow", "rainbow kannada", "bangalore"],
+    },
+    {
+        "id": "amruthavarshini",
+        "name": "Amruthavarshini Classical FM (Karnataka)",
+        "genre": "Carnatic Classical / Indian Classical",
+        "country": "India (Karnataka)",
+        "bitrate": "128k",
+        "url": "https://airhlspush.pc.cdn.bitgravity.com/httppush/hlspbaudio028/hlspbaudio028_Auto.m3u8",
+        "aliases": ["amruthavarshini", "carnatic", "classical kannada"],
+    },
+    {
+        "id": "radio_city_kannada",
+        "name": "Radio City Kannada",
+        "genre": "Sandalwood Hits / Kannada Pop",
+        "country": "India (Karnataka)",
+        "bitrate": "128k",
+        "url": "https://stream.zeno.fm/6quh1pfnt1duv",
+        "aliases": ["radio city", "radiocity", "city kannada", "sandalwood"],
+    },
+
+    # ── Curated Global Classic & News Stations ──────────────────────────────────
     {
         "id": "bbc_world",
         "name": "BBC World Service",
-        "genre": "News / Talk",
+        "genre": "News / Global Talk",
         "country": "United Kingdom",
         "bitrate": "128k",
         "url": "https://stream.live.vc.bbcmedia.co.uk/bbc_world_service",
+        "aliases": ["bbc", "bbc world", "bbc news"],
     },
     {
         "id": "npr_news",
@@ -64,6 +140,7 @@ CURATED_STATIONS = [
         "country": "United States",
         "bitrate": "128k",
         "url": "https://npr-ice.streamguys1.com/live.mp3",
+        "aliases": ["npr", "npr news"],
     },
     {
         "id": "classic_fm",
@@ -72,14 +149,16 @@ CURATED_STATIONS = [
         "country": "United Kingdom",
         "bitrate": "128k",
         "url": "https://media-ice.musicradio.com/ClassicFMMP3",
+        "aliases": ["classic fm", "classicfm"],
     },
     {
         "id": "lofi_girl",
         "name": "Lofi Chill Radio",
-        "genre": "Lofi / Beats",
+        "genre": "Lofi / Beats / Chillhop",
         "country": "Global",
         "bitrate": "192k",
         "url": "https://streams.ilovemusic.de/iloveradio17.mp3",
+        "aliases": ["lofi", "chill", "beats"],
     },
     {
         "id": "somafm_groovesalad",
@@ -88,6 +167,7 @@ CURATED_STATIONS = [
         "country": "United States",
         "bitrate": "128k",
         "url": "https://ice1.somafm.com/groovesalad-128-mp3",
+        "aliases": ["somafm", "groove salad", "ambient"],
     },
     {
         "id": "jazz24",
@@ -96,22 +176,7 @@ CURATED_STATIONS = [
         "country": "United States",
         "bitrate": "128k",
         "url": "https://live.wostreaming.net/manifest/knkx-jazz24mp3-ibc2",
-    },
-    {
-        "id": "swiss_classic",
-        "name": "Radio Swiss Classic",
-        "genre": "Classical",
-        "country": "Switzerland",
-        "bitrate": "128k",
-        "url": "https://stream.srg-ssr.ch/m/rsc_de/mp3_128",
-    },
-    {
-        "id": "kexp",
-        "name": "KEXP 90.3 FM Seattle",
-        "genre": "Indie / Alternative",
-        "country": "United States",
-        "bitrate": "128k",
-        "url": "https://kexp.streamguys1.com/kexp128.mp3",
+        "aliases": ["jazz", "jazz24"],
     },
 ]
 
@@ -124,48 +189,60 @@ _CURRENT_VOLUME: int = 80
 # ── Radio Discovery & Streaming ───────────────────────────────────────────────
 
 def search_radio_stations(query: str = "", limit: int = 15) -> list[dict[str, Any]]:
-    """Discover radio stations via Radio Browser API with fallback to curated stations."""
+    """Discover radio stations via Radio Browser API with smart prioritization for local stations."""
     clean_q = (query or "").strip().lower()
+    is_local_req = clean_q in ("", "all", "local", "stations", "radio", "nearby", "fm", "india", "karnataka", "dharwad")
 
-    if clean_q:
-        # Check curated first
-        matched_curated = [
-            s for s in CURATED_STATIONS
-            if clean_q in s["name"].lower() or clean_q in s["genre"].lower() or clean_q in s["country"].lower()
-        ]
-    else:
+    matched_curated: list[dict[str, Any]] = []
+    if is_local_req:
+        # Prioritize local Indian / Karnataka / Dharwad stations first!
         matched_curated = list(CURATED_STATIONS)
+    else:
+        for s in CURATED_STATIONS:
+            s_name = s.get("name", "").lower()
+            s_genre = s.get("genre", "").lower()
+            s_country = s.get("country", "").lower()
+            aliases = [a.lower() for a in s.get("aliases", [])]
+            if clean_q in s_name or clean_q in s_genre or clean_q in s_country or any(clean_q in a or a in clean_q for a in aliases):
+                matched_curated.append(s)
 
     # Online search via Radio Browser open API
     online_results: list[dict[str, Any]] = []
-    if clean_q:
-        encoded = urllib.parse.quote(clean_q)
-        api_url = f"https://de1.api.radio-browser.info/json/stations/byname/{encoded}?limit={limit}"
+    queries_to_try = []
+    if is_local_req:
+        queries_to_try = [
+            "https://de1.api.radio-browser.info/json/stations/bylanguage/kannada?limit=8",
+            "https://de1.api.radio-browser.info/json/stations/bycountry/India?limit=10",
+        ]
     else:
-        api_url = f"https://de1.api.radio-browser.info/json/stations/topvote/{limit}"
+        encoded = urllib.parse.quote(clean_q)
+        queries_to_try = [
+            f"https://de1.api.radio-browser.info/json/stations/byname/{encoded}?limit={limit}",
+        ]
 
-    try:
-        req = urllib.request.Request(
-            api_url,
-            headers={"User-Agent": "AMATYA-Radio/1.0 (Open-Source Intelligence Assistant)"},
-        )
-        with urllib.request.urlopen(req, timeout=4.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if isinstance(data, list):
-                for item in data:
-                    name = item.get("name", "").strip()
-                    url = item.get("url_resolved") or item.get("url")
-                    if name and url and url.startswith("http"):
-                        online_results.append({
-                            "id": item.get("stationuuid", name.lower().replace(" ", "_")),
-                            "name": name,
-                            "genre": item.get("tags", "General")[:40] or "General",
-                            "country": item.get("country", "Global"),
-                            "bitrate": f"{item.get('bitrate', 128)}k",
-                            "url": url,
-                        })
-    except Exception:
-        pass
+    for api_url in queries_to_try:
+        try:
+            req = urllib.request.Request(
+                api_url,
+                headers={"User-Agent": "AMATYA-Radio/1.0 (Open-Source Intelligence Assistant)"},
+            )
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        name = item.get("name", "").strip()
+                        url = item.get("url_resolved") or item.get("url")
+                        if name and url and url.startswith("http"):
+                            online_results.append({
+                                "id": item.get("stationuuid", name.lower().replace(" ", "_")),
+                                "name": name,
+                                "genre": item.get("tags", "General")[:40] or "General",
+                                "country": item.get("country", "Global"),
+                                "bitrate": f"{item.get('bitrate', 128)}k",
+                                "url": url,
+                            })
+        except Exception:
+            pass
 
     # Combine: curated first, then unique online results
     seen_urls = set()

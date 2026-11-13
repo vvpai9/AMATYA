@@ -1124,6 +1124,23 @@ def computer_settings(
         label = "3-D Reactor Core" if target == "core" else "Animated Face"
         return outcome.done("computer_settings", result=f"HUD centrepiece switched to {label}.")
 
+    if action in ("clock_format", "set_clock_format", "toggle_clock", "time_format"):
+        raw_val = str(value if value is not None else description or "").strip().lower()
+        if not raw_val:
+            from memory.config_manager import get_clock_format
+            target = "24h" if get_clock_format() == "12h" else "12h"
+        elif "24" in raw_val:
+            target = "24h"
+        else:
+            target = "12h"
+        if player is not None and hasattr(player, "set_clock_format"):
+            player.set_clock_format(target)
+        else:
+            from memory.config_manager import save_clock_format
+            save_clock_format(target)
+        label = "24-Hour" if target == "24h" else "12-Hour (AM/PM)"
+        return outcome.done("computer_settings", result=f"HUD clock format set to {label}.")
+
     if action == "volume_set":
         try:
             target = int(value if value is not None else 50)
@@ -1297,7 +1314,7 @@ TOOL = {
                     "type_text | screenshot | lock_screen | open_settings | "
                     "file_explorer | open_run | dark_mode | toggle_wifi | "
                     "restart | shutdown | amatya_sleep | system_hud | "
-                    "get_time | text_only_mode | voice_mode | hud_style"
+                    "get_time | text_only_mode | voice_mode | hud_style | clock_format"
                 )
             },
             "confirmed": {

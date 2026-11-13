@@ -392,3 +392,13 @@ class JarvisUI:
         from memory.config_manager import get_hud_style
         want = "core" if get_hud_style() == "face" else "face"
         self._win._hud_style_sig.emit(want)
+
+    def set_clock_format(self, fmt: str) -> None:
+        """Thread-safe: switch HUD clock format between '12h' (AM/PM) and '24h'."""
+        self._win._clock_fmt_sig.emit(str(fmt))
+
+    def toggle_clock_format(self) -> None:
+        """Thread-safe: toggle HUD clock between 12-hour and 24-hour formats."""
+        from memory.config_manager import get_clock_format
+        want = "24h" if get_clock_format() == "12h" else "12h"
+        self._win._clock_fmt_sig.emit(want)

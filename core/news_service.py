@@ -412,14 +412,20 @@ def generate_news_briefing(
         th.start()
 
     # In parallel, check global outages
-    outage_th = threading.Thread(target=check_all_outages, daemon=True)
+    scan_res = {}
+    def _run_scan():
+        nonlocal scan_res
+        scan_res = check_all_outages()
+
+    outage_th = threading.Thread(target=_run_scan, daemon=True)
     outage_th.start()
 
     for th in threads:
         th.join(timeout=5.0)
-    outage_th.join(timeout=3.0)
+    outage_th.join(timeout=4.0)
 
-    active_outages = get_current_outages()
+    services_map = scan_res.get("services", {})
+    active_outages = scan_res.get("active_outages", [])
 
     # Build Markdown HUD Briefing
     period_label = period.replace("_", " ").title()
@@ -428,17 +434,31 @@ def generate_news_briefing(
         f"# 🌍 AMATYA {period_label} Intelligence Briefing",
         f"**Date:** `{now_str}` | **Regional Scope:** `{location}`",
         "---",
+        "## 📡 Global Service Outages & Cloud Infrastructure",
     ]
 
-    # Global Outages section at the top of HUD
     if active_outages:
-        md_lines.append("## ⚠️ Live Global Service Outages")
         for o in active_outages:
             dur = o.get("duration_str") or "Just detected"
-            md_lines.append(f"- **{o['service']} ({o['domain']}):** DOWN for **{dur}** ({o.get('error', 'Unreachable')})")
+            md_lines.append(f"> ⚠️ **OUTAGE DETECTED:** **{o['service']} ({o['domain']})** is **DOWN** for **{dur}** ({o.get('error', 'Unreachable')})")
+        md_lines.append("")
+    else:
+        md_lines.append("> 🟢 **All Monitored Global Services Operational (Zero Outages Detected)**")
+        md_lines.append("")
+
+    # Full Telemetry Table
+    if services_map:
+        md_lines.append("| Monitored Platform | Domain / Endpoint | Status | Latency | Outage Duration |")
+        md_lines.append("| :--- | :--- | :--- | :--- | :--- |")
+        for s_name in sorted(services_map.keys()):
+            item = services_map[s_name]
+            is_up = item.get("is_up", True)
+            status_badge = "🟢 Operational" if is_up else "🔴 OUTAGE"
+            lat = f"{item.get('latency_ms', 0):.1f} ms" if is_up else "Timeout"
+            dur = item.get("duration_str", "None") if not is_up else "None"
+            md_lines.append(f"| **{s_name}** | `{item.get('domain', '')}` | {status_badge} | {lat} | {dur} |")
         md_lines.append("---")
     else:
-        md_lines.append("## 🟢 Infrastructure Health: All Monitored Global Services Operational")
         md_lines.append("---")
 
     # Topic Sections
