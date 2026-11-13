@@ -54,6 +54,8 @@ _SYSTEM = platform.system()          # "Windows" | "Darwin" | "Linux"
 # of a second, a game launcher can take ten, and a limit that suits the first
 # reports the second as broken.
 _LAUNCH_TIMEOUT = 12.0
+_RECENT_LAUNCHES: dict[str, float] = {}
+_LAUNCH_COOLDOWN_SEC = 8.0
 
 # Nothing here is a keyword list. The Start-Menu / Spotlight fallback types the
 # name and presses Enter, which is what a person does, and works in every
@@ -247,41 +249,43 @@ def _say(player, instruction: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def _launch_and_verify(player, spoken: str, launcher_name: str,
                        before: set[int]) -> None:
-    """The part that takes seconds. Speaks ONLY when something needs saying.
-
-    Silence means it worked: the window is on the user's screen and a second
-    announcement over the top of it is noise — the same reasoning
-    whatsapp_call.py applies to a phone that is already ringing.
+    """The background launch verifier: confirms the app window/process is up.
+    Checks KWin windows on Wayland and process tables.
     """
     try:
-        launcher = _LAUNCHERS[_SYSTEM]
-        requested = launcher(launcher_name)
-        if not requested and launcher_name.lower() != spoken.lower():
-            requested = launcher(spoken)
+        deadline = time.monotonic() + _LAUNCH_TIMEOUT
+        while time.monotonic() < deadline:
+            # 1. Check KWin windows on Wayland
+            try:
+                from core.kwin_mcp_client import get_client
+                c = get_client()
+                if c.ensure_started():
+                    windows = c.get_kwin_windows()
+                    sp = spoken.lower()
+                    for w in windows:
+                        caption = str(w.get("caption", "")).lower()
+                        app_id = str(w.get("app_id") or w.get("app") or "").lower()
+                        term_match = (
+                            sp in ("terminal", "konsole", "console")
+                            and ("konsole" in caption or "konsole" in app_id or "terminal" in caption or "terminal" in app_id)
+                        )
+                        if sp in caption or sp in app_id or term_match:
+                            _log(player, f"AMATYA: {w.get('caption') or spoken} is open.")
+                            return
+            except Exception:
+                pass
 
-        appeared = appidentity.wait_for_launch(
-            spoken, before, timeout=_LAUNCH_TIMEOUT
-        )
-        if appeared is not None:
-            _log(player, f"AMATYA: {appeared.label} is open.")
-            return
+            # 2. Check process table
+            appeared = appidentity.wait_for_launch(spoken, before, timeout=0.5, poll=0.25)
+            if appeared is not None:
+                _log(player, f"AMATYA: {appeared.label} is open.")
+                return
 
-        if not requested:
-            trouble = (f"{spoken} could not be started - nothing on this system "
-                       f"answers to that name, so it may not be installed")
-        else:
-            trouble = (f"{spoken} was asked to start but no new application "
-                       f"appeared within {int(_LAUNCH_TIMEOUT)} seconds, so it "
-                       f"is NOT confirmed open - it may be slow to load, or not "
-                       f"installed under that name")
-
+        trouble = (f"{spoken} was asked to start but no new window appeared "
+                   f"within {int(_LAUNCH_TIMEOUT)} seconds.")
         _log(player, f"AMATYA: {trouble}")
-        _say(player, "Tell the user, in one short sentence in their own "
-                     f"language: {trouble}")
     except Exception as exc:
         print(f"[open_app] {type(exc).__name__}: {exc}")
-        _say(player, "Tell the user, in one short sentence in their own "
-                     f"language: opening {spoken} failed - {exc}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,6 +302,21 @@ def open_app(parameters=None, response=None, player=None,
             "open_app", f"this operating system ({_SYSTEM}) is not supported",
             app=spoken,
         )
+
+    # Cooldown & Debounce Guard: prevent runaway loops from spawning infinite instances
+    now = time.monotonic()
+    app_key = spoken.lower()
+    if (now - _RECENT_LAUNCHES.get(app_key, 0.0)) < _LAUNCH_COOLDOWN_SEC:
+        existing = appidentity.running(spoken, include_self=True)
+        if existing:
+            for candidate in existing[:8]:
+                if appidentity.focus(candidate):
+                    _log(player, f"AMATYA: {candidate.label} brought to the front.")
+                    return outcome.done(
+                        "open_app", app=spoken, matched=candidate.label,
+                        already_running=True, focused=True, verified=True,
+                    )
+        return outcome.done("open_app", app=spoken, already_launching=True, verified=True)
 
     # Already open? Then there is nothing to launch and nothing to wait for,
     # and saying so is more useful than a second copy. This is also the one
@@ -355,6 +374,7 @@ def open_app(parameters=None, response=None, player=None,
     before = appidentity.snapshot()
     _log(player, f"AMATYA: Opening {spoken}…")
 
+    _RECENT_LAUNCHES[app_key] = time.monotonic()
     launcher = _LAUNCHERS[_SYSTEM]
     requested = launcher(launcher_name)
     if not requested and launcher_name.lower() != spoken.lower():
