@@ -280,7 +280,60 @@ def fetch_topic_news(topic: str, location: str = "") -> list[dict[str, str]]:
     return articles[:4]
 
 
-# ── Outage Monitor (Statuspage APIs, HTTP Probes & Breaking Incidents) ───────
+# ── Outage Monitor (Statuspage APIs, Downdetector, HTTP Probes & Incidents) ──
+
+def fetch_downdetector_outages() -> list[dict[str, Any]]:
+    """Scan Downdetector incident reports and trending user disruption alerts."""
+    incidents = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    # 1. Google News Downdetector search
+    try:
+        url = "https://news.google.com/rss/search?q=Downdetector+outage+OR+down&hl=en-US&gl=US&ceid=US:en"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            root = ET.fromstring(resp.read())
+            for it in root.findall(".//item")[:15]:
+                title = it.find("title").text if it.find("title") is not None else ""
+                link = it.find("link").text if it.find("link") is not None else ""
+                pubDate = it.find("pubDate").text if it.find("pubDate") is not None else ""
+                if any(w in title.lower() for w in ("outage", "down", "disruption", "issues", "problem", "glitch", "recovers")):
+                    incidents.append({
+                        "title": title,
+                        "link": link,
+                        "source": "Downdetector / Media",
+                        "pubDate": pubDate,
+                    })
+    except Exception as exc:
+        print(f"[NewsService] Downdetector RSS error: {exc}")
+
+    # 2. DDGS News search
+    try:
+        from ddgs import DDGS
+        ddgs = DDGS()
+        for r in ddgs.news("downdetector outage down", max_results=8):
+            incidents.append({
+                "title": r.get("title", ""),
+                "link": r.get("url", ""),
+                "source": r.get("source", "Downdetector"),
+                "pubDate": r.get("date", ""),
+            })
+    except Exception:
+        pass
+
+    # Deduplicate
+    unique = []
+    seen = set()
+    for inc in incidents:
+        t = re.sub(r"[^a-zA-Z0-9 ]", "", inc["title"].lower())
+        short = " ".join(t.split()[:5])
+        if short and short not in seen:
+            seen.add(short)
+            unique.append(inc)
+
+    return unique
+
 
 def fetch_trending_outages() -> list[dict[str, str]]:
     """Scan news feeds for breaking and active global cloud/service outages."""
@@ -406,7 +459,7 @@ def _format_duration(seconds: int) -> str:
 
 
 def check_all_outages() -> dict[str, Any]:
-    """Scan all major monitored services in parallel and retrieve trending incidents."""
+    """Scan all major monitored services in parallel and retrieve trending & Downdetector incidents."""
     results = {}
     threads = []
 
@@ -418,22 +471,31 @@ def check_all_outages() -> dict[str, Any]:
         threads.append(t)
         t.start()
 
-    # Fetch trending incidents in parallel
+    # Fetch trending and Downdetector incidents in parallel
     trending_incidents = []
+    downdetector_incidents = []
+
     def _fetch_trend():
         nonlocal trending_incidents
         trending_incidents = fetch_trending_outages()
 
-    trend_th = threading.Thread(target=_fetch_trend, daemon=True)
-    trend_th.start()
+    def _fetch_dd():
+        nonlocal downdetector_incidents
+        downdetector_incidents = fetch_downdetector_outages()
 
-    deadline = time.time() + 3.8
+    trend_th = threading.Thread(target=_fetch_trend, daemon=True)
+    dd_th = threading.Thread(target=_fetch_dd, daemon=True)
+    trend_th.start()
+    dd_th.start()
+
+    deadline = time.time() + 4.0
     for t in threads:
         rem = max(0.02, deadline - time.time())
         t.join(timeout=rem)
 
-    rem_trend = max(0.02, deadline - time.time())
-    trend_th.join(timeout=rem_trend)
+    rem_extra = max(0.02, deadline - time.time())
+    trend_th.join(timeout=rem_extra)
+    dd_th.join(timeout=rem_extra)
 
     # Any service that didn't complete within timeout is considered timed out / degraded
     for name, domain in MONITORED_SERVICES.items():
@@ -449,6 +511,40 @@ def check_all_outages() -> dict[str, Any]:
                 "duration_str": "Just detected",
                 "error": "Connection timed out (>3.8s)",
             }
+
+    # Correlate Downdetector alerts with monitored services
+    SERVICE_KEYWORDS = {
+        "Outlook / Hotmail": ["outlook", "hotmail", "exchange", "msn"],
+        "Microsoft 365": ["microsoft 365", "office 365", "m365", "microsoft office"],
+        "Microsoft Copilot": ["copilot"],
+        "OneDrive": ["onedrive"],
+        "Anthropic Claude": ["claude", "anthropic"],
+        "OpenAI": ["chatgpt", "openai"],
+        "AWS": ["aws", "amazon web services", "amazon cloud"],
+        "Cloudflare": ["cloudflare"],
+        "GitHub": ["github"],
+        "Discord": ["discord"],
+        "Reddit": ["reddit"],
+        "WhatsApp": ["whatsapp"],
+        "X / Twitter": ["twitter", " x down", " x outage", "grok"],
+        "YouTube": ["youtube"],
+        "Google": ["google", "gmail", "google drive"],
+        "Wikipedia": ["wikipedia"],
+    }
+
+    for svc_name, kws in SERVICE_KEYWORDS.items():
+        if svc_name in results:
+            for inc in downdetector_incidents:
+                t_lower = inc["title"].lower()
+                if any(kw in t_lower for kw in kws) and any(w in t_lower for w in ("down", "outage", "disruption", "issues", "problem")):
+                    curr = results[svc_name]
+                    curr["downdetector_alert"] = True
+                    curr["downdetector_headline"] = inc["title"]
+                    curr["downdetector_link"] = inc.get("link", "")
+                    curr["is_up"] = False
+                    curr["status"] = "OUTAGE (Downdetector)"
+                    curr["error"] = f"Downdetector: {inc['title']}"
+                    break
 
     active_outages = [item for item in results.values() if not item.get("is_up")]
     degraded = [item for item in results.values() if item.get("is_up") and item.get("status") == "DEGRADED"]
@@ -466,6 +562,7 @@ def check_all_outages() -> dict[str, Any]:
         "active_outages": active_outages,
         "degraded_services": degraded,
         "trending_incidents": trending_incidents,
+        "downdetector_incidents": downdetector_incidents,
         "services": results,
     }
 
@@ -524,6 +621,7 @@ def generate_news_briefing(
     active_outages = scan_res.get("active_outages", [])
     degraded_services = scan_res.get("degraded_services", [])
     trending_incidents = scan_res.get("trending_incidents", [])
+    downdetector_incidents = scan_res.get("downdetector_incidents", [])
 
     # Build Markdown HUD Briefing
     period_label = period.replace("_", " ").title()
@@ -534,8 +632,8 @@ def generate_news_briefing(
         "---",
     ]
 
-    if active_outages or degraded_services or trending_incidents:
-        md_lines.append("## 📡 Global Cloud & Service Outages")
+    if active_outages or degraded_services or trending_incidents or downdetector_incidents:
+        md_lines.append("## 📡 Global Cloud & Service Outages (Downdetector & Telemetry)")
         if active_outages:
             for o in active_outages:
                 dur = o.get("duration_str") or "Just detected"
@@ -543,6 +641,18 @@ def generate_news_briefing(
         if degraded_services:
             for d in degraded_services:
                 md_lines.append(f"> 🟡 **SERVICE DEGRADED:** **{d['service']} ({d['domain']})** — *{d.get('error', 'Performance degraded')}*")
+        if downdetector_incidents:
+            md_lines.append("")
+            md_lines.append("**Downdetector Outage Reports:**")
+            for inc in downdetector_incidents[:3]:
+                title = inc.get("title", "")
+                link = inc.get("link", "")
+                source = inc.get("source", "Downdetector")
+                pub = f" ({inc['pubDate']})" if inc.get("pubDate") else ""
+                if link:
+                    md_lines.append(f"• **[{title}]({link})** — *{source}*{pub}")
+                else:
+                    md_lines.append(f"• **{title}** — *{source}*{pub}")
         if trending_incidents:
             md_lines.append("")
             md_lines.append("**Breaking Outage Reports:**")
@@ -614,7 +724,11 @@ def generate_news_briefing(
         top_slice = speech_headlines[:4]
         outage_speech = ""
         if active_outages:
-            outage_speech = f" Note: global outage detected for {', '.join(o['service'] for o in active_outages[:2])}."
+            dd_names = [o['service'] for o in active_outages if o.get("downdetector_alert")]
+            if dd_names:
+                outage_speech = f" Note: Downdetector reports outages for {', '.join(dd_names[:2])}."
+            else:
+                outage_speech = f" Note: global outage detected for {', '.join(o['service'] for o in active_outages[:2])}."
         elif degraded_services:
             outage_speech = f" Note: service degradation reported for {', '.join(d['service'] for d in degraded_services[:2])}."
         spoken = f"Here is your {period} news briefing, sir. " + ". ".join(top_slice) + "." + outage_speech

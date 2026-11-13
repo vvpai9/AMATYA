@@ -83,6 +83,30 @@ class TestNewsAndOutages(unittest.TestCase):
         res_outage = registry.run("news_briefing", {"check_outages_only": True})
         self.assertTrue("operational" in res_outage.lower() or "alert" in res_outage.lower())
 
+    def test_07_downdetector_outage_fetch(self):
+        """Verify Downdetector incident fetching and correlation."""
+        incidents = news_service.fetch_downdetector_outages()
+        self.assertIsInstance(incidents, list)
+        if incidents:
+            first = incidents[0]
+            self.assertIn("title", first)
+            self.assertIn("source", first)
+
+    def test_08_flightradar24_integration(self):
+        """Verify Flightradar24 overhead airspace and flight trajectory tracking."""
+        from core import radio_aerospace
+        # Overhead flights
+        overhead = radio_aerospace.get_overhead_flights(user_lat=12.9187, user_lon=74.8598, radius_deg=2.0)
+        self.assertIsInstance(overhead, list)
+        self.assertGreater(len(overhead), 0)
+        self.assertIn("callsign", overhead[0])
+
+        # Track flight query
+        tr = radio_aerospace.track_flight("AI101")
+        self.assertTrue(tr.get("found"))
+        self.assertIn("callsign", tr)
+        self.assertIn(tr.get("source"), ("Flightradar24", "OpenSky Network", "Estimated Trajectory"))
+
 
 if __name__ == "__main__":
     unittest.main()
