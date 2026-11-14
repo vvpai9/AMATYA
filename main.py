@@ -345,6 +345,26 @@ def _load_system_prompt() -> str:
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
 
+_SILENCE_STAGE_RE = re.compile(
+    r"^\s*[\(\*\[].*?(?:remains?\s+silent|silence|quiet|stays?\s+silent|no\s+speech|silent).*?[\)\*\]]\s*$",
+    re.IGNORECASE,
+)
+_STAGE_DIRECTION_INLINE_RE = re.compile(
+    r"[\(\*\[]\s*(?:remains?\s+silent|silence|quiet|stays?\s+silent|no\s+speech)[^\)\*\]]*[\)\*\]]",
+    re.IGNORECASE,
+)
+
+
+def _is_silence_stage_direction(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip()
+    if _SILENCE_STAGE_RE.match(t):
+        return True
+    cleaned = _STAGE_DIRECTION_INLINE_RE.sub("", t).strip()
+    return len(cleaned) == 0
+
+
 # Transcript chunks shorter than this may legitimately repeat ("evet, evet"),
 # so only longer ones are treated as duplicates.
 _REPEAT_MIN = 12
@@ -811,6 +831,22 @@ class AmatyaLive:
         self.set_speaking(False)
         self.ui.set_state("SLEEPING")
         self.ui.write_log(f"SYS: Sleeping — {reason}. Say 'Hey Amatya' to wake me.")
+        # Ensure wake detector is running so AMATYA can be awakened by voice
+        self._wake_enabled = True
+        self._ensure_wake_detector()
+        # Drain audio queues to ensure no buffered audio streams mid-sleep
+        if self.out_queue:
+            while not self.out_queue.empty():
+                try:
+                    self.out_queue.get_nowait()
+                except Exception:
+                    break
+        if self.audio_in_queue:
+            while not self.audio_in_queue.empty():
+                try:
+                    self.audio_in_queue.get_nowait()
+                except Exception:
+                    break
 
     async def _run_sleep_watch(self) -> None:
         """Auto-sleep after the configured silence window (wake-word mode only)."""
@@ -1768,17 +1804,16 @@ class AmatyaLive:
         _HANGOVER_SEC = 0.35                     # keep stream open briefly after words end (snappy turnaround)
 
         def callback(indata, frames, time_info, status):
-            # ── Wake-word gate ───────────────────────────────────────────────
+            # ── Sleep / Wake-word gate ───────────────────────────────────────
             # While asleep, the mic audio NEVER goes to Gemini (nothing is
             # streamed, so AMATYA can't respond to speech not addressed to it and
             # nothing leaves the machine). Frames are instead handed to the local
-            # detector, which runs its model in ITS OWN thread — the cost here is
-            # only a queue push, so the audio path is never slowed. When wake word
-            # is off (default) or we're awake, this is a single boolean check.
-            if self._wake_enabled and not self._awake:
-                det = self._wake_detector
-                if det is not None:
-                    det.feed(indata)
+            # detector if active.
+            if not self._awake:
+                if self._wake_enabled or self._wake_detector is not None:
+                    det = self._wake_detector
+                    if det is not None:
+                        det.feed(indata)
                 return
             with self._speaking_lock:
                 amatya_speaking = self._is_speaking
@@ -1982,19 +2017,14 @@ class AmatyaLive:
 
                         if sc.output_transcription and sc.output_transcription.text:
                             txt = _clean_transcript(sc.output_transcription.text)
-                            # A turn that involves a tool call passes through
-                            # several turn_completes, and the API re-sends the
-                            # tail of the transcript across them. Comparing only
-                            # against the previous chunk missed that — once
-                            # out_buf had been flushed and emptied, the repeat
-                            # sailed straight back in, which logged the answer
-                            # twice AND made the avatar mouth it twice.
+                            if _is_silence_stage_direction(txt):
+                                self.interrupt()
+                                txt = ""
+                            elif txt:
+                                txt = _STAGE_DIRECTION_INLINE_RE.sub("", txt).strip()
+
                             if txt and not _is_repeat_chunk(txt, out_buf):
                                 out_buf.append(txt)
-                                # Hand the words to the mouth as they arrive, so
-                                # the avatar can form the consonants the audio
-                                # alone cannot show. Pure string work — it adds
-                                # nothing measurable to the response path.
                                 self._visemes.feed_text(txt)
 
                         if sc.input_transcription and sc.input_transcription.text:
@@ -2040,6 +2070,10 @@ class AmatyaLive:
                             self._recent_user_audio.clear()
 
                             full_out = " ".join(out_buf).strip()
+                            if _is_silence_stage_direction(full_out):
+                                full_out = ""
+                            elif full_out:
+                                full_out = _STAGE_DIRECTION_INLINE_RE.sub("", full_out).strip()
                             # Second line of defence: even if a repeat slips
                             # into a *fresh* buffer after a flush, never log the
                             # same answer (or a tail of it) twice in a row.

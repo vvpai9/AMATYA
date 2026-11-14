@@ -635,15 +635,18 @@ def generate_news_briefing(
     if active_outages or degraded_services or trending_incidents or downdetector_incidents:
         md_lines.append("## 📡 Global Cloud & Service Outages (Downdetector & Telemetry)")
         if active_outages:
+            md_lines.append("| Affected Service | Status | Duration | Diagnostic Detail |")
+            md_lines.append("| :--- | :---: | :---: | :--- |")
             for o in active_outages:
                 dur = o.get("duration_str") or "Just detected"
-                md_lines.append(f"> ⚠️ **OUTAGE DETECTED:** **{o['service']} ({o['domain']})** is **DOWN** for **{dur}** ({o.get('error', 'Unreachable')})")
+                err = o.get("error") or "Unreachable"
+                md_lines.append(f"| **{o['service']}** | 🔴 DOWN | `{dur}` | {err} |")
+            md_lines.append("")
         if degraded_services:
             for d in degraded_services:
-                md_lines.append(f"> 🟡 **SERVICE DEGRADED:** **{d['service']} ({d['domain']})** — *{d.get('error', 'Performance degraded')}*")
+                md_lines.append(f"> 🟡 **DEGRADED:** **{d['service']}** — *{d.get('error', 'Performance degraded')}*")
         if downdetector_incidents:
-            md_lines.append("")
-            md_lines.append("**Downdetector Outage Reports:**")
+            md_lines.append("**Downdetector Incident Alerts:**")
             for inc in downdetector_incidents[:3]:
                 title = inc.get("title", "")
                 link = inc.get("link", "")
@@ -653,9 +656,9 @@ def generate_news_briefing(
                     md_lines.append(f"• **[{title}]({link})** — *{source}*{pub}")
                 else:
                     md_lines.append(f"• **{title}** — *{source}*{pub}")
-        if trending_incidents:
             md_lines.append("")
-            md_lines.append("**Breaking Outage Reports:**")
+        if trending_incidents:
+            md_lines.append("**Breaking Infrastructure Reports:**")
             for inc in trending_incidents[:3]:
                 title = inc.get("clean_title") or inc.get("title", "")
                 link = inc.get("link", "")
@@ -665,12 +668,7 @@ def generate_news_briefing(
                     md_lines.append(f"• **[{title}]({link})**{source_tag}")
                 else:
                     md_lines.append(f"• **{title}**{source_tag}")
-        md_lines.append("")
-        if active_outages:
-            md_lines.append("| Affected Service | Domain | Status | Duration |")
-            md_lines.append("| :--- | :--- | :--- | :--- |")
-            for o in active_outages:
-                md_lines.append(f"| **{o['service']}** | `{o['domain']}` | 🔴 DOWN | {o.get('duration_str', 'Just detected')} |")
+            md_lines.append("")
         md_lines.append("---")
     else:
         avg_lat = sum(item.get("latency_ms", 0) for item in services_map.values()) / max(len(services_map), 1)

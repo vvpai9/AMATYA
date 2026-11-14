@@ -1240,7 +1240,7 @@ class MainWindow(QMainWindow):
         self._title_lbl.setToolTip(self._subtitle(display))
         name_col.addWidget(self._title_lbl)
         self._sub_lbl = QLabel(f"{APP_VERSION}  ·  PERSONAL AI SYSTEM")
-        self._sub_lbl.setFont(px_font(9, QFont.Weight.DemiBold, spacing=2.2))
+        self._sub_lbl.setFont(px_font(10.5, QFont.Weight.DemiBold, spacing=1.8))
         self._sub_lbl.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
         name_col.addWidget(self._sub_lbl)
         lay.addLayout(name_col)
@@ -1277,7 +1277,7 @@ class MainWindow(QMainWindow):
         self._clock_lbl.mousePressEvent = lambda e: self._toggle_clock_format()
         clock_col.addWidget(self._clock_lbl)
         self._date_lbl = QLabel("")
-        self._date_lbl.setFont(px_font(9, QFont.Weight.DemiBold, spacing=1.6))
+        self._date_lbl.setFont(px_font(10.5, QFont.Weight.DemiBold, spacing=1.2))
         self._date_lbl.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
         self._date_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         clock_col.addWidget(self._date_lbl)
@@ -1919,7 +1919,20 @@ class MainWindow(QMainWindow):
         if is_md:
             self._content_display.setMarkdown(text_str)
             html = self._content_display.toHtml().replace("color:#0000ff;", f"color:{C.PRI}; text-decoration:none;")
-            self._content_display.setHtml(html)
+            style_injection = f"""
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: {C.TEXT}; line-height: 1.35; }}
+                h1 {{ font-size: 15px; font-weight: bold; margin-top: 6px; margin-bottom: 4px; color: {C.WHITE}; }}
+                h2 {{ font-size: 13.5px; font-weight: bold; margin-top: 5px; margin-bottom: 3px; color: {C.PRI}; }}
+                h3 {{ font-size: 12px; font-weight: bold; margin-top: 4px; margin-bottom: 2px; color: {C.TEXT_MED}; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }}
+                th {{ background-color: rgba(0, 200, 255, 0.12); color: {C.PRI}; padding: 3px 6px; font-weight: bold; text-align: left; border: 1px solid rgba(0, 200, 255, 0.25); }}
+                td {{ padding: 3px 6px; border: 1px solid rgba(255, 255, 255, 0.08); }}
+                blockquote {{ border-left: 3px solid {C.PRI}; margin: 4px 0; padding: 3px 8px; background: rgba(0, 200, 255, 0.06); font-size: 11.5px; }}
+                code {{ font-family: monospace; font-size: 11px; background: rgba(255, 255, 255, 0.06); padding: 1px 3px; border-radius: 2px; }}
+            </style>
+            """
+            self._content_display.setHtml(style_injection + html)
         else:
             self._content_display.setPlainText(text_str)
         self._content_display.moveCursor(
@@ -2550,23 +2563,31 @@ class MainWindow(QMainWindow):
 
     def _refresh_hud_btn(self):
         from memory.config_manager import get_hud_style
-        face = get_hud_style() == "face"
-        # Neither state is "off", so both read as active — this is a choice
-        # between two things, not a switch with a disabled side.
-        self._hud_btn.setText("🧑  HUD: ANIMATED FACE" if face
-                              else "◉  HUD: REACTOR CORE")
+        style = get_hud_style()
+        if style == "face":
+            self._hud_btn.setText("🧑  HUD: ANIMATED FACE")
+            self._hud_btn.setToolTip("Animated holographic face avatar. Tap to switch to 3-D reactor core.")
+        elif style in ("reactor_classic", "classic_core"):
+            self._hud_btn.setText("⚙️  HUD: CLASSIC REACTOR CORE")
+            self._hud_btn.setToolTip("Classic Mark-LVI flat arc reactor core. Tap to switch to animated face.")
+        else:
+            self._hud_btn.setText("◉  HUD: 3-D REACTOR CORE")
+            self._hud_btn.setToolTip("3-D gyroscope reactor core. Tap to switch to classic flat reactor core.")
         self._hud_btn.setStyleSheet(btn_css("choice"))
-        self._hud_btn.setToolTip(
-            "An animated head that speaks your words and shows what JARVIS is "
-            "doing. Tap to switch to the reactor core."
-            if face else
-            "A 3-D reactor core that turns with the state and moves with your "
-            "voice. Tap to switch to the animated head.")
 
     def _apply_hud_style(self, want: str):
-        """Apply requested HUD centrepiece style ('core' for Reactor Core, 'face' for Animated Face)."""
+        """Apply requested HUD centrepiece style: 'reactor_classic', 'reactor_3d', or 'face'."""
         from memory.config_manager import save_hud_style
-        target = "face" if "face" in str(want).lower() else "core"
+        w = str(want or "").strip().lower()
+        if "classic" in w or "older" in w or "v1" in w:
+            target = "reactor_classic"
+            label = "Classic Mark-LVI flat reactor core"
+        elif "face" in w or "avatar" in w or "head" in w:
+            target = "face"
+            label = "Animated face avatar"
+        else:
+            target = "reactor_3d"
+            label = "3-D reactor core"
         save_hud_style(target)
         try:
             self.hud.hud_style = target
@@ -2574,15 +2595,19 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._refresh_hud_btn()
-        self._log.append_log(
-            "SYS: HUD switched to the animated face." if target == "face"
-            else "SYS: HUD switched to the 3-D reactor core.")
+        self._log.append_log(f"SYS: HUD switched to {label}.")
 
     def _toggle_hud_style(self):
-        """Swap the centrepiece between Animated Face and Reactor Core."""
+        """Cycle between Animated Face -> 3-D Reactor Core -> Classic Flat Reactor Core -> Animated Face."""
         from memory.config_manager import get_hud_style
-        want = "core" if get_hud_style() == "face" else "face"
-        self._apply_hud_style(want)
+        curr = get_hud_style()
+        if curr == "face":
+            nxt = "reactor_3d"
+        elif curr in ("reactor_3d", "core"):
+            nxt = "reactor_classic"
+        else:
+            nxt = "face"
+        self._apply_hud_style(nxt)
 
     def _refresh_clock_btn(self):
         from memory.config_manager import get_clock_format

@@ -109,6 +109,7 @@ ddgs>=9,<10                  # web_search — the maintained successor to
                              # falls back to the old name automatically
 pdfplumber                   # file_processor — PDF text and tables
 PyPDF2                       # file_processor — PDF fallback reader
+pypdf                        # Anthropic PDF skills — form field extraction & structure
 python-docx                  # file_processor — .docx reading
 pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 

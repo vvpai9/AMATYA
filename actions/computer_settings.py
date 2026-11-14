@@ -1111,17 +1111,34 @@ def computer_settings(
         raw_val = str(value if value is not None else description or "").strip().lower()
         if not raw_val:
             from memory.config_manager import get_hud_style
-            target = "core" if get_hud_style() == "face" else "face"
+            curr = get_hud_style()
+            if curr == "face":
+                target = "reactor_3d"
+            elif curr in ("reactor_3d", "core"):
+                target = "reactor_classic"
+            else:
+                target = "face"
+        elif "classic" in raw_val or "older" in raw_val or "v1" in raw_val or "flat" in raw_val:
+            target = "reactor_classic"
+        elif "3d" in raw_val or "newer" in raw_val or "gyro" in raw_val:
+            target = "reactor_3d"
         elif "face" in raw_val or "head" in raw_val or "avatar" in raw_val:
             target = "face"
         else:
-            target = "core"
+            target = "reactor_3d"
+
         if player is not None and hasattr(player, "set_hud_style"):
             player.set_hud_style(target)
         else:
             from memory.config_manager import save_hud_style
             save_hud_style(target)
-        label = "3-D Reactor Core" if target == "core" else "Animated Face"
+
+        if target == "face":
+            label = "Animated Face"
+        elif target == "reactor_classic":
+            label = "Classic Mark-LVI Flat Reactor Core"
+        else:
+            label = "3-D Gyroscope Reactor Core"
         return outcome.done("computer_settings", result=f"HUD centrepiece switched to {label}.")
 
     if action in ("clock_format", "set_clock_format", "toggle_clock", "time_format"):

@@ -342,11 +342,8 @@ class HudCanvas(QWidget):
                               v_open=v_open, v_wide=v_wide or 0.0,
                               v_level=v_level, v_seq=v_seq,
                               v_hop=(sched[2] if sched is not None else 0.02))
-        else:
-            if self._reactor is not None:
-                self._reactor.step(dt, self.speaking,
-                                   self.state in ("THINKING", "PROCESSING"), self.muted)
-            # Fallback core: slow "breathing" base target, lifted by the level.
+        elif self.hud_style in ("reactor_classic", "classic_core"):
+            # Classic Mark-LVI flat core: animate phase and breathing base target
             if now - self._last_t > (0.12 if self.speaking else 0.5):
                 if self.speaking:
                     self._base_scale = 1.03
@@ -358,6 +355,10 @@ class HudCanvas(QWidget):
                     self._base_scale = random.uniform(1.001, 1.008)
                     self._base_halo  = random.uniform(48, 68)
                 self._last_t = now
+        else:
+            if self._reactor is not None:
+                self._reactor.step(dt, self.speaking,
+                                   self.state in ("THINKING", "PROCESSING"), self.muted)
 
             if self.muted:
                 self._tgt_scale, self._tgt_halo = self._base_scale, self._base_halo
@@ -626,7 +627,10 @@ class HudCanvas(QWidget):
                 else:
                     acc = qcol(C.PRI)
             self._avatar.paint(p, cx, head_cy, r_head, main, acc, qcol(C.BG))
-        elif self._reactor is not None:
+        elif self.hud_style in ("reactor_classic", "classic_core"):
+            r = min(W * 0.46, band_h / 2.0)
+            self._paint_core_classic(p, cx, band_t + band_h / 2.0, r, W, band_h)
+        elif self._reactor is not None and self.hud_style in ("reactor_3d", "core"):
             ext = Reactor3D.TOP + Reactor3D.BOTTOM
             r = min(W * 0.25, band_h / ext)
             core_cy = band_t + (band_h - ext * r) / 2.0 + Reactor3D.TOP * r

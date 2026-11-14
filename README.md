@@ -30,6 +30,9 @@ AMATYA operates natively across all major desktop environments by detecting the 
 
 ### 2. Voice-First Interaction, Speaker Verification & Security
 - **Configurable Wake Word & Voice (`core/wake_word.py`, `memory/config_manager.py`):** Preserves `hey_jarvis` as the default `openwakeword` model ID while keeping **AMATYA** as the user-facing identity; supports custom ONNX/TFLite models, speech speed, voice style, verbosity (`concise`/`normal`/`detailed`), and barge-in interruption.
+- **Hardware-Level Sleep Muting & Stage Direction Suppression (`main.py`, `core/tts.py`):**
+  - When sleeping, the microphone audio path is completely gated and muted so no mic audio is transmitted. Audio queues are instantly drained.
+  - Strict suppression of synthetic LLM stage directions (e.g. `(remains silent)`, `(silence)`, `*remains silent*`), preventing unwanted speech output or visual chatter when AMATYA remains quiet.
 - **Speaker Verification & Anti-Spoofing (`core/voice_auth.py`, `actions/voice_auth.py`):**
   - Multi-sample enrollment and 64-D acoustic speaker embeddings (MFCCs, Delta-MFCCs, autocorrelation F0 pitch stats, zero-meaned formant band ratios, spectral centroid/rolloff).
   - Replay-attack detection cache, playback spectral heuristics, and randomized challenge-response phrase generation.
@@ -65,6 +68,12 @@ AMATYA operates natively across all major desktop environments by detecting the 
 ### 6. CREATOR — Software Engineering & Document Engine (`core/creator.py`, `core/doc_generator.py`)
 - **Software Engineering:** Repository architecture summary, symbol search, safe file editing with automatic Python AST syntax validation and backup rollback, git status/diff, and test execution with **Command Risk Classification** (`SAFE_READ`, `SAFE_BUILD`, `MODIFY`, `DESTRUCTIVE`).
 - **Multi-Format Documents:** Generate and inspect **PDF, DOCX, XLSX, PPTX, CSV, Markdown, and ZIP** files locally.
+- **Anthropic Skills Suite Integration (`skills/`, `plugins/anthropic_skills.py`):** Natively integrates Anthropic's official skills ecosystem:
+  - `docx`: Word documents creation, table styling, templates, and revision comment management.
+  - `xlsx`: Excel spreadsheets generation with formulas, styled headers, and auto-fit column geometry.
+  - `pptx`: Executive slide deck presentations with thematic cards, bullet structures, and color palettes.
+  - `pdf`: Form field extraction, filling, validation, and layout structure analysis.
+  - `frontend-design`, `mcp-builder`, `web-artifacts-builder`, `webapp-testing`: Direct access to advanced UI, MCP server scaffolding, and interactive web dashboard builders.
 - **Dynamic Content & Summary Bridging:** Auto-bridges summarized text directly from generated files into presentations and reports without falling back to placeholder content.
 - **Strict File Deletion Protection:** Deletion of any file or directory requires mandatory confirmation and supports spoken voice authorization (`confirm.voice_authorize`).
 
@@ -78,8 +87,16 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **AgentRing VoIP Integration:** Lets AMATYA call your mobile phone over self-hosted VoIP when tasks complete or critical input is needed, with real-time AI voice bridging and zero carrier/Twilio fees.
 - **Cross-Platform Fallbacks:** Direct local Wi-Fi / LAN ringing via KDE Connect, ADB audio boost, and Ntfy.sh HTTP push.
 
-### 9. Futuristic Command-Centre HUD (`ui.py`, `dashboard/server.py`)
-- Holographic rotating globe with real-time audio-reactive lip-sync:
+### 9. Futuristic Command-Centre HUD & 3 Visualisation Modes (`ui.py`, `gui/hud.py`, `dashboard/server.py`)
+- **Three Selectable Centrepiece Visualisation Modes:**
+  1. **⚙️ Classic Mark-LVI Flat Reactor Core:** The original Mark-LVI reactor visualization featuring multi-layer sweeping arcs, 72-point graduations, an atmosphere glow body, and an audio amplitude-reactive frequency spike ring.
+  2. **◉ 3-D Gyroscope Reactor Core:** Foreshortened 3D holographic core with dual gyroscope rings turning across different axes and equatorial orbital tracers.
+  3. **🧑 Animated Face Avatar:** Expressive software-rendered holographic head with audio-reactive mouth visemes and gaze tracking.
+  - Cycle seamlessly between modes via voice command (`"switch hud"`, `"classic reactor"`, `"3d reactor"`, `"avatar"`) or by tapping the HUD style button.
+- **Enhanced Typography & Clean Card Outages:**
+  - Improved readability with balanced typography across HUD labels, metric bars, and status strips.
+  - Structured card-based outage tables and Downdetector incident alerts eliminating dense paragraph text.
+- **HUD Command Centre Overlays:**
   - **`⊞ COMMAND CENTRE`:** Live telemetry overlay displaying security tier, voice auth status, GPU/RAM model router status, connected devices, smart home summary, and active tasks.
   - **`🛡 AUTONOMY`:** One-click cycling across all 5 autonomy levels (`L0 OBSERVE` → `L4 FULL AUTO`).
   - **`🛑 EMERGENCY STOP`:** Immediately halts all running desktop agents, background tasks, and speech output.
@@ -102,7 +119,7 @@ AMATYA operates natively across all major desktop environments by detecting the 
 
 ### 13. Global Radio Discovery & Aerospace Trajectory Tracking (`core/radio_aerospace.py`, `actions/radio_and_aerospace.py`)
 - **Global Radio Station Directory & Streaming:** Community-driven Radio Browser integration to search and stream worldwide radio stations directly from the HUD.
-- **Flightradar24 Commercial Airspace Tracking:** Real-time local airspace scanning via live Flightradar24 radar feeds displaying commercial flight numbers, operating carriers, aircraft types (e.g. `A320`, `B738`), routes (`Origin → Destination`), altitude, speed, and heading. Includes individual flight tracking by callsign with resilient fallback to OpenSky Network.
+- **Flightradar24 Commercial Airspace Tracking:** Real-time local airspace scanning via live Flightradar24 radar feeds displaying commercial flight numbers, operating carriers, aircraft types (e.g. `A320`, `B738`), routes (`Origin → Destination`), true barometric altitude (accurately distinguishing airborne cruise vs. 0 ft on-ground / scheduled status), speed, and heading. Includes individual flight tracking by callsign with resilient fallback to OpenSky Network.
 - **Orbital Trajectory & Aerospace Tracking:** Real-time telemetry, latitude/longitude/altitude calculations, and flyover pass predictions for the International Space Station (ISS) and space stations.
 
 ---
