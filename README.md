@@ -127,6 +127,28 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **Flightradar24 Commercial Airspace Tracking:** Real-time local airspace scanning via live Flightradar24 radar feeds displaying commercial flight numbers, operating carriers, aircraft types (e.g. `A320`, `B738`), routes (`Origin → Destination`), true barometric altitude (accurately distinguishing airborne cruise vs. 0 ft on-ground / scheduled status), speed, and heading. Includes individual flight tracking by callsign with resilient fallback to OpenSky Network.
 - **Orbital Trajectory & Aerospace Tracking:** Real-time telemetry, latitude/longitude/altitude calculations, and flyover pass predictions for the International Space Station (ISS) and space stations.
 
+### 14. JARVIS-Class Tactical Skills & Stark Diagnostics Suite (`core/skills_registry.py`, `actions/skill_runner.py`, `actions/cyber_sentry.py`, `actions/stark_lab.py`, `actions/armor_diagnostics.py`, `actions/satellite_tracker.py`, `skills/`)
+- **Universal Agent Skills Ecosystem (`core/skills_registry.py`, `actions/skill_runner.py`):**
+  - Universal discovery and progressive-disclosure runtime engine indexing 23 specialized agent skills across 7 domains (`skills/*/SKILL.md`).
+  - Includes full native bindings to Anthropic's official skills ecosystem (`docx`, `xlsx`, `pptx`, `pdf`, `frontend-design`, `mcp-builder`, `webapp-testing`, etc.) plus custom Iron Man JARVIS tactical and scientific skills.
+  - Spoken/text queries: *"What skills do you have?"*, *"List tactical security skills"*, *"Show info on stark-calculator"*.
+- **Stark Tactical Cyber Defense Matrix (`actions/cyber_sentry.py`, `skills/cyber-defense/SKILL.md`):**
+  - Comprehensive perimeter inspection (`perimeter_scan`), local/LAN open port auditing (`scan_ports`), native firewall status check (`audit_firewall` across `ufw`/`nftables`/`iptables`/`pfctl`/Windows Firewall), authentication log intrusion scanning (`auth_audit`), and SUID/world-writable file permission auditing (`file_permissions`).
+  - Spoken/text commands: *"Run a perimeter scan"*, *"Audit firewall status"*, *"Check auth logs for intrusion attempts"*, *"Scan open ports"*.
+- **Stark Laboratory Scientific Computing & Physics Simulation (`actions/stark_lab.py`, `skills/stark-calculator/SKILL.md`):**
+  - High-precision symbolic calculus, derivatives, integrals, matrix equations, and algebraic simplification via SymPy (`symbolic_math`).
+  - Kinematic 2D projectile trajectory simulation with real-world aerodynamic drag and numerical integration (`trajectory`).
+  - Orbital mechanics: orbital velocity, Kepler periods, escape velocities, and altitude profiles (`orbital`).
+  - Spoken/text commands: *"Calculate orbital velocity at 400 km"*, *"Solve symbolic integral of x*sin(x)"*, *"Simulate projectile trajectory at 45 degrees with 120 m/s velocity"*.
+- **Stark Armor Telemetry & Hardware Health Diagnostics (`actions/armor_diagnostics.py`, `skills/armor-diagnostics/SKILL.md`):**
+  - Mark suit & system telemetry (`armor_status`), CPU core thermal mapping and sensor readouts (`thermal_map`), battery health and power supply diagnostics (`battery_health`), and GPU power/VRAM diagnostics (`gpu_telemetry`).
+  - Spoken/text commands: *"JARVIS, suit diagnostics"*, *"Check core thermals"*, *"Report battery and power status"*, *"Run armor health status"*.
+- **Global Aerospace & Orbital Satellite Tracker (`actions/satellite_tracker.py`, `skills/orbital-mechanics/SKILL.md`):**
+  - Real-time satellite positioning and orbital velocity for the International Space Station (ISS), Tiangong Space Station (CSS), Hubble Space Telescope, and Starlink constellations (`track_satellite`).
+  - Space station flyover pass predictions (`passes`).
+  - NOAA Space Weather Prediction Center solar geomagnetic storm telemetry and solar flux alerts (`space_weather`).
+  - Spoken/text commands: *"Where is the space station right now?"*, *"Track Hubble Space Telescope"*, *"Check space weather and solar storms"*.
+
 ---
 
 ## Operating System Setup Guides
@@ -306,6 +328,9 @@ PYTHONPATH=. ./AMATYA/bin/pytest tests/test_radio_and_aerospace.py
 
 # World news and outage monitor tests
 PYTHONPATH=. ./AMATYA/bin/pytest tests/test_news.py
+
+# JARVIS tactical skills, Stark diagnostics & lab tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_jarvis_skills.py
 
 # Universal core acceptance tests
 PYTHONPATH=. ./AMATYA/bin/pytest tests/test_amatya_suite.py
