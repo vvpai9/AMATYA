@@ -118,10 +118,19 @@ class MainWindow(QMainWindow):
     _clock_fmt_sig  = pyqtSignal(str)        # '12h' or '24h' time format
     _pin_modal_sig  = pyqtSignal()           # on-screen PIN management dialog
     _pin_mode_sig   = pyqtSignal(bool)       # toggle masked password entry for PIN on input box
+    _autonomy_sig   = pyqtSignal(str)        # autonomy level updated (thread-safe UI refresh)
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
     _review_sig     = pyqtSignal(str, str, object, object)  # document review payload
+
+    AUTONOMY_DISPLAY_LABELS = {
+        "observe_only": "L1: OBSERVE",
+        "recommend": "L2: RECOMMEND",
+        "confirm": "L3: CONFIRM",
+        "autonomous_low_risk": "L4: LOW-RISK",
+        "autonomous_workflows": "L5: FULL AUTO",
+    }
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -410,6 +419,7 @@ class MainWindow(QMainWindow):
         self._clock_fmt_sig.connect(self._apply_clock_format)
         self._pin_modal_sig.connect(self._open_pin_modal)
         self._pin_mode_sig.connect(self._set_pin_mode)
+        self._autonomy_sig.connect(self._on_autonomy_sig)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._wake_btns_sig.connect(self._refresh_wake_btns)
@@ -1328,27 +1338,38 @@ class MainWindow(QMainWindow):
             self._net_panel.setVisible(self.height() >= 820)
 
     def _refresh_identity_rows(self) -> None:
-        """Engine and voice, read from config — on start and whenever they change."""
+        """Engine, voice, and autonomy read from config — on start and whenever they change."""
         try:
-            from memory.config_manager import get_provider_mode, get_voice
+            from memory.config_manager import get_provider_mode, get_voice, get_autonomy_level
             mode = str(get_provider_mode() or "gemini")
             engine = "GEMINI LIVE" if mode == "gemini" else f"LOCAL {mode.upper()}"
             voice = str(get_voice() or "--").upper()
+            lvl = get_autonomy_level()
+            lbl = self.AUTONOMY_DISPLAY_LABELS.get(lvl, lvl.upper())
         except Exception:
-            engine, voice = "GEMINI LIVE", "--"
+            engine, voice, lbl = "GEMINI LIVE", "--", "CONFIRM"
         self._engine_label = engine
         if hasattr(self, "_row_engine"):
             self._row_engine.set_value(engine, "PRI")
             self._row_voice.set_value(voice)
+        if hasattr(self, "_row_autonomy"):
+            self._row_autonomy.set_value(lbl, "PRI")
         self._refresh_status_strip()
 
     def _refresh_status_strip(self) -> None:
         if not hasattr(self, "_status_strip"):
             return
+        try:
+            from memory.config_manager import get_autonomy_level
+            lvl = get_autonomy_level()
+            lbl = getattr(self, "AUTONOMY_DISPLAY_LABELS", {}).get(lvl, lvl.upper())
+        except Exception:
+            lbl = "CONFIRM"
         mic = ("MIC · MUTED", "MUTED_C") if self._muted else ("MIC · LIVE", "GREEN")
         self._status_strip.set_items([
             (f"ENGINE · {getattr(self, '_engine_label', 'GEMINI LIVE')}", "GREEN"),
             mic,
+            (f"AUTONOMY · {lbl}", "PRI"),
             (f"PROTOCOL · {APP_PROTOCOL}", "PRI"),
         ])
 
@@ -1388,8 +1409,9 @@ class MainWindow(QMainWindow):
         self._row_os = DataRow("PLATFORM", os_name)
         self._row_engine = DataRow("ENGINE", "--", "PRI")
         self._row_voice = DataRow("VOICE", "--")
+        self._row_autonomy = DataRow("AUTONOMY", "--", "PRI")
         for row in (self._row_uptime, self._row_proc, self._row_net, self._row_os,
-                    self._row_engine, self._row_voice):
+                    self._row_engine, self._row_voice, self._row_autonomy):
             stp.body.addWidget(row)
         lay.addWidget(stp)
 
@@ -1734,6 +1756,21 @@ class MainWindow(QMainWindow):
         self._pin_btn = _row(QPushButton())
         self._pin_btn.clicked.connect(self._open_pin_modal)
         self._refresh_pin_btn()
+
+        self._autonomy_btn = _row(QPushButton())
+        self._autonomy_btn.clicked.connect(self._cycle_autonomy_level)
+        self._refresh_autonomy_btn()
+
+        cmd_centre_btn = _row(QPushButton("⊞  COMMAND CENTRE"), self._BTN_DIM)
+        cmd_centre_btn.clicked.connect(self._open_command_centre)
+
+        estop_style = f"""
+            QPushButton {{ background: #1f0408; color: {C.RED};
+                border: 1px solid {C.RED}; border-radius: 3px;
+                text-align: left; padding: 0 8px; font-weight: bold; }}
+            QPushButton:hover {{ background: #330810; }}"""
+        estop_btn = _row(QPushButton("🛑  EMERGENCY STOP"), estop_style)
+        estop_btn.clicked.connect(self._trigger_emergency_stop)
 
         w.adjustSize()
         return w
@@ -2654,6 +2691,60 @@ class MainWindow(QMainWindow):
         ov.show()
         ov.raise_()
         self._pin_overlay = ov
+
+    def _on_autonomy_sig(self, lvl: str):
+        self._refresh_autonomy_btn()
+
+    def _refresh_autonomy_btn(self):
+        from memory.config_manager import get_autonomy_level
+        lvl = get_autonomy_level()
+        lbl = self.AUTONOMY_DISPLAY_LABELS.get(lvl, lvl.upper())
+        if hasattr(self, "_autonomy_btn") and self._autonomy_btn:
+            self._autonomy_btn.setText(f"🛡  AUTONOMY: {lbl}")
+            self._autonomy_btn.setStyleSheet(btn_css("choice"))
+            self._autonomy_btn.setToolTip(
+                f"Current autonomy: {lbl} ('{lvl}'). Click to cycle across all 5 autonomy levels."
+            )
+        if hasattr(self, "_row_autonomy") and self._row_autonomy:
+            self._row_autonomy.set_value(lbl, "PRI")
+        self._refresh_status_strip()
+
+    def _cycle_autonomy_level(self):
+        from memory.config_manager import AUTONOMY_LEVELS, get_autonomy_level, save_autonomy_level
+        cur = get_autonomy_level()
+        idx = AUTONOMY_LEVELS.index(cur) if cur in AUTONOMY_LEVELS else 2
+        nxt = AUTONOMY_LEVELS[(idx + 1) % len(AUTONOMY_LEVELS)]
+        save_autonomy_level(nxt)
+        try:
+            from core.desktop_agent import get_desktop_agent
+            da = get_desktop_agent()
+            if da is not None:
+                da.set_autonomy(nxt)
+        except Exception:
+            pass
+        self._refresh_autonomy_btn()
+        lbl = self.AUTONOMY_DISPLAY_LABELS.get(nxt, nxt.upper())
+        self._log.append_log(f"SYS: Autonomy level set to {lbl} ('{nxt}').")
+
+    def _open_command_centre(self):
+        self._close_controls()
+        try:
+            from core.diagnostics import gather_system_telemetry, format_command_centre_hud
+            report = format_command_centre_hud(gather_system_telemetry())
+            self._show_content("COMMAND CENTRE — SYSTEM TELEMETRY", report)
+        except Exception as exc:
+            self._log.append_log(f"ERR: Command Centre failed — {exc}")
+
+    def _trigger_emergency_stop(self):
+        self._close_controls()
+        try:
+            if self.on_interrupt:
+                self.on_interrupt()
+            from core.orchestrator import get_orchestrator
+            msg = get_orchestrator().cancel_all()
+            self._log.append_log(f"🛑 {msg}")
+        except Exception as exc:
+            self._log.append_log(f"ERR: Emergency stop error — {exc}")
 
     def _toggle_ptt(self):
         from memory.config_manager import (get_push_to_talk_enabled,

@@ -137,6 +137,7 @@
   <header>
     <div class="logo"><em>J</em>ARVIS</div>
     <div class="pill" id="pill"><span class="dot"></span><span id="st">Connecting</span></div>
+    <div class="pill" id="autonomy-pill" onclick="cycleAutonomy()" style="cursor:pointer;" title="Click to cycle autonomy level"><span id="autonomy-txt">🛡 L3: CONFIRM</span></div>
     <div class="enc-badge" id="enc">AES-GCM</div>
     <div class="spacer"></div>
     <div class="url">__IP__:__PORT__</div>
@@ -247,7 +248,62 @@
     const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
     const ws       = new WebSocket(_wsUrl);
 
-    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to AMATYA'); };
+    const AUTONOMY_LEVELS = [
+      "observe_only",
+      "recommend",
+      "confirm",
+      "autonomous_low_risk",
+      "autonomous_workflows"
+    ];
+    const AUTONOMY_LABELS = {
+      "observe_only": "🛡 L1: OBSERVE",
+      "recommend": "🛡 L2: RECOMMEND",
+      "confirm": "🛡 L3: CONFIRM",
+      "autonomous_low_risk": "🛡 L4: LOW-RISK",
+      "autonomous_workflows": "🛡 L5: FULL AUTO"
+    };
+    let _currentAutonomy = "confirm";
+
+    async function loadAutonomy() {
+      try {
+        const res = await _authFetch('/api/autonomy');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.autonomy_level) {
+            updateAutonomyUI(data.autonomy_level);
+          }
+        }
+      } catch (e) {}
+    }
+
+    function updateAutonomyUI(lvl) {
+      _currentAutonomy = lvl;
+      const el = document.getElementById('autonomy-txt');
+      if (el) {
+        el.textContent = AUTONOMY_LABELS[lvl] || `🛡 ${lvl.toUpperCase()}`;
+      }
+    }
+
+    async function cycleAutonomy() {
+      const idx = AUTONOMY_LEVELS.indexOf(_currentAutonomy);
+      const nextLvl = AUTONOMY_LEVELS[(idx + 1) % AUTONOMY_LEVELS.length];
+      try {
+        const res = await _authFetch('/api/autonomy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autonomy_level: nextLvl })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updateAutonomyUI(data.autonomy_level || nextLvl);
+          toast(`Autonomy: ${AUTONOMY_LABELS[nextLvl] || nextLvl}`);
+        }
+      } catch (e) {
+        toast('Failed to change autonomy');
+      }
+    }
+
+    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to AMATYA'); loadAutonomy(); };
     ws.onclose   = () => sys('Connection lost — refresh to reconnect.');
     ws.onerror   = () => sys('Connection error.');
     ws.onmessage = (e) => {

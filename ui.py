@@ -282,6 +282,16 @@ class JarvisUI:
         """Thread-safe: toggle PIN input masking mode on the main text input field."""
         self._safe_emit("_pin_mode_sig", bool(enabled))
 
+    def set_autonomy_level(self, level: str):
+        """Thread-safe: update autonomy level in config and refresh the UI."""
+        from memory.config_manager import save_autonomy_level
+        save_autonomy_level(level)
+        self._safe_emit("_autonomy_sig", str(level))
+
+    def get_autonomy_level(self) -> str:
+        from memory.config_manager import get_autonomy_level
+        return get_autonomy_level()
+
     def wait_for_api_key(self):
         while not getattr(getattr(self, "_win", None), "_ready", False):
             time.sleep(0.1)
