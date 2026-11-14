@@ -325,13 +325,21 @@
 
     function append(speaker, text) {
       const d = document.createElement('div');
+      const lbl = document.createElement('div');
+      lbl.className = 'lbl';
       if (speaker === 'amatya') {
         d.className = 'msg msg-j';
-        d.innerHTML = `<div class="lbl">Amatya</div>${esc(text)}`;
+        lbl.textContent = 'Amatya';
       } else {
         d.className = 'msg msg-u';
-        d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
+        lbl.textContent = 'You';
       }
+      d.appendChild(lbl);
+
+      const body = document.createElement('div');
+      body.textContent = String(text ?? '');
+      d.appendChild(body);
+
       feed.appendChild(d);
       feed.scrollTop = feed.scrollHeight;
     }
@@ -343,7 +351,12 @@
     }
 
     function esc(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     // ── File helpers ──────────────────────────────────────────────────────────
@@ -372,20 +385,50 @@
     function _uploadFile(file) {
       const id = 'fc_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
-      // Create file card in feed
+      // Create file card in feed via DOM nodes to prevent XSS / markup injection
       const card = document.createElement('div');
       card.className = 'msg-file';
       card.id = id;
-      card.innerHTML = `
-        <div class="fc-icon">${_fileIcon(file.name)}</div>
-        <div class="fc-meta">
-          <div class="fc-lbl">Sending</div>
-          <div class="fc-name">${esc(file.name)}</div>
-          <div class="fc-size">${_fmtSize(file.size)}</div>
-          <div class="fc-bar-wrap"><div class="fc-bar" id="${id}_bar"></div></div>
-        </div>
-        <div class="fc-status" id="${id}_st">0%</div>
-      `;
+
+      const icon = document.createElement('div');
+      icon.className = 'fc-icon';
+      icon.textContent = _fileIcon(file.name);
+      card.appendChild(icon);
+
+      const meta = document.createElement('div');
+      meta.className = 'fc-meta';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'fc-lbl';
+      lbl.textContent = 'Sending';
+      meta.appendChild(lbl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'fc-name';
+      nameEl.textContent = file.name;
+      meta.appendChild(nameEl);
+
+      const sizeEl = document.createElement('div');
+      sizeEl.className = 'fc-size';
+      sizeEl.textContent = _fmtSize(file.size);
+      meta.appendChild(sizeEl);
+
+      const barWrap = document.createElement('div');
+      barWrap.className = 'fc-bar-wrap';
+      const bar = document.createElement('div');
+      bar.className = 'fc-bar';
+      bar.id = `${id}_bar`;
+      barWrap.appendChild(bar);
+      meta.appendChild(barWrap);
+
+      card.appendChild(meta);
+
+      const statusEl = document.createElement('div');
+      statusEl.className = 'fc-status';
+      statusEl.id = `${id}_st`;
+      statusEl.textContent = '0%';
+      card.appendChild(statusEl);
+
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
 
@@ -396,40 +439,38 @@
       xhr.upload.onprogress = (e) => {
         if (!e.lengthComputable) return;
         const pct = Math.round(e.loaded / e.total * 100);
-        const bar = document.getElementById(`${id}_bar`);
-        const st  = document.getElementById(`${id}_st`);
         if (bar) bar.style.width = pct + '%';
-        if (st)  st.textContent  = pct + '%';
+        if (statusEl) statusEl.textContent = pct + '%';
       };
 
       xhr.onload = () => {
-        const bar  = document.getElementById(`${id}_bar`);
-        const st   = document.getElementById(`${id}_st`);
-        const meta = card.querySelector('.fc-meta');
-        const lbl  = card.querySelector('.fc-lbl');
         if (xhr.status === 200) {
           let savedName = file.name;
           try { savedName = JSON.parse(xhr.responseText).name || file.name; } catch {}
           const dlUrl = `/uploads/${encodeURIComponent(savedName)}?token=${encodeURIComponent(_authToken)}`;
-          if (bar)  { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
-          if (st)   { st.textContent = '✓'; st.className = 'fc-status done'; }
-          if (lbl)  lbl.textContent = 'Sent';
-          if (meta) meta.insertAdjacentHTML('beforeend',
-            `<a class="fc-dl" href="${dlUrl}" download="${esc(savedName)}">⬇ Download back</a>`);
+          if (bar) { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
+          if (statusEl) { statusEl.textContent = '✓'; statusEl.className = 'fc-status done'; }
+          if (lbl) lbl.textContent = 'Sent';
+
+          const dlLink = document.createElement('a');
+          dlLink.className = 'fc-dl';
+          dlLink.href = dlUrl;
+          dlLink.setAttribute('download', savedName);
+          dlLink.textContent = '⬇ Download back';
+          meta.appendChild(dlLink);
+
           toast('File sent!');
         } else {
           let errMsg = 'Upload failed';
           try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
           if (bar) bar.style.background = '#f87171';
-          if (st)  { st.textContent = 'ERR'; st.className = 'fc-status err'; }
+          if (statusEl) { statusEl.textContent = 'ERR'; statusEl.className = 'fc-status err'; }
           if (lbl) lbl.textContent = errMsg;
         }
       };
 
       xhr.onerror = () => {
-        const st  = document.getElementById(`${id}_st`);
-        const lbl = card.querySelector('.fc-lbl');
-        if (st)  { st.textContent = 'ERR'; st.className = 'fc-status err'; }
+        if (statusEl) { statusEl.textContent = 'ERR'; statusEl.className = 'fc-status err'; }
         if (lbl) lbl.textContent = 'Connection error';
       };
 
@@ -440,19 +481,50 @@
 
     // File received by another WebSocket client (e.g., second open tab)
     function _onFileReceived(m) {
-      const dlUrl = `/uploads/${encodeURIComponent(m.name)}?token=${encodeURIComponent(_authToken)}`;
-      const card  = document.createElement('div');
+      const fileName = String(m?.name || 'file');
+      const fileSize = Number(m?.size || 0);
+      const dlUrl = `/uploads/${encodeURIComponent(fileName)}?token=${encodeURIComponent(_authToken)}`;
+
+      const card = document.createElement('div');
       card.className = 'msg-file';
-      card.innerHTML = `
-        <div class="fc-icon">${_fileIcon(m.name)}</div>
-        <div class="fc-meta">
-          <div class="fc-lbl">Received</div>
-          <div class="fc-name">${esc(m.name)}</div>
-          <div class="fc-size">${_fmtSize(m.size)}</div>
-          <a class="fc-dl" href="${dlUrl}" download="${esc(m.name)}">⬇ Download</a>
-        </div>
-        <div class="fc-status done">✓</div>
-      `;
+
+      const icon = document.createElement('div');
+      icon.className = 'fc-icon';
+      icon.textContent = _fileIcon(fileName);
+      card.appendChild(icon);
+
+      const meta = document.createElement('div');
+      meta.className = 'fc-meta';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'fc-lbl';
+      lbl.textContent = 'Received';
+      meta.appendChild(lbl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'fc-name';
+      nameEl.textContent = fileName;
+      meta.appendChild(nameEl);
+
+      const sizeEl = document.createElement('div');
+      sizeEl.className = 'fc-size';
+      sizeEl.textContent = _fmtSize(fileSize);
+      meta.appendChild(sizeEl);
+
+      const dlLink = document.createElement('a');
+      dlLink.className = 'fc-dl';
+      dlLink.href = dlUrl;
+      dlLink.setAttribute('download', fileName);
+      dlLink.textContent = '⬇ Download';
+      meta.appendChild(dlLink);
+
+      card.appendChild(meta);
+
+      const statusEl = document.createElement('div');
+      statusEl.className = 'fc-status done';
+      statusEl.textContent = '✓';
+      card.appendChild(statusEl);
+
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       toast('File received on computer!');
@@ -506,8 +578,8 @@
     let _audioNd  = null;
 
     function _micIdle() {
-      micBtn.innerHTML = '🎤';
-      micBtn.title     = 'Voice — tap to speak';
+      micBtn.textContent = '🎤';
+      micBtn.title       = 'Voice — tap to speak';
       micBtn.classList.remove('recording');
     }
 
@@ -543,14 +615,16 @@
         '<ol style="padding-left:18px;color:#8899aa;margin:0;display:flex;flex-direction:column;gap:4px">' +
         '<li>Open a new tab → go to <span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px">chrome://flags</span></li>' +
         '<li>Search: <strong style="color:#dde3ed">Insecure origins treated as secure</strong></li>' +
-        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer">' + esc(origin) + '</span></li>' +
+        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer"></span></li>' +
         '<li>Set to <strong style="color:#22c55e">Enabled</strong> → tap <strong style="color:#dde3ed">Relaunch</strong></li>' +
         '<li>Return here and tap 🎤</li>' +
         '</ol>';
+      const flagsUrl = card.querySelector('#flags-url');
+      if (flagsUrl) flagsUrl.textContent = origin;
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       // tap to copy
-      card.querySelector('#flags-url').addEventListener('click', () => {
+      flagsUrl?.addEventListener('click', () => {
         navigator.clipboard?.writeText(origin).then(() => toast('URL copied!')).catch(() => {});
       });
     }
@@ -622,8 +696,8 @@
           _audioNd = sp;
         }
 
-        micBtn.innerHTML = '⏹';
-        micBtn.title     = 'Tap to stop';
+        micBtn.textContent = '⏹';
+        micBtn.title       = 'Tap to stop';
         micBtn.classList.add('recording');
         sys('Voice live — speak now');
         toast('🎤 Live');
