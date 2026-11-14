@@ -21,6 +21,11 @@ config/certs/
 config/tv_certs/
 *.pem
 *.key
+*.crt
+*.cert
+*.pfx
+*.p12
+*.bundle
 config/whatsapp_web/
 **/token*.json
 **/client_secret*.json
@@ -31,6 +36,11 @@ config/whatsapp_web/
 # ── Personal data the assistant accumulates about you ─────────────────────────
 memory/long_term.json
 memory/*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
 memory/rag_index.json
 memory/knowledge_index.json
 memory/context_state.json
@@ -62,6 +72,13 @@ build/
 dist/
 *.egg-info/
 .eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+node_modules/
 
 # ── Local logs, reports and artifacts ─────────────────────────────────────────
 reports/
