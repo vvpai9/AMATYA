@@ -960,11 +960,6 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     betas = [BINDING_BETA] + [b for b in args.beta if b != BINDING_BETA]
-    creds = read_credentials()
-    if creds and "authorization" in creds and OAUTH_BETA not in betas:
-        # a bearer token (OAuth or workload identity) authenticates only with this beta value; without it the API
-        # 401s every request, so the token path the guide advertises would never run
-        betas.append(OAUTH_BETA)
     if args.count_tokens and args.mode != "error":
         # on the count endpoint a drop-mode 200 carries no input_transformations, so every turn would read "ok"
         # and the run would be a false clean; the loud arm is the only one the endpoint can report
@@ -978,9 +973,13 @@ def main(argv=None):
                   % (args.base_url, args.model or "<--model required>", args.mode, ",".join(betas)))
             print("nothing sent: re-run with --yes to send them (they spend real money).")
             return 0
+        creds = read_credentials()
         if not creds:
             raise SystemExit(CREDENTIALS_HINT)
-        return self_test(args, creds, betas)
+        req_betas = list(betas)
+        if "authorization" in creds and OAUTH_BETA not in req_betas:
+            req_betas.append(OAUTH_BETA)
+        return self_test(args, creds, req_betas)
     if not args.capture:
         ap.error("capture path required (or --self-test)")
     convs = load_capture(args.capture)
@@ -1025,14 +1024,18 @@ def main(argv=None):
     if args.dry_run or not args.yes:
         print("dry run: nothing sent." if args.dry_run else "nothing sent: re-run with --yes to send the replay above (it spends real money).")
         return 0
+    creds = read_credentials()
     if not creds:
         raise SystemExit(CREDENTIALS_HINT)
+    req_betas = list(betas)
+    if "authorization" in creds and OAUTH_BETA not in req_betas:
+        req_betas.append(OAUTH_BETA)
     all_results, summaries = [], []
 
     def flush():
         if args.json:
             with open(args.json, "w") as f:
-                json.dump({"mode": args.mode, "betas": betas, "results": all_results,
+                json.dump({"mode": args.mode, "betas": req_betas, "results": all_results,
                            "summaries": [{k: v for k, v in s.items() if k != "_results"} for s in summaries]}, f, indent=2)
 
     if args.json:
@@ -1044,7 +1047,7 @@ def main(argv=None):
         for cid, reqs in convs.items():
             if not args.quiet:
                 print("\nconversation %s (%d request(s))" % (cid, len(reqs)))
-            _results, summary = run_conversation(cid, reqs, args, creds, betas, all_results, flush)
+            _results, summary = run_conversation(cid, reqs, args, creds, req_betas, all_results, flush)
             summaries.append(summary)
             flush()
     finally:
