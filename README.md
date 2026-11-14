@@ -26,7 +26,12 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **Multi-OS UI Inspection:** Inspects windows, buttons, text fields, and accessibility trees using AT-SPI2 on Linux, UIAutomation on Windows, and AppleScript on macOS.
 - **KDE Plasma 6 Wayland Desktop Automation:** Native Model Context Protocol client (`kwin-mcp`) driving window focus, raising active application windows, screenshots, and input emulation on Wayland where legacy X11 tools fail.
 - **Visual Intelligence:** Full desktop, multi-monitor, active window, or rectangular region capture paired with OCR and multimodal vision model analysis.
-- **Autonomous Desktop Agent:** Accessibility-first `Observe → Plan → Act → Verify` loop with 5 autonomy levels (`L0 OBSERVE` through `L4 FULL AUTO`), emergency cancellation, and full session history.
+- **Autonomous Desktop Agent:** Accessibility-first `Observe → Plan → Act → Verify` loop with 5 autonomy levels (`L1: OBSERVE` through `L5: FULL AUTO`), emergency cancellation, and full session history:
+  - **Level 1 (`observe_only`):** Watch and report, never act.
+  - **Level 2 (`recommend`):** Propose actions and wait for user approval.
+  - **Level 3 (`confirm`):** Execute standard actions, require confirmation for sensitive/destructive operations.
+  - **Level 4 (`autonomous_low_risk`):** Execute low-risk actions automatically, confirm destructive operations.
+  - **Level 5 (`autonomous_workflows`):** Fully autonomous execution of approved multi-step workflows.
 
 ### 2. Voice-First Interaction, Speaker Verification & Security
 - **Configurable Wake Word & Voice (`core/wake_word.py`, `memory/config_manager.py`):** Preserves `hey_jarvis` as the default `openwakeword` model ID while keeping **AMATYA** as the user-facing identity; supports custom ONNX/TFLite models, speech speed, voice style, verbosity (`concise`/`normal`/`detailed`), and barge-in interruption.
@@ -96,9 +101,9 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **Enhanced Typography & Clean Card Outages:**
   - Improved readability with balanced typography across HUD labels, metric bars, and status strips.
   - Structured card-based outage tables and Downdetector incident alerts eliminating dense paragraph text.
-- **HUD Command Centre Overlays:**
+- **HUD Command Centre Overlays & Controls:**
+  - **`🛡 AUTONOMY`:** Dedicated one-click cycling button in the **CONTROLS** drawer (top-bar sliders icon) across all 5 autonomy levels (`L1: OBSERVE` → `L2: RECOMMEND` → `L3: CONFIRM` → `L4: LOW-RISK` → `L5: FULL AUTO`). Also displayed in real-time in the left **STATUS** column, the bottom **Status Strip**, the web dashboard header pill, and controllable via voice (`"Set autonomy level to 4"` / `"Change autonomy to recommend"`).
   - **`⊞ COMMAND CENTRE`:** Live telemetry overlay displaying security tier, voice auth status, GPU/RAM model router status, connected devices, smart home summary, and active tasks.
-  - **`🛡 AUTONOMY`:** One-click cycling across all 5 autonomy levels (`L0 OBSERVE` → `L4 FULL AUTO`).
   - **`🛑 EMERGENCY STOP`:** Immediately halts all running desktop agents, background tasks, and speech output.
 
 ### 10. Fast Directory Navigation & DesktopAuto (`core/zoxide_nav.py`, `actions/desktop_nav.py`)

@@ -1098,6 +1098,13 @@ class DashboardServer:
             except Exception:
                 return JSONResponse({"ok": False, "error": "Emergency stop execution failed"}, status_code=500)
 
+        @app.get("/api/autonomy")
+        async def get_autonomy_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            from memory.config_manager import AUTONOMY_LEVELS, get_autonomy_level
+            return JSONResponse({"ok": True, "autonomy_level": get_autonomy_level(), "available_levels": list(AUTONOMY_LEVELS)})
+
         @app.post("/api/autonomy")
         async def set_autonomy_ep(req: Request):
             if not _auth(req):
@@ -1105,11 +1112,29 @@ class DashboardServer:
             if not _check_csrf(req):
                 return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             body = await req.json()
-            lvl = str(body.get("autonomy_level", "confirm") or "confirm").strip().lower()
+            raw_lvl = str(body.get("autonomy_level", "confirm") or "confirm").strip().lower()
+            try:
+                from core.desktop_agent import AutonomyLevel
+                parsed = AutonomyLevel.parse(raw_lvl)
+                lvl = parsed.value
+                if lvl in ("suggest",):
+                    lvl = "recommend"
+                elif lvl in ("autonomous",):
+                    lvl = "autonomous_workflows"
+            except Exception:
+                lvl = raw_lvl
             from memory.config_manager import AUTONOMY_LEVELS, get_autonomy_level, save_autonomy_level
             if lvl not in AUTONOMY_LEVELS:
-                return JSONResponse({"ok": False, "error": f"Invalid autonomy level '{lvl}'"}, status_code=400)
+                return JSONResponse({"ok": False, "error": f"Invalid autonomy level '{raw_lvl}'"}, status_code=400)
             save_autonomy_level(lvl)
+            try:
+                from core.desktop_agent import get_desktop_agent
+                da = get_desktop_agent()
+                if da is not None:
+                    da.set_autonomy(lvl)
+            except Exception:
+                pass
+            await self.broadcast({"type": "sys", "text": f"Autonomy level set to '{get_autonomy_level()}'."})
             return JSONResponse({"ok": True, "autonomy_level": get_autonomy_level()})
 
         # ── Phone mic real-time audio → Gemini Live ──────────────────────────

@@ -392,11 +392,22 @@ def execute(
         return outcome.done("voice_auth", result=msg) if ok else outcome.failed("voice_auth", msg)
 
     if action == "set_autonomy":
-        lvl = str(parameters.get("autonomy_level", "") or "").strip().lower()
+        raw_lvl = str(parameters.get("autonomy_level", "") or "").strip().lower()
+        try:
+            from core.desktop_agent import AutonomyLevel
+            parsed = AutonomyLevel.parse(raw_lvl)
+            lvl = parsed.value
+            if lvl in ("suggest",):
+                lvl = "recommend"
+            elif lvl in ("autonomous",):
+                lvl = "autonomous_workflows"
+        except Exception:
+            lvl = raw_lvl
+
         if lvl not in AUTONOMY_LEVELS:
             return outcome.failed(
                 "voice_auth",
-                f"Invalid autonomy_level '{lvl}'. Valid levels: {', '.join(AUTONOMY_LEVELS)}."
+                f"Invalid autonomy_level '{raw_lvl}'. Valid levels: {', '.join(AUTONOMY_LEVELS)}."
             )
         save_autonomy_level(lvl)
         try:
@@ -406,6 +417,11 @@ def execute(
                 agent.set_autonomy(lvl)
         except Exception:
             pass
+        if player is not None and hasattr(player, "set_autonomy_level"):
+            try:
+                player.set_autonomy_level(lvl)
+            except Exception:
+                pass
         return outcome.done("voice_auth", result=f"AMATYA autonomy level set to '{get_autonomy_level()}'.")
 
     if action == "configure_voice":
