@@ -985,6 +985,7 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
     "jyotisha": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "maha_analog_lab": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "maha_orbit_lab": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
+    "office_document_skills": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "code_helper": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "proactive": {"default_tier": PermissionTier.GENERAL_CONVERSATION},
     "save_memory": {"default_tier": PermissionTier.GENERAL_CONVERSATION},

@@ -157,15 +157,27 @@ def track_trajectories_action(
     else:
         # Target is a specific flight callsign (e.g. 'AI101', 'BAW123')
         flight = radio_aerospace.track_flight(target)
+        if not flight or not flight.get("found"):
+            err = flight.get("error") if flight else f"Could not find live radar telemetry for flight {target}."
+            if player is not None:
+                try:
+                    player.show_content(f"Flight: {target.upper()}", f"# ✈️ Flight Not Located\n\n{err}")
+                    player.write_log(f"FLIGHT: Telemetry unavailable for {target.upper()}")
+                except Exception:
+                    pass
+            return f"I could not locate live telemetry for flight {target.upper()}. The flight may be scheduled, parked at a gate, landed, or out of ADS-B receiver range."
+
         provider = flight.get("source", "Flightradar24 / OpenSky")
-        flight_num = flight.get("flight_number") or flight["callsign"]
+        flight_num = flight.get("flight_number") or flight.get("callsign", target.upper())
         airline = flight.get("airline") or flight.get("origin_country") or "Commercial Airline"
         route = flight.get("route") or (f"{flight.get('origin', '')} → {flight.get('destination', '')}".strip(" →"))
+        on_ground = flight.get("on_ground", False) or (flight.get("altitude_ft", 0) == 0)
 
         md_lines = [
-            f"# ✈️ Flight Telemetry: {flight_num} ({flight['callsign']})",
+            f"# ✈️ Flight Telemetry: {flight_num} ({flight.get('callsign', target.upper())})",
             f"**Operator:** `{airline}` | **Source:** `{provider}`",
             "---",
+            f"- **Flight Status:** `{'🟢 On Ground (0 ft)' if on_ground else '✈️ Airborne'}`",
         ]
         if route:
             md_lines.append(f"- **Route:** `{route}`")
@@ -180,14 +192,15 @@ def track_trajectories_action(
         if flight.get("icao24"):
             md_lines.append(f"- **ICAO24 Address:** `{flight['icao24']}`")
         if flight.get("altitude_ft") is not None:
-            md_lines.append(f"- **Current Altitude:** `{flight['altitude_ft']:,} ft` ({flight.get('altitude_m', 0):,} m)")
+            alt_disp = "0 ft (On Ground)" if on_ground else f"{flight['altitude_ft']:,} ft"
+            md_lines.append(f"- **Current Altitude:** `{alt_disp}` ({flight.get('altitude_m', 0):,} m)")
         if flight.get("velocity_kmh") is not None:
             md_lines.append(f"- **Ground Speed:** `{flight['velocity_kmh']} km/h` ({flight.get('velocity_kts', 0)} knots)")
-        if flight.get("heading_deg") is not None:
+        if flight.get("heading_deg") is not None and not on_ground:
             md_lines.append(f"- **Current Heading:** `{flight['heading_deg']}°`")
         if flight.get("latitude") is not None and flight.get("longitude") is not None:
             md_lines.append(f"- **Coordinates:** `{flight['latitude']}°, {flight['longitude']}°`")
-        if flight.get("vertical_rate_mps") is not None:
+        if flight.get("vertical_rate_mps") is not None and not on_ground:
             md_lines.append(f"- **Vertical Rate:** `{flight['vertical_rate_mps']} m/s`")
 
         if player is not None:
@@ -196,6 +209,14 @@ def track_trajectories_action(
                 player.write_log(f"FLIGHT: Locked telemetry for flight {flight_num} via {provider}")
             except Exception:
                 pass
+
+        if on_ground:
+            if route:
+                return (
+                    f"Flight {flight_num} operated by {airline} on route {route} is currently on the ground "
+                    f"with barometric altitude 0 feet, tracked via {provider}."
+                )
+            return f"Flight {flight_num} operated by {airline} is currently on the ground with 0 feet altitude, tracked via {provider}."
 
         if route:
             return (

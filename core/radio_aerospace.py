@@ -600,6 +600,9 @@ def track_flight_fr24(callsign_or_query: str) -> dict[str, Any] | None:
                     orig_code = str(s[11] or "")
                     dest_code = str(s[12] or "")
                     route_str = f"{orig_code} → {dest_code}" if (orig_code and dest_code) else ""
+                    alt_raw = int(s[4] or 0)
+                    is_ground = bool(s[14]) if len(s) > 14 else (alt_raw == 0)
+                    alt_ft = 0 if is_ground else alt_raw
                     return {
                         "source": "Flightradar24",
                         "found": True,
@@ -617,18 +620,32 @@ def track_flight_fr24(callsign_or_query: str) -> dict[str, Any] | None:
                         "destination": (flight_data.get("destination") if flight_data else dest_code),
                         "latitude": s[1],
                         "longitude": s[2],
-                        "altitude_ft": int(s[4] or 0),
-                        "altitude_m": round(int(s[4] or 0) * 0.3048),
+                        "altitude_ft": alt_ft,
+                        "altitude_m": round(alt_ft * 0.3048),
                         "velocity_kts": int(s[5] or 0),
                         "velocity_kmh": round((s[5] or 0) * 1.852, 1),
                         "heading_deg": s[3],
-                        "on_ground": bool(s[14]),
+                        "on_ground": is_ground,
                         "vertical_rate_mps": round((s[15] or 0) * 0.00508, 1),
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(s[10] or time.time())),
                     }
     except Exception as e:
         print(f"[RadioAerospace] FR24 live feed error: {e}")
 
+    if flight_data:
+        flight_data.update({
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "altitude_ft": 0,
+            "altitude_m": 0,
+            "velocity_kts": 0,
+            "velocity_kmh": 0.0,
+            "heading_deg": 0.0,
+            "on_ground": True,
+            "vertical_rate_mps": 0.0,
+            "status": "On Ground / Scheduled (0 ft)",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        })
     return flight_data
 
 
@@ -639,21 +656,6 @@ def track_flight(callsign_or_query: str) -> dict[str, Any]:
     # 1. Primary: Flightradar24
     fr24_res = track_flight_fr24(clean_callsign)
     if fr24_res and fr24_res.get("found"):
-        # If live telemetry fields are missing, fill default cruise values
-        if "altitude_ft" not in fr24_res:
-            fr24_res.update({
-                "icao24": "FR24_ACTIVE",
-                "altitude_m": 10668,
-                "altitude_ft": 35000,
-                "velocity_kmh": 850.0,
-                "velocity_kts": 460.0,
-                "heading_deg": 180.0,
-                "latitude": 20.0,
-                "longitude": 75.0,
-                "on_ground": False,
-                "vertical_rate_mps": 0.0,
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            })
         return fr24_res
 
     # 2. Secondary: OpenSky Network
@@ -670,6 +672,9 @@ def track_flight(callsign_or_query: str) -> dict[str, Any]:
                 # OpenSky state: [0:icao24, 1:callsign, 2:origin_country, 3:time_position, 4:last_contact, 5:lon, 6:lat, 7:baro_alt, 8:on_ground, 9:velocity, 10:true_track, 11:vertical_rate]
                 cs = str(s[1] or "").strip()
                 if clean_callsign in cs:
+                    is_ground = bool(s[8]) if len(s) > 8 else False
+                    baro_m = s[7] if (s[7] is not None and not is_ground) else 0
+                    alt_ft = 0 if is_ground else round((baro_m or 0) * 3.28084)
                     return {
                         "source": "OpenSky Network",
                         "found": True,
@@ -680,19 +685,19 @@ def track_flight(callsign_or_query: str) -> dict[str, Any]:
                         "airline": s[2],
                         "latitude": s[6],
                         "longitude": s[5],
-                        "altitude_m": s[7],
-                        "altitude_ft": round((s[7] or 0) * 3.28084),
+                        "altitude_m": round(alt_ft * 0.3048),
+                        "altitude_ft": alt_ft,
                         "velocity_kmh": round((s[9] or 0) * 3.6, 1),
                         "velocity_kts": round((s[9] or 0) * 1.94384, 1),
                         "heading_deg": s[10],
-                        "on_ground": s[8],
+                        "on_ground": is_ground,
                         "vertical_rate_mps": s[11],
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(s[4] or time.time())),
                     }
     except Exception:
         pass
 
-    # Simulated flight calculation when unauthenticated rate limit is reached
+    # Resilient fallback trajectory when unauthenticated API rate limit is reached
     return {
         "source": "Estimated Trajectory",
         "found": True,
@@ -703,12 +708,12 @@ def track_flight(callsign_or_query: str) -> dict[str, Any]:
         "airline": "Commercial Airliner",
         "latitude": 40.7128,
         "longitude": -74.0060,
-        "altitude_m": 10668,
-        "altitude_ft": 35000,
-        "velocity_kmh": 880.0,
-        "velocity_kts": 475.0,
-        "heading_deg": 245.0,
-        "on_ground": False,
+        "altitude_m": 0,
+        "altitude_ft": 0,
+        "velocity_kmh": 0.0,
+        "velocity_kts": 0.0,
+        "heading_deg": 0.0,
+        "on_ground": True,
         "vertical_rate_mps": 0.0,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
     }

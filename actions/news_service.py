@@ -46,21 +46,31 @@ def news_briefing_action(
         services_map = scan.get("services", {})
         downdetector_incidents = scan.get("downdetector_incidents", [])
 
+        operational_count = sum(1 for s in services_map.values() if s.get("is_up", True))
+        avg_lat = (
+            sum(item.get("latency_ms", 0) for item in services_map.values() if item.get("is_up"))
+            / max(operational_count, 1)
+        )
         outage_lines = [
-            f"# 📡 Global Service Outages & Infrastructure Telemetry",
-            f"**Monitored Services:** `{scan['total_monitored']}` | **Active Outages:** `{len(active)}` | **Sources:** `Downdetector & Status APIs`",
+            f"# 📡 Global Cloud Infrastructure & Outage Monitor",
+            f"**Operational:** `{operational_count}/{scan['total_monitored']}` | **Active Outages:** `{len(active)}` | **Avg Latency:** `{avg_lat:.1f} ms`",
             "---",
         ]
         if active:
+            outage_lines.append("### 🔴 Active Service Outages")
+            outage_lines.append("| Affected Service | Status | Duration | Diagnostic Detail |")
+            outage_lines.append("| :--- | :---: | :---: | :--- |")
             for o in active:
-                outage_lines.append(f"> ⚠️ **OUTAGE:** **{o['service']} ({o['domain']})** is **DOWN** for **{o.get('duration_str', 'unknown')}** ({o.get('error')})")
+                dur = o.get("duration_str") or "Just detected"
+                err = o.get("error") or "Unreachable"
+                outage_lines.append(f"| **{o['service']}** | 🔴 DOWN | `{dur}` | {err} |")
             outage_lines.append("")
         else:
-            outage_lines.append("> 🟢 **All Monitored Global Services Operational (Zero Outages Detected)**\n")
+            outage_lines.append("> 🟢 **All monitored global platforms operational — zero active outages detected.**\n")
 
         if downdetector_incidents:
-            outage_lines.append("### 🔴 Downdetector Breaking Reports:")
-            for inc in downdetector_incidents[:3]:
+            outage_lines.append("### 📡 Downdetector Trending Disruptions")
+            for inc in downdetector_incidents[:4]:
                 title = inc.get("title", "")
                 link = inc.get("link", "")
                 src = inc.get("source", "Downdetector")
@@ -71,15 +81,15 @@ def news_briefing_action(
                     outage_lines.append(f"• **{title}** — *{src}*{pub}")
             outage_lines.append("")
 
-        outage_lines.append("| Service | Endpoint / Domain | Status | Latency | Outage Duration |")
-        outage_lines.append("| :--- | :--- | :--- | :--- | :--- |")
+        outage_lines.append("### 🌐 Monitored Global Endpoints")
+        outage_lines.append("| Platform | Status | Response Latency |")
+        outage_lines.append("| :--- | :---: | :---: |")
         for s_name in sorted(services_map.keys()):
             item = services_map[s_name]
             is_up = item.get("is_up", True)
-            status_badge = "🟢 Operational" if is_up else item.get("status", "🔴 OUTAGE")
-            lat = f"{item.get('latency_ms', 0):.1f} ms" if is_up else "Timeout"
-            dur = item.get("duration_str", "None") if not is_up else "None"
-            outage_lines.append(f"| **{s_name}** | `{item.get('domain', '')}` | {status_badge} | {lat} | {dur} |")
+            status_badge = "🟢 Operational" if is_up else "🔴 OUTAGE"
+            lat = f"`{item.get('latency_ms', 0):.1f} ms`" if is_up else "`Timeout`"
+            outage_lines.append(f"| **{s_name}** | {status_badge} | {lat} |")
 
         if player is not None:
             try:

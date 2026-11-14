@@ -249,24 +249,24 @@ def save_push_to_talk_enabled(enabled: bool) -> None:
     _save_flag("push_to_talk_enabled", enabled)
 
 
-HUD_STYLES = ("face", "core")
+HUD_STYLES = ("face", "reactor_3d", "reactor_classic", "core")
 
 
 def get_hud_style() -> str:
-    """Which centrepiece the HUD draws: the animated head, or the reactor core.
-
-    Taste, not capability — both render in the same software painter and cost
-    about the same. Defaults to the head because that is what MARK LIV shipped
-    with; anyone who preferred the older look can switch back in ⚙ and the
-    choice survives a restart.
+    """Which centrepiece the HUD draws: 'face' (Animated Face), 'reactor_3d' (3-D Reactor Core),
+    or 'reactor_classic' (Classic Mark-LVI Flat Reactor Core).
     """
-    v = str(load_api_keys().get("hud_style", "core")).strip().lower()
-    return v if v in HUD_STYLES else "core"
+    v = str(load_api_keys().get("hud_style", "reactor_3d")).strip().lower()
+    if v == "core":
+        return "reactor_3d"
+    return v if v in HUD_STYLES else "reactor_3d"
 
 
 def save_hud_style(style: str) -> None:
     s = str(style or "").strip().lower()
-    _save_flag("hud_style", s if s in HUD_STYLES else "core")
+    if s == "core":
+        s = "reactor_3d"
+    _save_flag("hud_style", s if s in HUD_STYLES else "reactor_3d")
 
 
 CLOCK_FORMATS = ("12h", "24h")
@@ -461,6 +461,7 @@ def get_plugin_approved(plugin_name: str) -> bool:
     core_bundled = {
         "calculator", "time_display", "system_monitor", "web_search",
         "youtube_video", "excel_writer", "file_finder", "screen_ocr",
+        "office_document_skills",
     }
     return plugin_name in core_bundled
 

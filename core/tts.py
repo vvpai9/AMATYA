@@ -402,6 +402,21 @@ class TTSPlayer:
         on_done:  Optional[Callable] = None,
     ) -> None:
         """Synthesise and play text. BLOCKING – call from a dedicated thread."""
+        import re
+        clean_text = re.sub(
+            r"[\(\*\[]\s*(?:remains?\s+silent|silence|quiet|stays?\s+silent|no\s+speech)[^\)\*\]]*[\)\*\]]",
+            "",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        ).strip()
+        if not clean_text:
+            if on_done:
+                try:
+                    on_done()
+                except Exception:
+                    pass
+            return
+        text = clean_text
         try:
             with self._lock:
                 self._playing = True
