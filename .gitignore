@@ -81,9 +81,11 @@ htmlcov/
 node_modules/
 
 # ── Local logs, reports and artifacts ─────────────────────────────────────────
-reports/
+/reports/
+!docs/reports/
 session_errors*.txt
 docs/session_history/
+docs/history/session_history/
 Desktop/
 memory/episodic_memory.json
 *.tar.gz
