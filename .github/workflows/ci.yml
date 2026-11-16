@@ -29,7 +29,7 @@ jobs:
       - name: Install system dependencies (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libasound2-dev libpulse-dev libcairo2-dev libgirepository1.0-dev pkg-config
+          sudo apt-get install -y portaudio19-dev libasound2-dev libpulse-dev libcairo2-dev libgirepository1.0-dev pkg-config libegl1 libgl1 libxkbcommon-x11-0
 
       - name: Install dependencies
         run: |

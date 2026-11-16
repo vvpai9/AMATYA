@@ -86,6 +86,7 @@ from gui.overlays import (
 from gui.providers_panel import (
     ProvidersOverlay,
 )
+from gui.plugin_hud import PluginHudHost
 
 from PyQt6.QtWidgets import QGridLayout
 
@@ -123,6 +124,9 @@ class MainWindow(QMainWindow):
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
     _review_sig     = pyqtSignal(str, str, object, object)  # document review payload
+    _plugin_hud_open_sig   = pyqtSignal(str, str, object, str, bool)  # (plugin_id, title, content, content_type, replace)
+    _plugin_hud_update_sig = pyqtSignal(str, object, object)          # (plugin_id, content, content_type)
+    _plugin_hud_close_sig  = pyqtSignal(str)                          # (plugin_id)
 
     AUTONOMY_DISPLAY_LABELS = {
         "observe_only": "L1: OBSERVE",
@@ -360,11 +364,16 @@ class MainWindow(QMainWindow):
             self._video_sound_out = None
             self._video_sync = None
 
-        # Stack: 0 = animated HUD, 1 = live camera, 2 = video
+        # Universal Plugin HUD Display Host (Page 3 of stack)
+        self._plugin_hud_host = PluginHudHost(on_close=self._on_plugin_hud_closed_by_ui)
+        self._hud_cam_prev_index = 0
+
+        # Stack: 0 = animated HUD, 1 = live camera, 2 = video, 3 = universal plugin display
         self._hud_cam_stack = QStackedWidget()
         self._hud_cam_stack.addWidget(self.hud)
         self._hud_cam_stack.addWidget(_cam_cont)
         self._hud_cam_stack.addWidget(self._video_cont)
+        self._hud_cam_stack.addWidget(self._plugin_hud_host)
 
         self._center_split = QSplitter(Qt.Orientation.Vertical)
         self._center_split.setHandleWidth(10)
@@ -434,6 +443,9 @@ class MainWindow(QMainWindow):
         self._quiz_sig.connect(self._show_quiz)
         self._quiz_hide_sig.connect(self._hide_quiz)
         self._review_sig.connect(self._show_review)
+        self._plugin_hud_open_sig.connect(self._on_plugin_hud_open)
+        self._plugin_hud_update_sig.connect(self._on_plugin_hud_update)
+        self._plugin_hud_close_sig.connect(self._on_plugin_hud_close)
         self._cam_stop = threading.Event()
 
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
@@ -471,9 +483,16 @@ class MainWindow(QMainWindow):
     # --- Live camera stream in HUD area ------------------------------------
     def _on_cam_stream(self, start: bool) -> None:
         if start:
+            self._hud_cam_prev_index = self._hud_cam_stack.currentIndex()
             self._hud_cam_stack.setCurrentIndex(1)
         else:
-            self._hud_cam_stack.setCurrentIndex(0)
+            prev = getattr(self, "_hud_cam_prev_index", 0)
+            if prev == 3 and getattr(self, "_plugin_hud_host", None) and self._plugin_hud_host.is_active():
+                self._hud_cam_stack.setCurrentIndex(3)
+            elif prev == 2 and self._video_on:
+                self._hud_cam_stack.setCurrentIndex(2)
+            else:
+                self._hud_cam_stack.setCurrentIndex(0)
             self._cam_live_lbl.clear()
 
     def _on_cam_frame(self, data: bytes) -> None:
@@ -661,7 +680,10 @@ class MainWindow(QMainWindow):
         if self._video_item is not None:
             self._video_item.setVisible(True)
         self._video_mute_btn.setVisible(True)
-        self._hud_cam_stack.setCurrentIndex(0)
+        if getattr(self, "_plugin_hud_host", None) and self._plugin_hud_host.is_active():
+            self._hud_cam_stack.setCurrentIndex(3)
+        else:
+            self._hud_cam_stack.setCurrentIndex(0)
         self._sync_mic_for_video()      # gives the microphone back
 
     def _set_video_muted(self, muted: bool) -> None:
@@ -798,6 +820,70 @@ class MainWindow(QMainWindow):
                 "position": getattr(self, "_video_pos_ms", 0) / 1000.0,
                 "duration": getattr(self, "_video_dur_ms", 0) / 1000.0,
                 "paused": bool(getattr(self, "_video_paused", False))}
+
+    # ------------------------------------------------------------------
+    # Universal Plugin HUD Display Slots & State
+    # ------------------------------------------------------------------
+    def _on_plugin_hud_open(
+        self,
+        plugin_id: str,
+        title: str,
+        content: Any,
+        content_type: str,
+        replace: bool,
+    ) -> None:
+        """Slot — open or replace a plugin interface on the main central HUD."""
+        if self._video_on:
+            self._on_video_close()
+
+        # If camera is currently streaming, let plugin prepare in background and set resume target
+        if getattr(self, "_cam_live_lbl", None) and self._hud_cam_stack.currentIndex() == 1:
+            self._hud_cam_prev_index = 3
+            self._plugin_hud_host.show_view(plugin_id, title, content, content_type, replace=replace)
+            return
+
+        ok = self._plugin_hud_host.show_view(plugin_id, title, content, content_type, replace=replace)
+        if ok:
+            self._hud_cam_stack.setCurrentIndex(3)
+
+    def _on_plugin_hud_update(
+        self,
+        plugin_id: str,
+        content: Any,
+        content_type: Optional[str],
+    ) -> None:
+        """Slot — update an existing plugin interface on the main central HUD."""
+        self._plugin_hud_host.update_view(plugin_id, content, content_type)
+
+    def _on_plugin_hud_close(self, plugin_id: str) -> None:
+        """Slot — close a plugin interface and return the central HUD to the avatar."""
+        self._plugin_hud_host.close_view(plugin_id)
+        if not self._plugin_hud_host.is_active():
+            if self._hud_cam_stack.currentIndex() == 3:
+                self._hud_cam_stack.setCurrentIndex(0)
+
+    def _on_plugin_hud_closed_by_ui(self, closed_owner: str) -> None:
+        """Callback from host UI close button — restore the animated avatar."""
+        if self._hud_cam_stack.currentIndex() == 3:
+            self._hud_cam_stack.setCurrentIndex(0)
+
+    def get_plugin_hud_state(self) -> dict:
+        """Thread-safe snapshot of the central HUD display state."""
+        if hasattr(self, "_plugin_hud_host") and self._plugin_hud_host:
+            return self._plugin_hud_host.get_state_snapshot()
+        return {
+            "active": False,
+            "plugin_id": None,
+            "title": "",
+            "content_type": None,
+            "url": None,
+            "is_visible": False,
+            "is_loading": False,
+            "has_error": False,
+            "error_message": "",
+            "owner": None,
+            "has_webengine": False,
+        }
 
     # ------------------------------------------------------------------
     # Icon generation — arc-reactor style, rendered with Pillow
@@ -1192,6 +1278,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_ctrl_drawer') and self._ctrl_drawer.isVisible():
             self._position_ctrl_drawer()
         self._fit_video()
+
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, "_plugin_hud_host") and self._plugin_hud_host:
+                self._plugin_hud_host.cleanup()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def _update_metrics(self):
         snap = _metrics.snapshot()
@@ -2606,17 +2700,23 @@ class MainWindow(QMainWindow):
             self._hud_btn.setToolTip("Animated holographic face avatar. Tap to switch to 3-D reactor core.")
         elif style in ("reactor_classic", "classic_core"):
             self._hud_btn.setText("⚙️  HUD: CLASSIC REACTOR CORE")
-            self._hud_btn.setToolTip("Classic Mark-LVI flat arc reactor core. Tap to switch to animated face.")
+            self._hud_btn.setToolTip("Classic Mark-LVI flat arc reactor core. Tap to switch to wireframe orb.")
+        elif style == "orb":
+            self._hud_btn.setText("◈  HUD: WIREFRAME ORB")
+            self._hud_btn.setToolTip("Wireframe holographic orb with geodesic geometry. Tap to switch to animated face.")
         else:
             self._hud_btn.setText("◉  HUD: 3-D REACTOR CORE")
             self._hud_btn.setToolTip("3-D gyroscope reactor core. Tap to switch to classic flat reactor core.")
         self._hud_btn.setStyleSheet(btn_css("choice"))
 
     def _apply_hud_style(self, want: str):
-        """Apply requested HUD centrepiece style: 'reactor_classic', 'reactor_3d', or 'face'."""
+        """Apply requested HUD centrepiece style: 'reactor_classic', 'reactor_3d', 'orb', or 'face'."""
         from memory.config_manager import save_hud_style
         w = str(want or "").strip().lower()
-        if "classic" in w or "older" in w or "v1" in w:
+        if "orb" in w or "sphere" in w or "icosahedron" in w or "wireframe" in w:
+            target = "orb"
+            label = "Wireframe Holographic Orb"
+        elif "classic" in w or "older" in w or "v1" in w:
             target = "reactor_classic"
             label = "Classic Mark-LVI flat reactor core"
         elif "face" in w or "avatar" in w or "head" in w:
@@ -2635,13 +2735,15 @@ class MainWindow(QMainWindow):
         self._log.append_log(f"SYS: HUD switched to {label}.")
 
     def _toggle_hud_style(self):
-        """Cycle between Animated Face -> 3-D Reactor Core -> Classic Flat Reactor Core -> Animated Face."""
+        """Cycle between Animated Face -> 3-D Reactor Core -> Classic Flat Reactor Core -> Wireframe Orb -> Animated Face."""
         from memory.config_manager import get_hud_style
         curr = get_hud_style()
         if curr == "face":
             nxt = "reactor_3d"
         elif curr in ("reactor_3d", "core"):
             nxt = "reactor_classic"
+        elif curr in ("reactor_classic", "classic_core"):
+            nxt = "orb"
         else:
             nxt = "face"
         self._apply_hud_style(nxt)

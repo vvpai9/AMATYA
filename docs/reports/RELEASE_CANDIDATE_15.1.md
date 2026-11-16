@@ -34,7 +34,7 @@ AMATYA Phase 15.1 establishes complete security hardening, centralized authoriza
 - **Dynamic Discovery:** Public repository discovers private extensions from outside the repo if present.
 - **Test Isolation:** Public test suites use isolated temporary fixtures (`tmp_path`) and do not depend on private files.
 
-### 5. Historical Git Sanitization Executed & Verified (`docs/HISTORY_SANITIZATION_PROCEDURE.md`)
+### 5. Historical Git Sanitization Executed & Verified
 - **Safe Archival (Issue 2.3):** Verified local clone backup preserved at `~/Projects/Mark-LVII-original-backup` (77 commits) and compressed tarball at `~/Projects/Mark-LVII-original-full-backup.tar.gz`.
 - **Executed Export:** Dedicated public repository generated at `~/Projects/amatya-public-export` via `git-filter-repo`.
 - **Cryptographic Verification:** `git rev-list --objects --all` verifies that zero sensitive files, home configs, certs, or private memory graphs exist in Git objects.
