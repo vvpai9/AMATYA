@@ -92,12 +92,17 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **AgentRing VoIP Integration:** Lets AMATYA call your mobile phone over self-hosted VoIP when tasks complete or critical input is needed, with real-time AI voice bridging and zero carrier/Twilio fees.
 - **Cross-Platform Fallbacks:** Direct local Wi-Fi / LAN ringing via KDE Connect, ADB audio boost, and Ntfy.sh HTTP push.
 
-### 9. Futuristic Command-Centre HUD & 3 Visualisation Modes (`ui.py`, `gui/hud.py`, `dashboard/server.py`)
-- **Three Selectable Centrepiece Visualisation Modes:**
+### 9. Futuristic Command-Centre HUD & 4 Visualisation Modes (`ui.py`, `gui/hud.py`, `core/orb_hud.py`, `gui/plugin_hud.py`, `dashboard/server.py`)
+- **Four Selectable Centrepiece Visualisation Modes:**
   1. **⚙️ Classic Mark-LVI Flat Reactor Core:** The original Mark-LVI reactor visualization featuring multi-layer sweeping arcs, 72-point graduations, an atmosphere glow body, and an audio amplitude-reactive frequency spike ring.
   2. **◉ 3-D Gyroscope Reactor Core:** Foreshortened 3D holographic core with dual gyroscope rings turning across different axes and equatorial orbital tracers.
-  3. **🧑 Animated Face Avatar:** Expressive software-rendered holographic head with audio-reactive mouth visemes and gaze tracking.
-  - Cycle seamlessly between modes via voice command (`"switch hud"`, `"classic reactor"`, `"3d reactor"`, `"avatar"`) or by tapping the HUD style button.
+  3. **🌐 Wireframe Holographic Orb:** 3D holographic wireframe icosahedron with Loop subdivision, rotating orbital rings, reactive particle cloud, and dynamic audio-reactive amplitude deformation.
+  4. **🧑 Animated Face Avatar:** Expressive software-rendered holographic head with audio-reactive mouth visemes and gaze tracking.
+  - Cycle seamlessly between modes via voice command (`"switch hud"`, `"orb"`, `"wireframe"`, `"classic reactor"`, `"3d reactor"`, `"avatar"`) or by tapping the HUD style button.
+- **Universal Plugin HUD Host (`gui/plugin_hud.py`):**
+  - Thread-safe embedded HUD display engine enabling plugins to render rich declarative native HUD cards, telemetry tables, stat tiles, HTML, or web views directly inside the central HUD canvas (`player.show_hud_view()`).
+- **Local Companion Loopback Control Channel (`core/local_control.py`):**
+  - Lightweight loopback HTTP micro-service (`127.0.0.1:8765`) enabling external scripts, companion devices, or desktop hotkeys to query live status (`/status`), toggle mute (`/mute`), or trigger voice interrupts (`/interrupt`).
 - **Enhanced Typography & Clean Card Outages:**
   - Improved readability with balanced typography across HUD labels, metric bars, and status strips.
   - Structured card-based outage tables and Downdetector incident alerts eliminating dense paragraph text.
@@ -148,6 +153,12 @@ AMATYA operates natively across all major desktop environments by detecting the 
   - Space station flyover pass predictions (`passes`).
   - NOAA Space Weather Prediction Center solar geomagnetic storm telemetry and solar flux alerts (`space_weather`).
   - Spoken/text commands: *"Where is the space station right now?"*, *"Track Hubble Space Telescope"*, *"Check space weather and solar storms"*.
+
+### 15. Smart Desktop Utilities & Workspace Plugins (`plugins/`)
+- **Storage Guardian (`plugins/storage_guardian.py`):** Real-time disk telemetry, mount point capacities, large file discovery, and cleanup suggestions rendered dynamically on the Universal Plugin HUD.
+- **Network Intelligence (`plugins/network_intelligence.py`):** Active network interface metrics, gateway latencies, DNS resolution timings, and interface state monitoring.
+- **Downloads Folder Organizer (`plugins/downloads_organizer.py`):** Categorizes clutter in user downloads directory into logical bins (documents, images, videos, archives, installers) with preview and safe dry-run modes.
+- **Google Calendar & Google Drive Integration (`plugins/google_calendar.py`, `plugins/drive_search.py`):** Calendar schedule queries, event creation, and Google Drive file search with helpful guided authorization flows.
 
 ---
 
@@ -334,6 +345,9 @@ PYTHONPATH=. ./AMATYA/bin/pytest tests/test_jarvis_skills.py
 
 # Universal core acceptance tests
 PYTHONPATH=. ./AMATYA/bin/pytest tests/test_amatya_suite.py
+
+# Feature improvements & Mark-LVII integration tests
+PYTHONPATH=. ./AMATYA/bin/pytest tests/test_feature_improvements.py
 ```
 
 ---

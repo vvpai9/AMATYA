@@ -1116,8 +1116,12 @@ def computer_settings(
                 target = "reactor_3d"
             elif curr in ("reactor_3d", "core"):
                 target = "reactor_classic"
+            elif curr in ("reactor_classic", "classic_core"):
+                target = "orb"
             else:
                 target = "face"
+        elif "orb" in raw_val or "sphere" in raw_val or "wireframe" in raw_val or "icosahedron" in raw_val:
+            target = "orb"
         elif "classic" in raw_val or "older" in raw_val or "v1" in raw_val or "flat" in raw_val:
             target = "reactor_classic"
         elif "3d" in raw_val or "newer" in raw_val or "gyro" in raw_val:
@@ -1137,6 +1141,8 @@ def computer_settings(
             label = "Animated Face"
         elif target == "reactor_classic":
             label = "Classic Mark-LVI Flat Reactor Core"
+        elif target == "orb":
+            label = "Wireframe Holographic Orb"
         else:
             label = "3-D Gyroscope Reactor Core"
         return outcome.done("computer_settings", result=f"HUD centrepiece switched to {label}.")

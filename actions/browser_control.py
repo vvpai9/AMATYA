@@ -739,8 +739,12 @@ class _BrowserSession:
 
     async def _get_page(self) -> Page:
         await self._launch()
-        # If somehow page got closed, open a fresh one
+        # If somehow page got closed, find first open page or open a fresh one
         if self._page is None or self._page.is_closed():
+            for p in (self._context.pages if self._context else []):
+                if p and not p.is_closed():
+                    self._page = p
+                    return self._page
             self._page = await self._context.new_page()
             await asyncio.sleep(0.2)
         return self._page
