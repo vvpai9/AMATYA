@@ -2766,6 +2766,28 @@ class AmatyaLive:
         except Exception as _e:
             print(f"[News] News scheduler start notice: {_e}")
 
+        # Start Local Companion Loopback Control (127.0.0.1:8765)
+        try:
+            from core.local_control import LocalControlServer
+            def _lc_mute():
+                self.ui.muted = not self.ui.muted
+            def _lc_state():
+                return {
+                    "muted": bool(getattr(self.ui, "muted", False)),
+                    "speaking": bool(getattr(self, "speaking", False)),
+                    "state": str(getattr(self.ui, "state", "IDLE")),
+                    "hud_style": str(getattr(self.ui._win.hud, "hud_style", "face")) if getattr(self.ui, "_win", None) else "face",
+                }
+            self._local_control = LocalControlServer(
+                get_state=_lc_state,
+                on_mute_toggle=_lc_mute,
+                on_interrupt=self.interrupt,
+            )
+            self._local_control.start()
+        except Exception as _lc_err:
+            print(f"[LocalControl] Notice: {_lc_err}")
+            self._local_control = None
+
         while True:
             try:
                 self._ensure_executor()

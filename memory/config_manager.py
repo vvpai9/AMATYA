@@ -249,12 +249,12 @@ def save_push_to_talk_enabled(enabled: bool) -> None:
     _save_flag("push_to_talk_enabled", enabled)
 
 
-HUD_STYLES = ("face", "reactor_3d", "reactor_classic", "core")
+HUD_STYLES = ("face", "reactor_3d", "reactor_classic", "orb", "core")
 
 
 def get_hud_style() -> str:
     """Which centrepiece the HUD draws: 'face' (Animated Face), 'reactor_3d' (3-D Reactor Core),
-    or 'reactor_classic' (Classic Mark-LVI Flat Reactor Core).
+    'reactor_classic' (Classic Mark-LVI Flat Reactor Core), or 'orb' (Wireframe Holographic Orb).
     """
     v = str(load_api_keys().get("hud_style", "reactor_3d")).strip().lower()
     if v == "core":

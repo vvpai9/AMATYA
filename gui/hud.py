@@ -78,6 +78,14 @@ class HudCanvas(QWidget):
             except Exception:
                 self._reactor = None
 
+        # Wireframe Orb HUD centrepiece (core/orb_hud.py)
+        self._orb = None
+        try:
+            from core.orb_hud import OrbHud
+            self._orb = OrbHud()
+        except Exception:
+            self._orb = None
+
         # Which centrepiece to draw. Read once here and changed live by the
         # settings toggle; the avatar object is kept either way so switching
         # back is instant and costs no reload.
@@ -355,6 +363,9 @@ class HudCanvas(QWidget):
                     self._base_scale = random.uniform(1.001, 1.008)
                     self._base_halo  = random.uniform(48, 68)
                 self._last_t = now
+        elif self._orb is not None and self.hud_style == "orb":
+            self._orb.step(dt, amp, speaking=self.speaking,
+                           muted=self.muted, state=self.state)
         else:
             if self._reactor is not None:
                 self._reactor.step(dt, self.speaking,
@@ -635,6 +646,25 @@ class HudCanvas(QWidget):
             r = min(W * 0.25, band_h / ext)
             core_cy = band_t + (band_h - ext * r) / 2.0 + Reactor3D.TOP * r
             self._paint_core(p, cx, core_cy, r, W, band_h)
+        elif self._orb is not None and self.hud_style == "orb":
+            r_orb = min(W * 0.28, band_h * 0.38)
+            orb_cy = band_t + band_h / 2.0
+            if self.muted:
+                _main = _acc = qcol(C.MUTED_C)
+            else:
+                _main = qcol(C.PRI)
+                if self.speaking:
+                    _acc = qcol(C.ACC)
+                elif self.state in ("THINKING", "PROCESSING"):
+                    _acc = qcol(C.ACC2)
+                elif self.state == "LISTENING":
+                    _acc = qcol(C.GREEN)
+                else:
+                    _acc = qcol(C.PRI)
+            _paint_state = "RESPONDING" if self.speaking else self.state
+            self._orb.paint(p, cx, orb_cy, r_orb, _main, _acc, qcol(C.BG),
+                            self._amp_disp, _paint_state, muted=self.muted,
+                            W=W, H=band_h)
         else:
             r = min(W * 0.46, band_h / 2.0)
             self._paint_core_classic(p, cx, band_t + band_h / 2.0, r, W, band_h)
