@@ -120,6 +120,15 @@ def execute(
             data=res,
         )
 
+    if action in ("cognitive_process", "jarvis_cycle", "autonomous_execute"):
+        instr = str(parameters.get("instruction", "") or "").strip()
+        if not instr:
+            return outcome.failed("orchestrator", "Please provide 'instruction' for cognitive processing.")
+        from core.cognitive_core import get_cognitive_core
+        core = get_cognitive_core()
+        cog_out = core.process(instr, player=player, speak=speak or kwargs.get("speak"))
+        return outcome.done("orchestrator", result=cog_out.response_text, data=cog_out.to_dict())
+
     if action == "plan_and_execute":
         instr = str(parameters.get("instruction", "") or "").strip()
         if not instr:

@@ -1091,12 +1091,116 @@ class DashboardServer:
             if not _check_csrf(req):
                 return JSONResponse({"error": "Forbidden: Cross-site request rejected"}, status_code=403)
             try:
-                from core.orchestrator import get_orchestrator
-                msg = get_orchestrator().cancel_all()
+                from core.task_orchestrator import get_task_orchestrator
+                res = get_task_orchestrator().emergency_stop()
+                msg = res.get("message", "Emergency stop triggered.")
                 await self.broadcast({"type": "sys", "text": msg})
                 return JSONResponse({"ok": True, "message": msg})
             except Exception:
-                return JSONResponse({"ok": False, "error": "Emergency stop execution failed"}, status_code=500)
+                try:
+                    from core.orchestrator import get_orchestrator
+                    msg = get_orchestrator().cancel_all()
+                    await self.broadcast({"type": "sys", "text": msg})
+                    return JSONResponse({"ok": True, "message": msg})
+                except Exception:
+                    return JSONResponse({"ok": False, "error": "Emergency stop execution failed"}, status_code=500)
+
+        @app.get("/api/orchestrator/tasks")
+        async def orchestrator_tasks_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            try:
+                from core.task_orchestrator import get_task_orchestrator
+                graphs = get_task_orchestrator().list_graphs(limit=50)
+                return JSONResponse({"ok": True, "graphs": graphs})
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.get("/api/orchestrator/capabilities")
+        async def orchestrator_capabilities_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            try:
+                from core.capability_registry import get_capability_registry
+                reg = get_capability_registry()
+                caps = [c.to_dict() for c in reg.list_capabilities()]
+                return JSONResponse({"ok": True, "total": len(caps), "capabilities": caps})
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.get("/api/orchestrator/environment")
+        async def orchestrator_env_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            try:
+                from core.environmental_awareness import get_environmental_awareness
+                snap = get_environmental_awareness().get_snapshot()
+                return JSONResponse({"ok": True, "snapshot": snap.to_dict()})
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.post("/api/orchestrator/approve")
+        async def orchestrator_approve_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+            body = await req.json()
+            gid = str(body.get("graph_id", "")).strip()
+            tid = str(body.get("task_id", "")).strip()
+            try:
+                from core.task_orchestrator import get_task_orchestrator
+                res = get_task_orchestrator().approve_task(gid, tid)
+                return JSONResponse(res)
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.post("/api/orchestrator/deny")
+        async def orchestrator_deny_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+            body = await req.json()
+            gid = str(body.get("graph_id", "")).strip()
+            tid = str(body.get("task_id", "")).strip()
+            reason = str(body.get("reason", "Denied by user.")).strip()
+            try:
+                from core.task_orchestrator import get_task_orchestrator
+                res = get_task_orchestrator().deny_task(gid, tid, reason=reason)
+                return JSONResponse(res)
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.post("/api/orchestrator/pause")
+        async def orchestrator_pause_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+            body = await req.json()
+            gid = str(body.get("graph_id", "")).strip()
+            try:
+                from core.task_orchestrator import get_task_orchestrator
+                res = get_task_orchestrator().pause_graph(gid)
+                return JSONResponse(res)
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        @app.post("/api/orchestrator/resume")
+        async def orchestrator_resume_ep(req: Request):
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            if not _check_csrf(req):
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+            body = await req.json()
+            gid = str(body.get("graph_id", "")).strip()
+            try:
+                from core.task_orchestrator import get_task_orchestrator
+                res = get_task_orchestrator().resume_graph(gid)
+                return JSONResponse(res)
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
         @app.get("/api/autonomy")
         async def get_autonomy_ep(req: Request):
