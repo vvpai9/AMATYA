@@ -13,6 +13,7 @@ import asyncio
 import base64
 import hashlib
 import html
+import logging
 import re
 import secrets
 import socket
@@ -21,6 +22,8 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
+
+logger = logging.getLogger("dashboard.server")
 
 _DEPS_OK = False
 try:
@@ -1114,7 +1117,8 @@ class DashboardServer:
                 graphs = get_task_orchestrator().list_graphs(limit=50)
                 return JSONResponse({"ok": True, "graphs": graphs})
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to retrieve orchestrator tasks: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to retrieve orchestrator tasks"}, status_code=500)
 
         @app.get("/api/orchestrator/capabilities")
         async def orchestrator_capabilities_ep(req: Request):
@@ -1126,7 +1130,8 @@ class DashboardServer:
                 caps = [c.to_dict() for c in reg.list_capabilities()]
                 return JSONResponse({"ok": True, "total": len(caps), "capabilities": caps})
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to retrieve capabilities: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to retrieve capabilities"}, status_code=500)
 
         @app.get("/api/orchestrator/environment")
         async def orchestrator_env_ep(req: Request):
@@ -1137,7 +1142,8 @@ class DashboardServer:
                 snap = get_environmental_awareness().get_snapshot()
                 return JSONResponse({"ok": True, "snapshot": snap.to_dict()})
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to retrieve environment snapshot: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to retrieve environment snapshot"}, status_code=500)
 
         @app.post("/api/orchestrator/approve")
         async def orchestrator_approve_ep(req: Request):
@@ -1153,7 +1159,8 @@ class DashboardServer:
                 res = get_task_orchestrator().approve_task(gid, tid)
                 return JSONResponse(res)
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to approve task: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to approve task"}, status_code=500)
 
         @app.post("/api/orchestrator/deny")
         async def orchestrator_deny_ep(req: Request):
@@ -1170,7 +1177,8 @@ class DashboardServer:
                 res = get_task_orchestrator().deny_task(gid, tid, reason=reason)
                 return JSONResponse(res)
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to deny task: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to deny task"}, status_code=500)
 
         @app.post("/api/orchestrator/pause")
         async def orchestrator_pause_ep(req: Request):
@@ -1185,7 +1193,8 @@ class DashboardServer:
                 res = get_task_orchestrator().pause_graph(gid)
                 return JSONResponse(res)
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to pause graph: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to pause graph"}, status_code=500)
 
         @app.post("/api/orchestrator/resume")
         async def orchestrator_resume_ep(req: Request):
@@ -1200,7 +1209,8 @@ class DashboardServer:
                 res = get_task_orchestrator().resume_graph(gid)
                 return JSONResponse(res)
             except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                logger.error("Failed to resume graph: %s", e)
+                return JSONResponse({"ok": False, "error": "Failed to resume graph"}, status_code=500)
 
         @app.get("/api/autonomy")
         async def get_autonomy_ep(req: Request):
