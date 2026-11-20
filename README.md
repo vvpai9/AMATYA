@@ -70,17 +70,33 @@ AMATYA operates natively across all major desktop environments by detecting the 
   - Phone integration via **KDE Connect** (`kdeconnect-cli`), **ADB**, and **AgentRing VoIP** for file sharing, Find-My-Phone alerts, clipboard sync, battery monitoring, and urgent notifications.
   - Non-interactive SSH command execution, system status checks, and SCP file transfers for remote computers.
 
-### 6. CREATOR — Software Engineering & Document Engine (`core/creator.py`, `core/doc_generator.py`)
-- **Software Engineering:** Repository architecture summary, symbol search, safe file editing with automatic Python AST syntax validation and backup rollback, git status/diff, and test execution with **Command Risk Classification** (`SAFE_READ`, `SAFE_BUILD`, `MODIFY`, `DESTRUCTIVE`).
-- **Multi-Format Documents:** Generate and inspect **PDF, DOCX, XLSX, PPTX, CSV, Markdown, and ZIP** files locally.
-- **Anthropic Skills Suite Integration (`skills/`, `plugins/anthropic_skills.py`):** Natively integrates Anthropic's official skills ecosystem:
-  - `docx`: Word documents creation, table styling, templates, and revision comment management.
-  - `xlsx`: Excel spreadsheets generation with formulas, styled headers, and auto-fit column geometry.
-  - `pptx`: Executive slide deck presentations with thematic cards, bullet structures, and color palettes.
-  - `pdf`: Form field extraction, filling, validation, and layout structure analysis.
-  - `frontend-design`, `mcp-builder`, `web-artifacts-builder`, `webapp-testing`: Direct access to advanced UI, MCP server scaffolding, and interactive web dashboard builders.
-- **Dynamic Content & Summary Bridging:** Auto-bridges summarized text directly from generated files into presentations and reports without falling back to placeholder content.
-- **Strict File Deletion Protection:** Deletion of any file or directory requires mandatory confirmation and supports spoken voice authorization (`confirm.voice_authorize`).
+### 6. CREATOR — Unified Autonomous Software Engineering, Self-Repair & Multi-Modal Generation Suite (`core/creator.py`, `actions/creator.py`)
+
+> **Major Feature Upgrade:** The **CREATOR** suite unifies AMATYA's core software engineering engine with the advanced autonomous software engineering, self-repair, and generation tools contributed by **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman))** from Mark-LVII PR #182 and his fork.
+
+- **Autonomous Software Engineering & AST-Verified Surgical Editing:**
+  - **Surgical AST Code Editing (`edit_code`):** Precise find-and-replace code modification verified against Python's Abstract Syntax Tree (`ast.parse`) before persisting, with automatic rollback on syntax errors.
+  - **Bounded Code Reading (`read_code`):** Line-bounded inspection with offset ranges and byte-size truncation protection.
+  - **Universal File Writing (`write_code` / `create_file`):** Create and overwrite code or config files with automatic parent directory scaffolding and AST syntax verification.
+  - **Project Scaffolding (`scaffold` / `create_project`):** Generate complete project boilerplate for FastAPI, Python, React/Web, or custom structures with automatic Git repository initialization and profiling.
+  - **Multi-File Atomic Edits (`apply_edits` / `apply_edits_and_verify`):** Multi-file search-and-replace with in-memory backups and automatic rollback if post-edit tests fail.
+  - **Code Search & Intelligence (`search_code`, `code_assist`):** Regex/symbol search across workspaces and AI architectural guidance via the hardware-aware ModelRouter.
+- **Autonomous Self-Repair, Diagnostics & Auto-Healing (`self_repair`, `audit_system`):**
+  - **Codebase Integrity Audit:** Automatically parses every module across `actions/`, `core/`, `gui/`, `memory/`, and `providers/` using AST to flag syntax anomalies.
+  - **Dependency Verification & Auto-Healing:** Audits critical packages (`PyQt6`, `sounddevice`, `numpy`, `google-genai`, `requests`, `ddgs`, `playwright`, `openwakeword`, `faster_whisper`, `psutil`, `pillow`) and performs pip self-healing on demand.
+  - **Voice Turn Latency Tuning:** Ensures rapid response mode (`silence_ms: 450`, `prefix_ms: 100`) for seamless natural voice interaction.
+  - **Visual HUD Presentation:** Summarizes health audits into rich Markdown reports on the HUD (`player.show_content`).
+- **Coding Pipeline & Risk-Gated Terminal Execution:**
+  - **Command Risk Classification:** Categorizes every terminal command into `SAFE_READ`, `SAFE_BUILD`, `MODIFY`, or `DESTRUCTIVE`.
+  - **Git Automation (`git_status`, `git_diff`, `git_log`, `git_commit`, `git_branch`, `git_push`, `git_pull`):** Full version control pipeline management.
+  - **Automated Test Runner (`run_tests`, `check_project`):** Runs pytest, unittest, npm test, or compilation checks with elapsed time reporting.
+- **Document Studio & Universal File Creator (`generate_doc`, `analyze_doc`, `merge_pdf`, `extract_pdf_pages`):**
+  - High-fidelity generation and analysis of **PDF, DOCX, XLSX, PPTX, CSV, Markdown, and ZIP** files.
+  - Multi-file PDF merging (`merge_pdf`) and page extraction (`extract_pdf_pages`).
+  - Natively integrates the Anthropic Skills ecosystem (`docx`, `xlsx`, `pptx`, `pdf`).
+- **Multi-Modal Media Generation (`generate_image`, `create_video`):**
+  - **AI Image Generation:** Synthesize artwork, concept art, wallpapers, and diagrams using FLUX/SDXL via Pollinations AI with automatic desktop saving and preview.
+  - **AI Video Studio:** Synthesize cinematic HUD motion cards, visual titles, and video clips (MP4) styled in `cyber`, `cinematic`, `gold`, or `neon` themes using FFmpeg and Pillow.
 
 ### 7. Vedic Jyotisha & Astrological Intelligence (`core/jyotisha.py`, `actions/jyotisha.py`)
 - **Vedic Sidereal Calculations (Lahiri / Chitrapaksha Ayanamsha):** High-precision planetary longitudes, Lagna, and Bhavas computed using Swiss Ephemeris (`pyswisseph`).
@@ -352,9 +368,15 @@ PYTHONPATH=. ./AMATYA/bin/pytest tests/test_feature_improvements.py
 
 ---
 
-## Built Upon Mark-LVII
+## Built Upon Mark-LVII & Contributor Acknowledgements
 
 AMATYA is a fork and evolution of **[Mark-LVII by FatihMakes](https://github.com/FatihMakes/Mark-LVII)**. All credit for the foundational architecture goes to FatihMakes. For upstream Mark-LVII documentation, original setup guides, provider configuration, and project background, see the **[Mark-LVII README](https://github.com/FatihMakes/Mark-LVII/blob/main/readme.md)**.
+
+### Major Contributors & Acknowledgements
+
+- **FatihMakes ([@FatihMakes](https://github.com/FatihMakes)):** Original creator and lead architect of Mark-LVII.
+- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Advanced autonomous software engineering suite, self-repair and system diagnostic protocols, AST surgical code editing, coding pipeline automation, document studio, and multi-modal image & video generation capabilities unified in the **CREATOR** suite.
+- **AMATYA Community:** Cross-platform Linux (Wayland/X11), Windows, and macOS enhancements, cognitive orchestration, biometric voice authentication, and hardware-aware local AI routing.
 
 ---
 

@@ -121,6 +121,8 @@ pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 #   pip install pydub        # file_processor: audio metadata and conversion
 #                            #   (also needs ffmpeg on PATH for most formats)
 #   pip install mediapipe    # pushup_counter: elbow-angle rep detection
+#   pip install reportlab    # creator / document_studio: advanced PDF styling
+#   pip install shazamio     # music_recognition: audio song recognition
 
 # ── Optional: running the assistant on your own models ───────────────────────
 # ⚙ → ENGINE & PROVIDERS lets you replace Gemini Live with your own speech

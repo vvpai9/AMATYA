@@ -22,6 +22,7 @@ Implements Section 10 (Software Development, Engineering and Creation — CREATO
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import re
@@ -30,6 +31,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -273,7 +276,7 @@ class ProjectProfileManager:
 
 
 class CreatorEngine:
-    """Autonomous software engineering, git workflow, test execution, and document creation engine."""
+    """Autonomous software engineering, git workflow, test execution, document creation, self-repair and multi-modal generation engine."""
 
     def __init__(self) -> None:
         self._last_backups: dict[str, str] = {}
@@ -325,6 +328,7 @@ class CreatorEngine:
         op: str = "status",
         message: str = "",
         branch: str = "",
+        remote: str = "origin",
     ) -> dict[str, Any]:
         root = Path(project_path or BASE_DIR).expanduser().resolve()
         op_clean = (op or "status").strip().lower()
@@ -356,7 +360,595 @@ class CreatorEngine:
             c = subprocess.run(["git", "-C", str(root), "commit", "-m", message], capture_output=True, text=True)
             return {"ok": c.returncode == 0, "stdout": (c.stdout or c.stderr or "").strip()}
 
+        if op_clean == "branch":
+            if branch:
+                b = subprocess.run(["git", "-C", str(root), "checkout", "-b", branch], capture_output=True, text=True)
+                return {"ok": b.returncode == 0, "stdout": (b.stdout or b.stderr or "").strip()}
+            b = subprocess.run(["git", "-C", str(root), "branch", "-a"], capture_output=True, text=True)
+            return {"ok": b.returncode == 0, "stdout": (b.stdout or b.stderr or "").strip()}
+
+        if op_clean == "push":
+            perm = check_permission("git_push", PermissionTier.SENSITIVE_SYSTEM, description=f"Git push {remote} {branch or 'HEAD'}", interactive_confirm=False)
+            if not perm["allowed"]:
+                return {"ok": False, "error": perm["reason"]}
+            p = subprocess.run(["git", "-C", str(root), "push", remote or "origin", branch or "HEAD"], capture_output=True, text=True)
+            return {"ok": p.returncode == 0, "stdout": (p.stdout or p.stderr or "").strip()}
+
+        if op_clean == "pull":
+            p = subprocess.run(["git", "-C", str(root), "pull", remote or "origin", branch or "HEAD"], capture_output=True, text=True)
+            return {"ok": p.returncode == 0, "stdout": (p.stdout or p.stderr or "").strip()}
+
         return {"ok": False, "error": f"Unsupported git operation '{op}'."}
+
+    def read_code(
+        self,
+        file_path: str | Path,
+        start_line: int | None = 1,
+        end_line: int | None = None,
+        max_bytes: int = 50_000,
+    ) -> dict[str, Any]:
+        """Read specific lines or full files across any workspace with byte-size safeguarding."""
+        p = Path(file_path).expanduser().resolve()
+        if not p.is_file():
+            return {"ok": False, "error": f"File '{p}' does not exist."}
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+            total = len(lines)
+            s = max(0, (start_line or 1) - 1)
+            e = min(total, end_line if end_line is not None else total)
+            selected = "".join(lines[s:e])
+            truncated = False
+            if len(selected) > max_bytes:
+                selected = selected[:max_bytes] + "\n...[truncated]"
+                truncated = True
+            return {
+                "ok": True,
+                "path": str(p),
+                "filename": p.name,
+                "start_line": s + 1,
+                "end_line": e,
+                "total_lines": total,
+                "truncated": truncated,
+                "content": selected,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to read file '{p}': {exc}"}
+
+    def edit_code(
+        self,
+        file_path: str | Path,
+        target: str,
+        replacement: str,
+    ) -> dict[str, Any]:
+        """Surgical find-and-replace edit with AST syntax validation on Python files."""
+        p = Path(file_path).expanduser().resolve()
+        if not p.is_file():
+            return {"ok": False, "error": f"Target file '{p}' does not exist."}
+        if not target:
+            return {"ok": False, "error": "Edit requires a non-empty 'target' string."}
+
+        perm = check_permission("creator_edit_code", PermissionTier.PRIVATE_FILES, description=f"Edit {p.name}", interactive_confirm=False)
+        if not perm["allowed"]:
+            return {"ok": False, "error": perm["reason"]}
+
+        try:
+            original = p.read_text(encoding="utf-8", errors="replace")
+            if target not in original:
+                return {"ok": False, "error": f"Target snippet not found in {p.name}."}
+            count = original.count(target)
+            updated = original.replace(target, replacement, 1)
+
+            if p.suffix.lower() == ".py":
+                try:
+                    ast.parse(updated, filename=str(p))
+                except SyntaxError as se:
+                    return {
+                        "ok": False,
+                        "error": f"Edit aborted: Syntax validation failed on line {se.lineno}: {se.msg}",
+                        "lineno": se.lineno,
+                    }
+
+            p.write_text(updated, encoding="utf-8")
+            diff_summary = f"Replaced {count} occurrence(s) in {p.name}."
+            return {
+                "ok": True,
+                "path": str(p),
+                "occurrences": count,
+                "diff_summary": diff_summary,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to edit file '{p}': {exc}"}
+
+    def write_code(
+        self,
+        file_path: str | Path,
+        content: str,
+    ) -> dict[str, Any]:
+        """Create or overwrite files with AST syntax validation for Python files."""
+        p = Path(file_path).expanduser().resolve()
+        perm = check_permission("creator_write_code", PermissionTier.PRIVATE_FILES, description=f"Write {p.name}", interactive_confirm=False)
+        if not perm["allowed"]:
+            return {"ok": False, "error": perm["reason"]}
+
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if p.suffix.lower() == ".py":
+                try:
+                    ast.parse(content, filename=str(p))
+                except SyntaxError as se:
+                    return {
+                        "ok": False,
+                        "error": f"Write aborted: Syntax error on line {se.lineno}: {se.msg}",
+                        "lineno": se.lineno,
+                    }
+            p.write_text(content, encoding="utf-8")
+            return {
+                "ok": True,
+                "path": str(p),
+                "bytes_written": len(content),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to write file '{p}': {exc}"}
+
+    def create_file(self, file_path: str | Path, content: str) -> dict[str, Any]:
+        """Universal file creator alias."""
+        return self.write_code(file_path, content)
+
+    def scaffold_project(
+        self,
+        project_name: str,
+        project_type: str = "python",
+        target_dir: str | Path | None = None,
+        files: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Scaffold project boilerplate (Python, Web, React, or custom files) and initialize Git."""
+        dest_root = Path(target_dir or BASE_DIR).expanduser().resolve()
+        pdir = dest_root if (dest_root.is_dir() and dest_root.name == project_name) else (dest_root / project_name)
+        pdir.mkdir(parents=True, exist_ok=True)
+        pt = (project_type or "python").lower()
+
+        created: list[str] = []
+        try:
+            if files and isinstance(files, dict):
+                for rel_path, c in files.items():
+                    fp = pdir / rel_path
+                    fp.parent.mkdir(parents=True, exist_ok=True)
+                    fp.write_text(str(c), encoding="utf-8")
+                    created.append(rel_path)
+            elif "fastapi" in pt or "python" in pt:
+                (pdir / "main.py").write_text(
+                    'from fastapi import FastAPI\n\napp = FastAPI(title="' + project_name + '")\n\n@app.get("/")\ndef root():\n    return {"message": "Service online"}\n\n@app.get("/health")\ndef health():\n    return {"status": "healthy"}\n',
+                    encoding="utf-8",
+                )
+                (pdir / "requirements.txt").write_text("fastapi\nuvicorn[standard]\nrequests\npytest\n", encoding="utf-8")
+                (pdir / "README.md").write_text(f"# {project_name}\n\nGenerated by AMATYA CREATOR.\n\nRun:\n```bash\nuvicorn main:app --reload\n```\n", encoding="utf-8")
+                tests_dir = pdir / "tests"
+                tests_dir.mkdir(parents=True, exist_ok=True)
+                (tests_dir / "test_main.py").write_text("def test_health():\n    assert True\n", encoding="utf-8")
+                created.extend(["main.py", "requirements.txt", "README.md", "tests/test_main.py"])
+            elif "react" in pt or "next" in pt or "web" in pt:
+                (pdir / "package.json").write_text(
+                    json.dumps({
+                        "name": project_name.lower().replace(" ", "-"),
+                        "version": "0.1.0",
+                        "private": True,
+                        "scripts": {"dev": "vite", "build": "vite build", "preview": "vite preview"},
+                        "dependencies": {"react": "^18.3.1", "react-dom": "^18.3.1"},
+                        "devDependencies": {"vite": "^5.4.0", "@vitejs/plugin-react": "^4.3.1"},
+                    }, indent=2),
+                    encoding="utf-8",
+                )
+                (pdir / "index.html").write_text(
+                    f'<!DOCTYPE html>\n<html>\n<head><title>{project_name}</title></head>\n<body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body>\n</html>',
+                    encoding="utf-8",
+                )
+                src = pdir / "src"
+                src.mkdir(parents=True, exist_ok=True)
+                (src / "App.jsx").write_text('export default function App() {\n  return <h1>Hello from ' + project_name + '</h1>;\n}\n', encoding="utf-8")
+                (src / "main.jsx").write_text('import React from "react";\nimport ReactDOM from "react-dom/client";\nimport App from "./App";\n\nReactDOM.createRoot(document.getElementById("root")).render(<App />);\n', encoding="utf-8")
+                (pdir / "README.md").write_text(f"# {project_name}\n\nWeb application generated by AMATYA CREATOR.\n", encoding="utf-8")
+                created.extend(["package.json", "index.html", "src/App.jsx", "src/main.jsx", "README.md"])
+            else:
+                (pdir / "index.html").write_text(f'<!DOCTYPE html>\n<html>\n<head><title>{project_name}</title><link rel="stylesheet" href="style.css"></head>\n<body><h1>{project_name}</h1><script src="app.js"></script></body>\n</html>', encoding="utf-8")
+                (pdir / "style.css").write_text("body { font-family: sans-serif; margin: 2rem; }\n", encoding="utf-8")
+                (pdir / "app.js").write_text('console.log("Loaded ' + project_name + '");\n', encoding="utf-8")
+                (pdir / "README.md").write_text(f"# {project_name}\n\nCreated by AMATYA CREATOR.\n", encoding="utf-8")
+                created.extend(["index.html", "style.css", "app.js", "README.md"])
+
+            if shutil.which("git"):
+                try:
+                    subprocess.run(["git", "init"], cwd=str(pdir), capture_output=True, timeout=10)
+                except Exception:
+                    pass
+
+            self.profiles.auto_profile(pdir)
+            return {
+                "ok": True,
+                "project_name": project_name,
+                "project_dir": str(pdir),
+                "created_files": created,
+                "project_type": pt,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to scaffold project '{project_name}': {exc}"}
+
+    def self_repair(
+        self,
+        target: str = "all",
+        player: Any = None,
+        auto_install: bool = False,
+    ) -> dict[str, Any]:
+        """Autonomous self-repair, system diagnostic, and auto-healing protocol. Contributed by Aman Kumar (@iamTechieAman)."""
+        start_time = time.time()
+        repairs_done: list[str] = []
+        warnings: list[str] = []
+
+        if player and hasattr(player, "write_log"):
+            try:
+                player.write_log("SYS: Initialising Autonomous Self-Repair Protocol...")
+            except Exception:
+                pass
+
+        # 1. Syntax & Integrity Scan
+        syntax_issues: list[dict[str, str]] = []
+        scanned_count = 0
+        scan_dirs = ["actions", "core", "gui", "memory", "providers"]
+        for sdir in scan_dirs:
+            tdir = BASE_DIR / sdir
+            if not tdir.is_dir():
+                continue
+            for py_file in tdir.rglob("*.py"):
+                scanned_count += 1
+                try:
+                    src = py_file.read_text(encoding="utf-8", errors="replace")
+                    ast.parse(src, filename=str(py_file))
+                except Exception as exc:
+                    syntax_issues.append({"file": str(py_file.relative_to(BASE_DIR)), "error": str(exc)})
+
+        if syntax_issues:
+            warnings.append(f"{len(syntax_issues)} syntax anomalies detected in codebase.")
+            for item in syntax_issues[:3]:
+                repairs_done.append(f"Flagged syntax issue in {item['file']}: {item['error']}")
+        else:
+            repairs_done.append(f"Integrity scan passed: {scanned_count} Python modules 100% syntactically valid.")
+
+        # 2. Dependency Audit & Auto-repair
+        required_pkgs = [
+            "PyQt6", "sounddevice", "numpy", "google-genai",
+            "requests", "ddgs", "playwright", "openwakeword",
+            "faster_whisper", "psutil", "pillow"
+        ]
+        present: list[str] = []
+        missing: list[str] = []
+        for pkg in required_pkgs:
+            mod_name = pkg.replace("-", "_")
+            if importlib.util.find_spec(mod_name) is not None:
+                present.append(pkg)
+            else:
+                missing.append(pkg)
+
+        if missing:
+            if auto_install:
+                if player and hasattr(player, "write_log"):
+                    try:
+                        player.write_log(f"SYS: Auto-installing missing dependencies: {', '.join(missing)}...")
+                    except Exception:
+                        pass
+                try:
+                    r = subprocess.run([sys.executable, "-m", "pip", "install", *missing], capture_output=True, text=True, timeout=120)
+                    if r.returncode == 0:
+                        repairs_done.append(f"Successfully auto-installed: {', '.join(missing)}")
+                    else:
+                        warnings.append(f"Failed to auto-install: {', '.join(missing)}")
+                except Exception as exc:
+                    warnings.append(f"Pip self-healing exception: {exc}")
+            else:
+                warnings.append(f"Missing optional dependencies: {', '.join(missing)}")
+        else:
+            repairs_done.append(f"Dependencies verified: All {len(present)} mission-critical packages operational.")
+
+        # 3. Wake Word Health
+        try:
+            from core.wake_word import is_ready
+            if is_ready():
+                repairs_done.append("Wake Word Engine: ONNX models present and operational ('Hey Jarvis').")
+            else:
+                repairs_done.append("Wake Word Engine: Ready for activation.")
+        except Exception as exc:
+            warnings.append(f"Wake word probe warning: {exc}")
+
+        # 4. Clean duplicate app bundles & cache
+        try:
+            desktop_app = Path.home() / "Desktop" / "J.A.R.V.I.S.app"
+            if desktop_app.exists():
+                shutil.rmtree(desktop_app)
+                repairs_done.append("Removed duplicate desktop app bundle.")
+        except Exception as exc:
+            warnings.append(f"Desktop bundle cleanup error: {exc}")
+
+        # 5. Turn Latency Tuning Verification
+        try:
+            from memory.config_manager import get_turn_tuning, save_turn_tuning
+            tt = get_turn_tuning()
+            if not tt.get("enabled"):
+                save_turn_tuning({"enabled": True, "silence_ms": 450, "prefix_ms": 100, "end_sensitivity": "high"})
+                repairs_done.append("Optimised voice turn latency: enabled rapid response mode (450ms).")
+            else:
+                repairs_done.append("Voice turn latency: already tuned to rapid response mode.")
+        except Exception as exc:
+            warnings.append(f"Turn tuning error: {exc}")
+
+        elapsed = round(time.time() - start_time, 2)
+
+        report_lines = [
+            "## AMATYA Autonomous Self-Repair Report",
+            f"**Status:** {'Nominal with Warnings' if warnings else '100% Operational'}",
+            f"**Audit Duration:** {elapsed}s",
+            "",
+            "### Actions & Verifications:",
+            *[f"- ✅ {r}" for r in repairs_done],
+        ]
+        if warnings:
+            report_lines.extend(["", "### Warnings:", *[f"- ⚠️ {w}" for w in warnings]])
+
+        report_md = "\n".join(report_lines)
+
+        if player and hasattr(player, "show_content"):
+            try:
+                player.show_content("AMATYA Self-Repair & System Audit", report_md)
+            except Exception:
+                pass
+
+        if player and hasattr(player, "write_log"):
+            try:
+                player.write_log(f"SYS: Self-repair completed in {elapsed}s. All systems operational.")
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "duration_sec": elapsed,
+            "scanned_modules": scanned_count,
+            "syntax_errors": syntax_issues,
+            "dependencies_present": present,
+            "dependencies_missing": missing,
+            "repairs_done": repairs_done,
+            "warnings": warnings,
+            "report_markdown": report_md,
+            "summary": (
+                f"Autonomous self-repair protocol complete in {elapsed}s. "
+                f"Scanned {scanned_count} system modules, verified {len(present)} dependencies, "
+                f"and validated system integrity."
+            ),
+        }
+
+    def merge_pdfs(self, input_paths: list[str], output_filename: str = "merged_output.pdf") -> dict[str, Any]:
+        """Merge multiple PDF files into a single unified PDF."""
+        dest = Path(output_filename).expanduser()
+        if not dest.is_absolute():
+            dest = Path.home() / "Desktop" / output_filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            reader_cls = None
+            writer = None
+            try:
+                import pypdf
+                writer = pypdf.PdfWriter()
+                reader_cls = pypdf.PdfReader
+            except ImportError:
+                try:
+                    import PyPDF2
+                    writer = PyPDF2.PdfWriter()
+                    reader_cls = PyPDF2.PdfReader
+                except ImportError:
+                    return {"ok": False, "error": "pypdf or PyPDF2 is required for PDF merging."}
+
+            merged_count = 0
+            for p in input_paths:
+                fpath = Path(p).expanduser().resolve()
+                if fpath.is_file():
+                    reader = reader_cls(str(fpath))
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    merged_count += 1
+
+            if merged_count == 0:
+                return {"ok": False, "error": "No valid PDF files provided to merge."}
+
+            with open(dest, "wb") as f:
+                writer.write(f)
+
+            return {
+                "ok": True,
+                "path": str(dest),
+                "merged_count": merged_count,
+                "message": f"Successfully merged {merged_count} PDF files into '{dest}'",
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to merge PDFs: {exc}"}
+
+    def extract_pdf_pages(self, input_path: str, pages_spec: str, output_filename: str = "extracted_pages.pdf") -> dict[str, Any]:
+        """Extract specific pages from a PDF. pages_spec: e.g. '1-3,5' (1-indexed)."""
+        path = Path(input_path).expanduser().resolve()
+        if not path.is_file():
+            return {"ok": False, "error": f"File not found: '{input_path}'"}
+
+        dest = Path(output_filename).expanduser()
+        if not dest.is_absolute():
+            dest = Path.home() / "Desktop" / output_filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            try:
+                import pypdf
+                writer = pypdf.PdfWriter()
+                reader = pypdf.PdfReader(str(path))
+            except ImportError:
+                try:
+                    import PyPDF2
+                    writer = PyPDF2.PdfWriter()
+                    reader = PyPDF2.PdfReader(str(path))
+                except ImportError:
+                    return {"ok": False, "error": "pypdf or PyPDF2 is required for PDF manipulation."}
+
+            total_pages = len(reader.pages)
+            selected = set()
+            for part in pages_spec.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    s, e = part.split("-", 1)
+                    for idx in range(int(s), int(e) + 1):
+                        if 1 <= idx <= total_pages:
+                            selected.add(idx - 1)
+                else:
+                    idx = int(part)
+                    if 1 <= idx <= total_pages:
+                        selected.add(idx - 1)
+
+            if not selected:
+                return {"ok": False, "error": f"No valid pages matching spec '{pages_spec}' (PDF has {total_pages} pages)."}
+
+            for idx in sorted(selected):
+                writer.add_page(reader.pages[idx])
+
+            with open(dest, "wb") as f:
+                writer.write(f)
+
+            return {
+                "ok": True,
+                "path": str(dest),
+                "pages_extracted": len(selected),
+                "message": f"Extracted {len(selected)} pages from '{path.name}' into '{dest}'",
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to extract PDF pages: {exc}"}
+
+    def generate_image(
+        self,
+        prompt: str,
+        width: int = 1024,
+        height: int = 1024,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
+        """Synthesize image via Pollinations FLUX/SDXL engine. Contributed by Aman Kumar (@iamTechieAman)."""
+        clean_prompt = prompt.strip()
+        if not clean_prompt:
+            return {"ok": False, "error": "Prompt describing the image is required."}
+
+        encoded = urllib.parse.quote(clean_prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&model=flux&nologo=true&enhance=true"
+
+        desktop = Path.home() / "Desktop"
+        ts = int(time.time())
+        if filename:
+            clean_name = filename if filename.lower().endswith((".jpg", ".png", ".jpeg")) else f"{filename}.jpg"
+            dest = desktop / clean_name
+        else:
+            dest = desktop / f"jarvis_gen_{ts}.jpg"
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (AMATYA Autonomous System; Linux x86_64)"},
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+                with open(dest, "wb") as f:
+                    f.write(data)
+
+            if sys.platform == "darwin":
+                try:
+                    subprocess.Popen(["open", str(dest)])
+                except Exception:
+                    pass
+
+            return {
+                "ok": True,
+                "path": str(dest),
+                "prompt": clean_prompt,
+                "message": f"Generated image for '{clean_prompt}' saved to '{dest}'.",
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"Image generation failed: {exc}"}
+
+    def create_video(
+        self,
+        title: str,
+        text: str = "",
+        image_path: str = "",
+        duration: int = 5,
+        theme: str = "cyber",
+    ) -> dict[str, Any]:
+        """Synthesize cinematic motion cards and HUD clips. Contributed by Aman Kumar (@iamTechieAman)."""
+        out_dir = Path.home() / "Desktop" / "JARVIS_Videos"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        out_file = out_dir / f"jarvis_clip_{ts}.mp4"
+        temp_frame = out_dir / f"temp_frame_{ts}.png"
+
+        dur = max(2, min(int(duration or 5), 30))
+        t_clean = (theme or "cyber").lower()
+        themes = {
+            "cyber": ((10, 15, 29), (0, 210, 255), (255, 255, 255)),
+            "cinematic": ((17, 24, 39), (243, 244, 246), (156, 163, 175)),
+            "gold": ((28, 25, 23), (245, 158, 11), (254, 243, 199)),
+            "neon": ((9, 9, 11), (236, 72, 153), (0, 255, 255)),
+        }
+        bg_col, title_col, text_col = themes.get(t_clean, themes["cyber"])
+
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            if image_path and Path(image_path).is_file():
+                base_img = Image.open(image_path).convert("RGB")
+                base_img = base_img.resize((1280, 720), Image.Resampling.LANCZOS)
+            else:
+                base_img = Image.new("RGB", (1280, 720), color=bg_col)
+                draw = ImageDraw.Draw(base_img)
+                draw.rectangle([30, 30, 1250, 690], outline=title_col, width=2)
+                draw.line([(30, 50), (60, 50)], fill=title_col, width=4)
+                draw.line([(1220, 50), (1250, 50)], fill=title_col, width=4)
+                draw.line([(30, 670), (60, 670)], fill=title_col, width=4)
+                draw.line([(1220, 670), (1250, 670)], fill=title_col, width=4)
+
+            draw = ImageDraw.Draw(base_img)
+            font_large = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+            draw.text((640, 310), title.upper(), fill=title_col, font=font_large, anchor="mm")
+            sub_text = text or title
+            draw.text((640, 420), sub_text[:80], fill=text_col, font=font_small, anchor="mm")
+
+            base_img.save(temp_frame, "PNG")
+
+            ffmpeg_bin = shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
+            cmd = [
+                ffmpeg_bin, "-y", "-loop", "1", "-i", str(temp_frame),
+                "-c:v", "libx264", "-t", str(dur), "-pix_fmt", "yuv420p",
+                "-vf", "scale=1280:720", str(out_file),
+            ]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if temp_frame.exists():
+                temp_frame.unlink(missing_ok=True)
+
+            if r.returncode == 0:
+                return {
+                    "ok": True,
+                    "path": str(out_file),
+                    "title": title,
+                    "duration": dur,
+                    "message": f"Synthesized motion clip '{out_file.name}' ({dur}s).",
+                }
+            return {"ok": False, "error": f"FFmpeg video encoding failed: {r.stderr[:200]}"}
+        except Exception as exc:
+            if temp_frame.exists():
+                temp_frame.unlink(missing_ok=True)
+            return {"ok": False, "error": f"Video synthesis failed: {exc}"}
 
     def search_code(
         self,

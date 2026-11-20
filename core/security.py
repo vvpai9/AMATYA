@@ -1256,15 +1256,37 @@ TOOL_PERMISSION_MATRIX: dict[str, dict[str, Any]] = {
         "default_tier": PermissionTier.PRIVATE_FILES,
         "git_status": PermissionTier.GENERAL_CONVERSATION,
         "git_diff": PermissionTier.GENERAL_CONVERSATION,
+        "git_log": PermissionTier.GENERAL_CONVERSATION,
+        "git_branch": PermissionTier.GENERAL_CONVERSATION,
         "inspect_repo": PermissionTier.GENERAL_CONVERSATION,
         "check_project": PermissionTier.GENERAL_CONVERSATION,
         "run_tests": PermissionTier.GENERAL_CONVERSATION,
         "search_code": PermissionTier.GENERAL_CONVERSATION,
+        "read_code": PermissionTier.GENERAL_CONVERSATION,
+        "classify_command": PermissionTier.GENERAL_CONVERSATION,
+        "get_profile": PermissionTier.GENERAL_CONVERSATION,
+        "list_profiles": PermissionTier.GENERAL_CONVERSATION,
+        "code_assist": PermissionTier.GENERAL_CONVERSATION,
         "analyze_doc": PermissionTier.GENERAL_CONVERSATION,
+        "audit_system": PermissionTier.GENERAL_CONVERSATION,
         "generate_doc": PermissionTier.PRIVATE_FILES,
         "apply_edits": PermissionTier.PRIVATE_FILES,
+        "apply_edits_and_verify": PermissionTier.PRIVATE_FILES,
+        "edit_code": PermissionTier.PRIVATE_FILES,
+        "write_code": PermissionTier.PRIVATE_FILES,
+        "create_file": PermissionTier.PRIVATE_FILES,
+        "scaffold": PermissionTier.PRIVATE_FILES,
+        "create_project": PermissionTier.PRIVATE_FILES,
+        "merge_pdf": PermissionTier.PRIVATE_FILES,
+        "extract_pdf_pages": PermissionTier.PRIVATE_FILES,
+        "generate_image": PermissionTier.PRIVATE_FILES,
+        "create_video": PermissionTier.PRIVATE_FILES,
+        "update_profile": PermissionTier.PRIVATE_FILES,
         "git_commit": PermissionTier.SENSITIVE_SYSTEM,
+        "git_push": PermissionTier.SENSITIVE_SYSTEM,
+        "git_pull": PermissionTier.SENSITIVE_SYSTEM,
         "run_shell": PermissionTier.SENSITIVE_SYSTEM,
+        "self_repair": PermissionTier.SENSITIVE_SYSTEM,
     },
     "game_updater": {"default_tier": PermissionTier.SENSITIVE_SYSTEM},
     "computer_settings": {
@@ -1322,16 +1344,16 @@ def classify_tool_permission(
     if not spec:
         return PermissionTier.CRITICAL_SECURITY, f"Unregistered or unclassified tool '{tool}' fails closed to Tier 5 (Critical Security)."
 
-    # Look up action override
-    if act in spec:
-        ptier = spec[act]
-        return ptier, f"Action '{act}' of '{tool}' mapped to Tier {int(ptier)} ({TIER_LABELS[ptier]})."
-
-    # Contextual check for shell commands in creator
+    # Contextual check for shell commands in creator (elevates destructive commands to Tier 5)
     if tool == "creator" and act == "run_shell" and parameters:
         cmd = str(parameters.get("command", "") or "").lower()
         if any(c in cmd for c in ("rm -rf", "mkfs", "dd if=", ":(){ :|:& };:", "chmod -r 777 /")):
             return PermissionTier.CRITICAL_SECURITY, "Destructive shell command classified as Tier 5 (Critical Security)."
+
+    # Look up action override
+    if act in spec:
+        ptier = spec[act]
+        return ptier, f"Action '{act}' of '{tool}' mapped to Tier {int(ptier)} ({TIER_LABELS[ptier]})."
 
     def_tier = spec.get("default_tier", PermissionTier.CRITICAL_SECURITY)
     return def_tier, f"Tool '{tool}' default mapped to Tier {int(def_tier)} ({TIER_LABELS[def_tier]})."
