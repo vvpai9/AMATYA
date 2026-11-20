@@ -1,5 +1,5 @@
 """
-file_processor.py — AMATYA Universal File Processor
+file_processor.py — JARVIS Universal File Processor
 
 Supported types:
   image   → describe, ocr, resize, convert, compress, crop
@@ -48,6 +48,8 @@ def _gemini_client(tier: str = gemini.SMART):
 
 
 def _detect_type(path: Path) -> str:
+    if path.is_dir():
+        return "folder"
     ext = path.suffix.lower().lstrip(".")
     image_exts = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "svg", "ico"}
     video_exts = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v", "3gp"}
@@ -74,7 +76,13 @@ def _detect_type(path: Path) -> str:
 
 
 def _file_size_str(path: Path) -> str:
-    size = path.stat().st_size
+    try:
+        if path.is_dir():
+            size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
+        else:
+            size = path.stat().st_size
+    except Exception:
+        size = 0
     if size < 1024:        return f"{size} B"
     if size < 1024**2:     return f"{size/1024:.1f} KB"
     if size < 1024**3:     return f"{size/1024**2:.1f} MB"
@@ -319,61 +327,93 @@ def _process_text_doc(path: Path, file_type: str, action: str,
 
 def _process_data(path: Path, file_type: str, action: str,
                   params: dict, speak=None) -> str:
+    pd = None
     try:
         import pandas as pd
     except ImportError:
-        return "pandas not installed. Run: pip install pandas openpyxl"
+        pass
 
     action = action or "analyze"
 
-    try:
-        if file_type == "csv":
-            df = pd.read_csv(path, encoding="utf-8", errors="replace")
-        else:
-            df = pd.read_excel(path)
-    except Exception as e:
-        return f"Could not read file: {e}"
-
-    if action == "info":
-        return (f"Rows: {len(df)}, Columns: {len(df.columns)}\n"
-                f"Columns: {', '.join(df.columns.tolist())}\n"
-                f"Size: {_file_size_str(path)}")
-
-    if action == "stats":
+    if pd is not None:
         try:
-            desc = df.describe(include="all").to_string()
-            return f"Statistics:\n{desc[:2000]}"
+            if file_type == "csv":
+                df = pd.read_csv(path, encoding="utf-8", errors="replace")
+            else:
+                df = pd.read_excel(path)
         except Exception as e:
-            return f"Stats failed: {e}"
+            return f"Could not read file: {e}"
 
-    if action == "analyze":
-        preview = df.head(50).to_string()
-        prompt  = (f"Analyze this dataset. Columns: {list(df.columns)}\n"
-                   f"Rows: {len(df)}\nPreview:\n{preview}\n\n"
-                   f"Give insights, patterns, and notable findings.")
+        if action == "info":
+            return (f"Rows: {len(df)}, Columns: {len(df.columns)}\n"
+                    f"Columns: {', '.join(df.columns.tolist())}\n"
+                    f"Size: {_file_size_str(path)}")
+
+        if action == "stats":
+            try:
+                desc = df.describe(include="all").to_string()
+                return f"Statistics:\n{desc[:2000]}"
+            except Exception as e:
+                return f"Stats failed: {e}"
+
+        if action == "analyze":
+            preview = df.head(50).to_string()
+            prompt  = (f"Analyze this dataset. Columns: {list(df.columns)}\n"
+                       f"Rows: {len(df)}\nPreview:\n{preview}\n\n"
+                       f"Give insights, patterns, and notable findings.")
+            try:
+                model    = _gemini_client()
+                response = model.generate_content(prompt)
+                return response.text.strip()
+            except Exception as e:
+                return f"AI analysis failed: {e}"
+
+        if action in ("convert", "to_csv", "to_excel", "to_json"):
+            fmt = {"to_csv": "csv", "to_excel": "xlsx", "to_json": "json",
+                   "convert": params.get("format", "csv")}.get(action, "csv")
+            try:
+                if fmt == "csv":
+                    out = _output_path(path, "converted", ".csv")
+                    df.to_csv(out, index=False, encoding="utf-8")
+                elif fmt == "xlsx":
+                    out = _output_path(path, "converted", ".xlsx")
+                    df.to_excel(out, index=False)
+                elif fmt == "json":
+                    out = _output_path(path, "converted", ".json")
+                    df.to_json(out, orient="records", force_ascii=False, indent=2)
+                return f"Converted to {fmt.upper()}. Saved: {out.name}"
+            except Exception as e:
+                return f"Convert failed: {e}"
+    else:
+        # Fallback when pandas is not installed
         try:
-            model    = _gemini_client()
+            import csv
+            if file_type == "csv":
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    r = list(csv.reader(f))
+                cols = r[0] if r else []
+                rows_count = max(0, len(r) - 1)
+                preview = "\n".join([", ".join(row) for row in r[:30]])
+            else:
+                import openpyxl
+                wb = openpyxl.load_workbook(path, data_only=True)
+                ws = wb.active
+                r = list(ws.iter_rows(values_only=True))
+                cols = [str(c) for c in (r[0] if r else [])]
+                rows_count = max(0, len(r) - 1)
+                preview = "\n".join([" | ".join(str(c) for c in row if c is not None) for row in r[:30]])
+
+            if action == "info":
+                return f"Rows: {rows_count}, Columns: {len(cols)}\nColumns: {', '.join(cols)}\nSize: {_file_size_str(path)}"
+
+            prompt = (f"Analyze this dataset. Columns: {cols}\n"
+                      f"Rows: {rows_count}\nPreview:\n{preview}\n\n"
+                      f"Give insights, patterns, and notable findings.")
+            model = _gemini_client()
             response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            return f"AI analysis failed: {e}"
-
-    if action in ("convert", "to_csv", "to_excel", "to_json"):
-        fmt = {"to_csv": "csv", "to_excel": "xlsx", "to_json": "json",
-               "convert": params.get("format", "csv")}.get(action, "csv")
-        try:
-            if fmt == "csv":
-                out = _output_path(path, "converted", ".csv")
-                df.to_csv(out, index=False, encoding="utf-8")
-            elif fmt == "xlsx":
-                out = _output_path(path, "converted", ".xlsx")
-                df.to_excel(out, index=False)
-            elif fmt == "json":
-                out = _output_path(path, "converted", ".json")
-                df.to_json(out, orient="records", force_ascii=False, indent=2)
-            return f"Converted to {fmt.upper()}. Saved: {out.name}"
-        except Exception as e:
-            return f"Convert failed: {e}"
+            return f"Data processing fallback failed: {e}"
 
     if action == "filter":
         col       = params.get("column", "")
@@ -684,8 +724,7 @@ def _process_video(path: Path, action: str, params: dict, speak=None) -> str:
     if action == "transcribe":
         if not _ffmpeg_available():
             return "ffmpeg not found. Needed for video transcription."
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tf:
-            tmp_audio = Path(tf.name)
+        tmp_audio = Path(tempfile.mktemp(suffix=".mp3"))
         try:
             subprocess.run(
                 ["ffmpeg", "-i", str(path), "-q:a", "0", "-map", "a",
@@ -784,27 +823,155 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
 
 from core import outcome
 
+_LAST_UPLOADED_FILE: Path | None = None
+
+def set_last_uploaded(path: Path | str) -> None:
+    global _LAST_UPLOADED_FILE
+    try:
+        p = Path(path).expanduser().resolve()
+        if p.exists():
+            _LAST_UPLOADED_FILE = p
+    except Exception:
+        pass
+
+def get_last_uploaded() -> Path | None:
+    global _LAST_UPLOADED_FILE
+    return _LAST_UPLOADED_FILE
+
+
+def _process_directory(path: Path, action: str, params: dict, speak=None) -> str:
+    """Handles folder/directory analysis, listing, and inspection (ChatGPT/Claude/Antigravity style)."""
+    action = action or "summarize"
+    try:
+        all_entries = []
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("__pycache__", "node_modules", ".venv", "venv")]
+            for f in files:
+                if not f.startswith("."):
+                    p = Path(root) / f
+                    try:
+                        all_entries.append((p.relative_to(path), p.stat().st_size, _detect_type(p)))
+                    except Exception:
+                        pass
+            if len(all_entries) > 200:
+                break
+
+        total_files = len(all_entries)
+        total_size = sum(sz for _, sz, _ in all_entries)
+        size_str = f"{total_size / 1024:.1f} KB" if total_size < 1024**2 else f"{total_size / 1024**2:.1f} MB"
+
+        by_type = {}
+        for _, _, ftype in all_entries:
+            by_type[ftype] = by_type.get(ftype, 0) + 1
+        breakdown_str = ", ".join(f"{k}: {v}" for k, v in sorted(by_type.items(), key=lambda x: -x[1]))
+
+        file_preview = "\n".join(f"- `{rel}` ({sz/1024:.1f} KB, {ftype})" for rel, sz, ftype in all_entries[:35])
+        more_str = f"\n... and {total_files - 35} more files" if total_files > 35 else ""
+
+        key_context = ""
+        for rel, _, _ in all_entries:
+            name_lower = rel.name.lower()
+            if name_lower in ("readme.md", "readme.txt", "package.json", "requirements.txt", "pyproject.toml"):
+                try:
+                    target_file = path / rel
+                    snippet = target_file.read_text(encoding="utf-8", errors="ignore")[:3000]
+                    key_context += f"\n\n### Key File `{rel}`:\n```\n{snippet}\n```"
+                except Exception:
+                    pass
+                if len(key_context) > 6000:
+                    break
+
+        if action in ("list", "tree"):
+            return (
+                f"# 📁 Folder Contents: `{path.name}/`\n"
+                f"**Path:** `{path}`  \n"
+                f"**Total Files:** {total_files} ({size_str})  \n"
+                f"**Types:** {breakdown_str}  \n\n"
+                f"### Files Preview:\n"
+                f"{file_preview}{more_str}"
+            )
+
+        instruction = params.get("instruction") or params.get("query") or params.get("prompt") or "Summarize the purpose, architecture, and contents of this folder."
+        prompt = (
+            f"Analyze this uploaded project folder `{path.name}/`.\n"
+            f"Total files: {total_files}, Total size: {size_str}\n"
+            f"Types: {breakdown_str}\n\n"
+            f"File structure:\n{file_preview}{more_str}\n"
+            f"{key_context}\n\n"
+            f"User instruction: {instruction}\n"
+            f"Provide a clear, structured analysis of what this folder contains, what it does, and key files."
+        )
+        try:
+            model = _gemini_client()
+            resp = model.generate_content(prompt)
+            return resp.text.strip()
+        except Exception as e:
+            return (
+                f"# 📁 Folder: `{path.name}/`\n"
+                f"**Path:** `{path}` | **Files:** {total_files} ({size_str}) | **Types:** {breakdown_str}\n\n"
+                f"### Files:\n{file_preview}{more_str}\n\n"
+                f"(AI note: {e})"
+            )
+    except Exception as e:
+        return f"Error processing folder '{path}': {e}"
+
 
 def file_processor(parameters: dict, player=None, speak=None) -> str:
-    file_path_str = parameters.get("file_path", "").strip()
-    if not file_path_str:
-        return "No file path provided."
+    global _LAST_UPLOADED_FILE
+    params = parameters or {}
+    file_path_str = (
+        params.get("file_path")
+        or params.get("path")
+        or params.get("file")
+        or params.get("filepath")
+        or params.get("filename")
+        or params.get("target")
+        or ""
+    ).strip().strip("'\"")
 
-    path = Path(file_path_str)
+    if not file_path_str:
+        if _LAST_UPLOADED_FILE and _LAST_UPLOADED_FILE.exists():
+            path = _LAST_UPLOADED_FILE
+        else:
+            return "No file path provided, and no recent file has been uploaded."
+    else:
+        path = Path(file_path_str).expanduser()
+        if not path.exists() and not path.is_absolute():
+            for base in (Path.cwd(), Path.home() / "Desktop", Path.home() / "Downloads"):
+                cand = base / path
+                if cand.exists():
+                    path = cand
+                    break
+
     if not path.exists():
-        return f"File not found: {file_path_str}"
-    if not path.is_file():
-        return f"Path is not a file: {file_path_str}"
+        return f"File not found: {file_path_str or path}"
+
+    _LAST_UPLOADED_FILE = path
 
     file_type   = _detect_type(path)
-    action      = (parameters.get("action") or "").lower().strip()
-    instruction = parameters.get("instruction", "")
-    params      = {**parameters, "instruction": instruction}
+    action      = (params.get("action") or "").lower().strip()
+    instruction = (
+        params.get("instruction")
+        or params.get("query")
+        or params.get("prompt")
+        or params.get("question")
+        or ""
+    )
+    processed_params = {**params, "instruction": instruction}
 
     log_msg = f"[FileProcessor] {file_type.upper()} | {path.name} | action={action or 'auto'}"
     print(log_msg)
     if player:
         player.write_log(log_msg)
+
+    if file_type == "folder":
+        result = _process_directory(path, action, processed_params, speak)
+        if player and hasattr(player, "show_content") and result:
+            try:
+                player.show_content(f"Folder Analysis: {path.name}/", str(result)[:3000])
+            except Exception:
+                pass
+        return outcome.untrusted(f"folder:{path.name}", result)
 
     if file_type == "unknown":
         try:
@@ -812,7 +979,13 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
             model   = _gemini_client()
             prompt  = f"File: {path.name}\nContent preview:\n{content}\n\nTask: {action or instruction or 'Describe what this file contains and what can be done with it.'}"
             response = model.generate_content(prompt)
-            return response.text.strip()
+            result = response.text.strip()
+            if player and hasattr(player, "show_content") and result:
+                try:
+                    player.show_content(f"File Analysis: {path.name}", str(result)[:3000])
+                except Exception:
+                    pass
+            return outcome.untrusted(f"file:{path.suffix.lstrip('.') or 'text'}", result)
         except Exception as e:
             return f"Unknown file type ({path.suffix}). Could not process: {e}"
 
@@ -837,11 +1010,12 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
         return f"Unsupported file type: {file_type}"
 
     try:
-        result = handler(path, action, params, speak)
-        # A document's contents are not the user speaking. A PDF, a spreadsheet
-        # or a text file can carry anything its author put there, including a
-        # sentence addressed to whatever reads it — so what comes out of one
-        # goes to the model marked as data. See core/outcome.untrusted().
+        result = handler(path, action, processed_params, speak)
+        if player and hasattr(player, "show_content") and result:
+            try:
+                player.show_content(f"File Analysis: {path.name}", str(result)[:3000])
+            except Exception:
+                pass
         return outcome.untrusted(f"file:{path.suffix.lstrip('.') or 'text'}",
                                  result) if result else outcome.done(
             "file_processor", file=path.name, note="nothing to report")
@@ -866,7 +1040,15 @@ TOOL = {
         "properties": {
             "file_path": {
                 "type": "STRING",
-                "description": "Full path to the uploaded file. Leave empty to use the currently uploaded file."
+                "description": "Full path to the uploaded file or folder. Leave empty to use the currently uploaded file."
+            },
+            "path": {
+                "type": "STRING",
+                "description": "Alias for file_path (full path to the uploaded file or folder)."
+            },
+            "query": {
+                "type": "STRING",
+                "description": "Question or prompt about what to do with the file or folder."
             },
             "action": {
                 "type": "STRING",

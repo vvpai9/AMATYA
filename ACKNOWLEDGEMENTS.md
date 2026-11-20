@@ -11,6 +11,10 @@ AMATYA (अमात्य) is built upon and integrates with the following open
   *License:* CC BY-NC 4.0  
   *Role:* Foundational personal AI assistant architecture, holographic reactor core visualization, audio event loop, and local UI platform upon which AMATYA was evolved.
 
+- **[iamTechieAman/Mark-LVII](https://github.com/iamTechieAman/Mark-LVII)** (PR [#182](https://github.com/FatihMakes/Mark-LVII/pull/182))  
+  *Author:* Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman))  
+  *Role:* Enterprise extensions, Antigravity-grade autonomous software engineering agent (`autonomous_code_agent`), self-repair and diagnostics engine (`self_repair`), AI trading & quantitative finance suite (`ai_trading`), reverse engineering suite (`rea_tool`), cyber security & network defense suite (`cyber_security`), Document Studio (`document_studio`), academic study copilot (`study_copilot`), AI video studio (`video_studio`), Shazam-style audio recognition (`music_recognition`), voice biometrics & speaker verification (`voice_verifier`), and resilient search fallbacks.
+
 ---
 
 ## 2. Desktop Automation, Wayland & Mobile Integration

@@ -88,14 +88,36 @@ def background_tasks(parameters: dict, player=None) -> str:
         pool = tasks if action == "result" else [t for t in tasks if t["status"] in ACTIVE]
         task = pool[0] if pool else None
     if task is None:
+        if action in ("status", "progress", "update"):
+            if tasks:
+                latest = tasks[0]
+                return outcome.done("background_tasks", task_id=latest["id"], status=latest["status"],
+                                    note=f"Latest task '{latest['title']}' is {latest['status']}. No background tasks are currently running.")
+            return outcome.done("background_tasks", note="No background tasks are currently active. All tasks are completed.")
         return outcome.failed("background_tasks", "no such task" if tid else "there is no task to act on")
 
-    if action == "status":
+    if action in ("status", "progress", "update"):
         recent = [e["text"] for e in task.get("events") or [] if e["kind"] in ("progress", "tool")][-4:]
+        recent_str = " | ".join(recent) if recent else "Active, executing steps..."
+
+        if player and hasattr(player, "show_content"):
+            try:
+                card = (
+                    f"# ⏳ Background Task Progress\n"
+                    f"**Task:** {task['title']}  \n"
+                    f"**Agent:** `{task['agent']}` | **Status:** `{task['status'].upper()}`  \n"
+                    f"**Elapsed:** {_minutes(task)} | **Rounds:** {task['used']['rounds']}/{task['budget']['rounds']}  \n\n"
+                    f"### 🔄 Recent Activity:\n"
+                    f"{recent_str}\n"
+                )
+                player.show_content("Task Progress", card)
+            except Exception:
+                pass
+
         return outcome.done("background_tasks", task_id=task["id"], status=task["status"],
                             agent=task["agent"], title=task["title"], time=_minutes(task),
                             rounds=f"{task['used']['rounds']}/{task['budget']['rounds']}",
-                            recent=" | ".join(recent) or None, error=task.get("error") or None)
+                            recent=recent_str, error=task.get("error") or None)
     if action == "result":
         if task["status"] != "done":
             return outcome.done("background_tasks", task_id=task["id"], status=task["status"],

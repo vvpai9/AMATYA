@@ -140,6 +140,30 @@ def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
                 })
     except Exception as e:
         print(f"[WebSearch] ⚠️ DDG text() failed: {e}")
+
+    # Fallback to direct HTML scrape if DDGS returned nothing
+    if not results:
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            resp = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=8)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for div in soup.select(".web-result"):
+                t = div.select_one(".result__title")
+                s = div.select_one(".result__snippet")
+                u = div.select_one(".result__url")
+                if t and s:
+                    results.append({
+                        "title": t.get_text(strip=True),
+                        "snippet": s.get_text(strip=True),
+                        "url": u.get_text(strip=True) if u else "",
+                    })
+                    if len(results) >= max_results:
+                        break
+        except Exception as e:
+            print(f"[WebSearch] ⚠️ HTML scrape fallback failed: {e}")
+
     return results
 
 
@@ -162,6 +186,24 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
     # instead of raising.
     if not results:
         results = _ddg_search(query, max_results=max_results)
+
+    # Secondary fallback to Google News RSS if search returned nothing
+    if not results:
+        try:
+            import requests
+            import xml.etree.ElementTree as ET
+            import urllib.parse
+            rss_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en" if query else "https://news.google.com/rss"
+            r = requests.get(rss_url, timeout=5)
+            if r.status_code == 200:
+                root = ET.fromstring(r.content)
+                for item in root.findall(".//item")[:max_results]:
+                    title = item.find("title").text if item.find("title") is not None else ""
+                    link = item.find("link").text if item.find("link") is not None else ""
+                    results.append({"title": title, "snippet": title, "url": link, "source": "Google News"})
+        except Exception as e:
+            print(f"[WebSearch] ⚠️ RSS news fallback failed: {e}")
+
     return results
 
 

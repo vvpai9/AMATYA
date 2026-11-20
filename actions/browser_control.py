@@ -90,6 +90,12 @@ def _normalize_url(url: str) -> str:
     Full URLs pass through unchanged.
     """
     url = url.strip()
+    # Trailing sentence punctuation is never part of an address, and it arrives
+    # more often than anyone would guess: a name lifted out of a sentence brings
+    # the full stop with it, and youtube.com/@name./videos opens an error page
+    # that looks like a page. Stripping it costs nothing and is true of every
+    # site in every language.
+    url = url.rstrip(".,;:!?'\"")
     if not url:
         return "about:blank"
     if "://" in url:
@@ -169,7 +175,7 @@ def _real_profile_dir(browser: str) -> str:
             print(f"[Browser] ✅ Real profile found for {browser}: {p}")
             return str(p)
 
-    fallback = home / ".amatya_profiles" / browser
+    fallback = home / ".jarvis_profiles" / browser
     fallback.mkdir(parents=True, exist_ok=True)
     print(f"[Browser] ⚠️  Real profile not found for {browser}, using: {fallback}")
     return str(fallback)
@@ -429,6 +435,72 @@ _MAC_APP_NAMES: dict[str, str] = {
 _WIN_EXE_HINTS: dict[str, str] = {"chrome": "chrome", "edge": "msedge"}
 
 
+# Chromium builds the accessibility tree for a PAGE only when it believes
+# something is listening. Nothing an outside program can do convinces it — both
+# a UIA walk and a WM_GETOBJECT probe were tried against a running browser and
+# returned the same empty panes.
+#
+# But the browser we START is ours to configure, and one flag changes the whole
+# picture. Measured on Edge, same page, same profile:
+#
+#     plain                                21 elements, page text: 4
+#     --force-renderer-accessibility       25 elements, page text: 7,
+#                                          including a clickable link
+#
+# That is the difference between a page the assistant can read and click by
+# name, in the user's OWN signed-in browser, and one it has to guess at from a
+# screenshot or drive from a second window where nobody is logged in.
+#
+# It applies only when this launches the browser. A browser already running
+# ignores the flag and simply takes the URL, which is correct: we are not
+# restarting somebody's browser to gain a feature.
+_CHROMIUM_FAMILY = frozenset({"chrome", "edge", "opera", "operagx", "brave",
+                              "vivaldi"})
+
+
+def _launch_flags(name: str) -> list[str]:
+    return (["--force-renderer-accessibility"]
+            if name in _CHROMIUM_FAMILY else [])
+
+
+def _native_outcome(name: str, url: str) -> str:
+    """What a native launch actually established, as opposed to what it asked for.
+
+    THIS RETURNED A SENTENCE SAYING "Opened", AND IT WAS NOT TRUE ENOUGH
+        Handing a URL to a browser executable proves one thing: the executable
+        started. It proves nothing about the page. The address may 404, redirect
+        to a sign-in wall, or - the case that exposed this - be an address the
+        model invented because it did not know the real one.
+
+        Asked to open a user's own YouTube channel, the model guessed a path
+        that does not exist. The browser opened it, this function answered
+        "Opened in operagx: <that address>", and the assistant reported the
+        channel as open while the screen showed an error page. A bare success
+        sentence is exactly the invitation to invent the rest that the rest of
+        this project spent a release removing.
+
+    The browser itself CAN be confirmed, cheaply, from the process table, so
+    that part is reported as fact and the page is reported as unconfirmed. Two
+    different things, said separately, which is the whole point of the outcome
+    vocabulary.
+    """
+    running = bool(appidentity.running(name))
+    if not url:
+        if running:
+            return outcome.done("browser_control", browser=name, opened=True,
+                                verified=True)
+        return outcome.unverified(
+            "browser_control",
+            "the browser was launched but has not appeared in the process list "
+            "yet", browser=name)
+    return outcome.unverified(
+        "browser_control",
+        "the address was handed to the browser, which does not report back - "
+        "whether the page actually loaded, redirected or does not exist is NOT "
+        "known, so it must not be described as open",
+        browser=name, url=url, browser_running=running)
+
+
 def _open_native(url: str, browser_name: Optional[str]) -> str:
     """
     Opens the user's REAL browser normally — with their own profile,
@@ -457,7 +529,7 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
                 cmd = ["open", "-a", app] + ([url] if url else [])
                 try:
                     subprocess.run(cmd, check=True, timeout=10)
-                    return f"Opened in {name}: {url}" if url else f"Opened {name}."
+                    return _native_outcome(name, url)
                 except Exception as e:
                     print(f"[Browser] 'open -a {app}' failed ({e}), trying binary…")
 
@@ -471,10 +543,10 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
         if exe:
             try:
                 subprocess.Popen(
-                    [exe, url] if url else [exe],
+                    [exe] + _launch_flags(name) + ([url] if url else []),
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
-                return f"Opened in {name}: {url}" if url else f"Opened {name}."
+                return _native_outcome(name, url)
             except Exception as e:
                 print(f"[Browser] Native launch failed for {name}: {e}")
         print(f"[Browser] '{name}' not found — falling back to default browser.")
@@ -624,7 +696,7 @@ class _BrowserSession:
 
         if engine_name == "firefox":
             profile = _firefox_profile_dir() or str(
-                Path.home() / ".amatya_profiles" / "firefox"
+                Path.home() / ".jarvis_profiles" / "firefox"
             )
             kwargs: dict = {
                 "headless":    False,
@@ -638,17 +710,17 @@ class _BrowserSession:
             try:
                 self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
             except Exception as e:
-                print(f"[Browser] Firefox real profile failed ({e}), using AMATYA profile")
-                amatya = str(Path.home() / ".amatya_profiles" / "firefox_amatya")
-                Path(amatya).mkdir(parents=True, exist_ok=True)
-                self._context = await engine_obj.launch_persistent_context(amatya, **kwargs)
+                print(f"[Browser] Firefox real profile failed ({e}), using JARVIS profile")
+                jarvis = str(Path.home() / ".jarvis_profiles" / "firefox_jarvis")
+                Path(jarvis).mkdir(parents=True, exist_ok=True)
+                self._context = await engine_obj.launch_persistent_context(jarvis, **kwargs)
 
             self._page = await self._adopt_page()
             print(f"[Browser] ✅ Firefox launched")
             return
 
         if engine_name == "webkit":
-            safari_profile = str(Path.home() / ".amatya_profiles" / "safari")
+            safari_profile = str(Path.home() / ".jarvis_profiles" / "safari")
             Path(safari_profile).mkdir(parents=True, exist_ok=True)
             kwargs = {
                 "headless":    False,
@@ -721,30 +793,37 @@ class _BrowserSession:
 
         # The real profile could not be opened (browser already open / locked
         # profile / newer Chrome versions block the real profile under
-        # automation). Fall back to a persistent AMATYA automation profile —
+        # automation). Fall back to a persistent JARVIS automation profile —
         # accounts logged in here once stay logged in on later sessions too.
-        amatya_profile = str(Path.home() / ".amatya_profiles" / self.browser_name)
-        Path(amatya_profile).mkdir(parents=True, exist_ok=True)
-        print(f"[Browser] Retrying with AMATYA profile: {amatya_profile}")
+        jarvis_profile = str(Path.home() / ".jarvis_profiles" / self.browser_name)
+        Path(jarvis_profile).mkdir(parents=True, exist_ok=True)
+        print(f"[Browser] Retrying with JARVIS profile: {jarvis_profile}")
 
         try:
-            self._context = await engine_obj.launch_persistent_context(amatya_profile, **kwargs)
+            self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
             self._page = await self._adopt_page()
             self.profile_kind = "separate"
-            print(f"[Browser] ✅ Launched [{label}] with AMATYA profile "
+            print(f"[Browser] ✅ Launched [{label}] with JARVIS profile "
                   f"(sign-ins persist across sessions)")
+            return
         except Exception as e2:
-            raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
+            print(f"[Browser] ⚠️ Persistent launch with {label} failed ({e2}). Retrying with bundled Chromium...")
+
+        # Bundled Playwright Chromium: never collides with running macOS/Windows browser apps
+        clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("executable_path", "channel")}
+        try:
+            self._context = await self._pw.chromium.launch_persistent_context(jarvis_profile, **clean_kwargs)
+            self._page = await self._adopt_page()
+            self.profile_kind = "bundled"
+            print(f"[Browser] ✅ Launched bundled Chromium with JARVIS profile")
+        except Exception as e3:
+            raise RuntimeError(f"Could not launch browser for {self.browser_name}: {e3}") from e3
 
 
     async def _get_page(self) -> Page:
         await self._launch()
-        # If somehow page got closed, find first open page or open a fresh one
+        # If somehow page got closed, open a fresh one
         if self._page is None or self._page.is_closed():
-            for p in (self._context.pages if self._context else []):
-                if p and not p.is_closed():
-                    self._page = p
-                    return self._page
             self._page = await self._context.new_page()
             await asyncio.sleep(0.2)
         return self._page
@@ -756,14 +835,28 @@ class _BrowserSession:
         prev_url = page.url
 
         async def _do_goto(p: Page) -> str:
-            """Attempt navigation and return the resulting URL (may still be blank)."""
+            """Attempt navigation with multi-tier wait and SPA client-side hydration."""
             try:
-                await p.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                await asyncio.sleep(0.3)
+                # Stage 1: Fast initial DOM load
+                await p.goto(url, wait_until="domcontentloaded", timeout=20_000)
             except PlaywrightTimeout:
-                pass   # page may have partially loaded — check URL below
+                try:
+                    await p.wait_for_load_state("commit", timeout=5_000)
+                except Exception:
+                    pass
             except Exception as e:
-                print(f"[Browser] goto exception (non-fatal): {e}")
+                print(f"[Browser] goto exception: {e}")
+                try:
+                    await p.goto(url, wait_until="commit", timeout=15_000)
+                except Exception as e2:
+                    print(f"[Browser] fallback goto failed: {e2}")
+
+            # Stage 2: Allow dynamic client-side hydration (React/Next/Vue/SPAs)
+            try:
+                await p.wait_for_load_state("load", timeout=6_000)
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
             return p.url
 
         result_url = await _do_goto(page)
@@ -843,12 +936,23 @@ class _BrowserSession:
         except Exception as e:
             return f"Type error: {e}"
 
-    async def scroll(self, direction: str = "down", amount: int = 500) -> str:
+    async def scroll(self, direction: str = "down", amount: int = 600, scroll_to: str = None) -> str:
         page = await self._get_page()
         try:
+            if scroll_to == "bottom":
+                await page.evaluate("() => window.scrollTo({top: document.body.scrollHeight || document.documentElement.scrollHeight, behavior: 'smooth'})")
+                await asyncio.sleep(0.5)
+                return "Scrolled to the bottom of the page."
+            elif scroll_to == "top":
+                await page.evaluate("() => window.scrollTo({top: 0, behavior: 'smooth'})")
+                await asyncio.sleep(0.5)
+                return "Scrolled to the top of the page."
+
             y = amount if direction == "down" else -amount
+            await page.evaluate(f"() => window.scrollBy({{top: {y}, behavior: 'smooth'}})")
             await page.mouse.wheel(0, y)
-            return f"Scrolled {direction}."
+            await asyncio.sleep(0.4)
+            return f"Scrolled {direction} by {amount}px."
         except Exception as e:
             return f"Scroll error: {e}"
 
@@ -953,7 +1057,7 @@ class _BrowserSession:
     async def screenshot(self, path: str = None) -> str:
         page = await self._get_page()
         try:
-            save_path = path or str(Path.home() / "Desktop" / "amatya_screenshot.png")
+            save_path = path or str(Path.home() / "Desktop" / "jarvis_screenshot.png")
             await page.screenshot(path=save_path, full_page=False)
             return f"Screenshot saved: {save_path}"
         except Exception as e:
@@ -982,6 +1086,113 @@ class _BrowserSession:
             return f"Page reloaded: {page.url}"
         except Exception as e:
             return f"Reload error: {e}"
+
+    async def scan_and_scroll(self, max_scrolls: int = 8, delay: float = 0.5) -> str:
+        """
+        Antigravity-grade autonomous page scanning and progressive scrolling:
+        1. Smoothly scrolls down the page in increments to trigger lazy-loading, SPAs, and infinite lists.
+        2. Waits at each increment for dynamic content/scripts to settle.
+        3. Extracts full hierarchy: H1-H6 headings, text blocks, buttons, inputs, links, media.
+        4. Smoothly scrolls back to top so user view is preserved.
+        5. Formats a comprehensive Markdown report.
+        """
+        page = await self._get_page()
+        try:
+            metrics = await page.evaluate("""() => ({
+                title: document.title || '',
+                url: window.location.href || '',
+                scrollHeight: document.body ? (document.body.scrollHeight || document.documentElement.scrollHeight || 0) : 0,
+                viewportHeight: window.innerHeight || 800,
+            })""")
+
+            title = metrics.get("title") or await page.title()
+            url = metrics.get("url") or page.url
+            viewport_h = metrics.get("viewportHeight") or 800
+
+            scroll_step = int(viewport_h * 0.75)
+            actual_scrolls = 0
+            for _ in range(max_scrolls):
+                prev_scroll_y = await page.evaluate("() => window.scrollY || window.pageYOffset || 0")
+                await page.evaluate(f"() => window.scrollBy({{top: {scroll_step}, behavior: 'smooth'}})")
+                await asyncio.sleep(delay)
+                new_scroll_y = await page.evaluate("() => window.scrollY || window.pageYOffset || 0")
+                actual_scrolls += 1
+                if new_scroll_y <= prev_scroll_y:
+                    break
+
+            data = await page.evaluate("""() => {
+                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4'))
+                    .map(h => `${'#'.repeat(parseInt(h.tagName[1]) || 2)} ${h.innerText.trim()}`)
+                    .filter(h => h.length > 2)
+                    .slice(0, 15);
+
+                const bodyText = (document.body ? document.body.innerText : '')
+                    .replace(/\\n{3,}/g, '\\n\\n')
+                    .trim()
+                    .slice(0, 5000);
+
+                const buttons = Array.from(document.querySelectorAll(
+                    "button, [role='button'], input[type='submit'], input[type='button'], a.btn, a.button"
+                ))
+                    .map(b => (b.innerText || b.value || b.getAttribute('aria-label') || '').trim())
+                    .filter(t => t.length > 0 && t.length < 50)
+                    .slice(0, 15);
+
+                const inputs = Array.from(document.querySelectorAll(
+                    "input:not([type='hidden']), textarea, select"
+                ))
+                    .map(i => {
+                        const type = i.type || 'text';
+                        const ph = i.placeholder || i.getAttribute('aria-label') || i.name || i.id || '';
+                        return `[${type}] ${ph}`.trim();
+                    })
+                    .filter(t => t.length > 2)
+                    .slice(0, 15);
+
+                const links = Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => ({
+                        text: (a.innerText || a.getAttribute('aria-label') || '').trim(),
+                        href: a.href
+                    }))
+                    .filter(l => l.text && l.text.length > 1 && !l.href.startsWith('javascript:'))
+                    .slice(0, 15);
+
+                return { headings, bodyText, buttons, inputs, links };
+            }""")
+
+            try:
+                await page.evaluate("() => window.scrollTo({top: 0, behavior: 'smooth'})")
+            except Exception:
+                pass
+
+            headings_md = "\n".join(data.get("headings", [])) or "*No prominent headings detected.*"
+            buttons_md = "\n".join(f"• [Button] \"{b}\"" for b in data.get("buttons", [])) or "• None"
+            inputs_md = "\n".join(f"• [Input] {i}" for i in data.get("inputs", [])) or "• None"
+            links_md = "\n".join(f"• [{l['text'][:40]}]({l['href']})" for l in data.get("links", [])) or "• None"
+            body_preview = data.get("bodyText", "")
+
+            report = (
+                f"# 🌐 Antigravity Deep Scan: {title}\n"
+                f"**URL:** [{url}]({url})  \n"
+                f"**Scan Depth:** {actual_scrolls} progressive scroll steps completed. Dynamic DOM hydrated.\n\n"
+                f"### 📑 Page Outline:\n"
+                f"{headings_md}\n\n"
+                f"### 📄 Page Content Preview:\n"
+                f"```text\n{body_preview}\n```\n\n"
+                f"### 🔘 Interactive Controls Detected:\n"
+                f"{buttons_md}\n\n"
+                f"### 📝 Form Fields & Inputs:\n"
+                f"{inputs_md}\n\n"
+                f"### 🔗 Key Navigation Links:\n"
+                f"{links_md}\n"
+            )
+            return report
+        except Exception as e:
+            return f"Scan and scroll error: {e}"
+
+    async def inspect_page(self) -> str:
+        """Antigravity-style deep page inspection: extracts title, text, buttons, links, and forms."""
+        return await self.scan_and_scroll(max_scrolls=3)
 
     async def close_browser(self) -> str:
         await self._async_close()
@@ -1071,6 +1282,43 @@ class _SessionRegistry:
 
 _registry = _SessionRegistry()
 
+# Every action this tool answers to. One list, used by the failure message and
+# by nothing else — it exists so that being told "that is not an action" also
+# tells you what the actions ARE.
+_ACTIONS = (
+    "go_to", "search", "new_tab", "close_tab",
+    "click", "smart_click", "type", "smart_type", "fill_form", "press",
+    "scroll", "get_text", "get_url", "screenshot",
+    "back", "forward", "reload",
+    "switch", "list_browsers", "close", "close_all",
+    "browse", "scan", "deep_scan", "inspect", "inspect_page", "scroll_and_scan",
+)
+
+
+def _unknown_action(action: str) -> str:
+    """Refuse an action this tool does not have, and say what it does have.
+
+    THE OLD ANSWER WAS A SENTENCE, AND A SENTENCE IS NOT A FAILURE
+        `f"Unknown browser action: '{action}'"` is a plain string. Nothing above
+        this file could tell it apart from a success: it does not start with a
+        status, so `outcome.is_problem` reads it as fine, the screen agent's
+        loop counted the step as performed, and the assistant said the browser
+        control function "couldn't understand the action" only because the model
+        happened to read the English.
+
+        Worse, it taught nothing. A caller told "unknown action 'open'" and
+        nothing else has exactly one move available, which is to guess again.
+        Observed doing precisely that: open, then "", then open.
+
+    So this is a real failure with the valid list attached. A planner that
+    reads it can correct itself on the next attempt instead of re-rolling.
+    """
+    return outcome.failed(
+        "browser_control",
+        f"there is no browser action called {action or '(empty)'!r}",
+        valid_actions=", ".join(_ACTIONS))
+
+
 def browser_control(
     parameters:    dict = None,
     response=None,
@@ -1080,7 +1328,7 @@ def browser_control(
     params  = parameters or {}
     action  = params.get("action", "").lower().strip()
     browser = params.get("browser", "").lower().strip() or None
-    result  = "Unknown action."
+    result  = _unknown_action(action)
 
     if action == "switch":
         target = browser or params.get("target", "").lower().strip()
@@ -1110,7 +1358,7 @@ def browser_control(
     # user had opened it themselves. A controlled window with about:blank never
     # opens here. The only exception: if an automation flow is already running,
     # navigation continues in that window (so multi-step tasks aren't split).
-    if action in ("go_to", "search", "new_tab"):
+    if action in ("go_to", "search", "new_tab") and not params.get("controlled"):
         if _registry.has(browser):
             sess = _registry.get(browser)
             try:
@@ -1136,7 +1384,11 @@ def browser_control(
             nav_url = params.get("url", "").strip()
 
         result = _open_native(nav_url, browser)
-        if result.startswith("Opened") and nav_url:
+        # Remembered unless it outright FAILED. `unverified` is now the normal
+        # answer for a native open - the browser does not report back - and
+        # treating that as a problem would stop the automation session ever
+        # resuming the page the user is actually looking at.
+        if nav_url and not result.startswith(f"status={outcome.FAILED} "):
             _registry.note_native_url(_normalize_url(nav_url))
         _log(player, result)
         return result
@@ -1154,19 +1406,36 @@ def browser_control(
 
     try:
         last = _registry.pop_native_url()
-        if last:
+        if last and action not in ("browse", "scan", "deep_scan", "inspect", "inspect_page", "go_to", "search", "new_tab") and not params.get("url"):
             try:
                 sess.run(sess.go_to(last))
             except Exception as e:
                 print(f"[Browser] Could not resume last page ({last}): {e}")
 
-        if action == "click":
+        if action in ("browse", "scan", "deep_scan", "inspect", "inspect_page", "scroll_and_scan"):
+            target_url = params.get("url")
+            if target_url:
+                sess.run(sess.go_to(target_url))
+            max_scrolls = int(params.get("max_scrolls", 6))
+            result = sess.run(sess.scan_and_scroll(max_scrolls=max_scrolls))
+            if player and hasattr(player, "show_content"):
+                try:
+                    player.show_content("Web Browser (Antigravity Mode)", result)
+                except Exception:
+                    pass
+        elif action == "go_to":
+            result = sess.run(sess.go_to(params.get("url", "")))
+        elif action == "click":
             result = sess.run(sess.click(params.get("selector"), params.get("text")))
         elif action == "type":
             result = sess.run(sess.type_text(
                 params.get("selector"), params.get("text", ""), params.get("clear_first", True)))
         elif action == "scroll":
-            result = sess.run(sess.scroll(params.get("direction", "down"), int(params.get("amount", 500))))
+            result = sess.run(sess.scroll(
+                direction=params.get("direction", "down"),
+                amount=int(params.get("amount", 600)),
+                scroll_to=params.get("scroll_to")
+            ))
         elif action == "fill_form":
             result = sess.run(sess.fill_form(params.get("fields", {})))
         elif action == "smart_click":
@@ -1190,64 +1459,64 @@ def browser_control(
         elif action == "reload":
             result = sess.run(sess.reload())
         else:
-            result = f"Unknown browser action: '{action}'"
+            result = _unknown_action(action)
 
     except concurrent.futures.TimeoutError:
         result = f"Browser action '{action}' timed out (60s)."
     except Exception as e:
         result = f"Browser error ({action}): {e}"
-        # Fallback to desktop shortcuts via kwin-mcp when automation session is closed/detached
-        if any(k in str(e).lower() for k in ("target page", "browser has been closed", "context or browser", "target closed")):
-            try:
-                from core.kwin_mcp_client import get_client
-                c = get_client()
-                if c.ensure_started():
-                    if action == "reload":
-                        c.keyboard_key("ctrl+r")
-                        result = "Reloaded active browser page via desktop shortcut (Ctrl+R)."
-                    elif action == "scroll":
-                        direction = str(params.get("direction", "down") or "down").lower()
-                        c.keyboard_key("Page_Down" if direction == "down" else "Page_Up")
-                        result = f"Scrolled active browser page ({direction})."
-                    elif action == "back":
-                        c.keyboard_key("alt+Left")
-                        result = "Navigated back."
-                    elif action == "forward":
-                        c.keyboard_key("alt+Right")
-                        result = "Navigated forward."
-                    elif action == "new_tab":
-                        c.keyboard_key("ctrl+t")
-                        result = "Opened new browser tab."
-                    elif action == "close_tab":
-                        c.keyboard_key("ctrl+w")
-                        result = "Closed browser tab."
-            except Exception:
-                pass
 
     _log(player, result)
     return result
 
 
 def _log(player, text: str):
-    short = str(text)[:80]
-    print(f"[Browser] {short}")
-    if player:
-        print(f"[Browser] {short[:80]}")          # terminal, not the HUD
+    # ONE line, once. This printed the same string twice whenever a player was
+    # attached - which is always, in the real app - and the second copy read in
+    # the terminal like a second navigation. "Opened in operagx: <url>" twice in
+    # a row looks exactly like the browser being opened twice, and time was
+    # spent looking for a double-open that had never happened.
+    print(f"[Browser] {str(text)[:80]}")
 
 
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "browser_control",
     "description": (
-        "Controls the web browser on screen for user-directed browsing sessions: "
-        "open an address, click, type, scroll, read the page, manage tabs, go back and forward. "
-        "DO NOT use this tool for answering questions, looking up facts, or general searches — "
-        "use `web_search` instead so the answer is delivered conversationally like ChatGPT/Gemini "
-        "without opening a window. ONLY use `browser_control` when the user explicitly requests to "
-        "open a browser window or view/interact with a specific website on screen. "
-        "THIS TOOL OPENS THE BROWSER ITSELF. Never call open_app for the browser first. "
-        "Read the status it returns: 'done' was confirmed, 'unverified' means handed to system default, "
-        "'failed' means nothing happened."
+        "Controls the web browser and everything INSIDE a web page: open an "
+        "address, search, click, type, scroll, read the page, manage tabs, go "
+        "back and forward. Anything happening on a website is this tool - it "
+        "reads the page itself, which nothing else in the assistant can do. "
+        "THIS TOOL OPENS THE BROWSER ITSELF. Never call open_app for the "
+        "browser first - doing both launches it twice, the second copy on a "
+        "different profile with none of the user's sign-ins. 'Open Chrome and "
+        "go to YouTube' is ONE call to this tool. "
+        "NEVER INVENT AN ADDRESS. Only pass a url you actually know. Anything "
+        "belonging to the user personally - their own channel, profile, "
+        "account page, inbox or playlist - has an address you do NOT know, and "
+        "guessing a path produces an error page that looks like a working one. "
+        "When the exact address is not known: open the site's own address "
+        "(youtube.com, instagram.com) and get to the rest with smart_click on "
+        "what the page shows, or use action='search', or ask the user. A "
+        "guessed path is never acceptable. "
+        "TO CLICK OR TYPE ON A PAGE, PREFER action='smart_click' or "
+        "action='smart_type' with a 'description' of what the thing SAYS on "
+        "screen - the visible label, in the page's own language. They search "
+        "the page by role, label, placeholder and text and find it. Plain "
+        "'click' with a 'selector' needs a CSS selector that is exactly right "
+        "for that site's markup, which is not something to guess at; use it "
+        "only when the selector is known. "
+        "For a job on a page that takes several steps - open a site, then find "
+        "and click something on it - call 'screen_agent' instead: it plans the "
+        "steps, calls this tool for each of them, and checks after every one "
+        "that it actually worked. "
+        "Read the status it returns. 'done' means it was confirmed - for an "
+        "open, the url reported back is the page's OWN address, so if it "
+        "differs from what was asked for the site redirected and the user "
+        "should be told. 'unverified' means the address was handed to a browser "
+        "that does not report back: whether the page loaded, redirected or does "
+        "not exist is unknown, so say it was opened but NOT confirmed and never "
+        "that the page is up. 'failed' means nothing happened."
     ),
     "brief": (
         "Controls the web browser: open a URL, navigate, click, read the page."
@@ -1257,7 +1526,7 @@ TOOL = {
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "go_to | search | click | type | scroll | fill_form | smart_click | smart_type | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"
+                "description": "browse | scan | deep_scan | inspect_page | go_to | search | smart_click | smart_type | click | type | scroll | fill_form | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"
             },
             "browser": {
                 "type": "STRING",
@@ -1265,7 +1534,15 @@ TOOL = {
             },
             "url": {
                 "type": "STRING",
-                "description": "URL for go_to / new_tab action"
+                "description": "URL for browse / scan / go_to / new_tab action"
+            },
+            "max_scrolls": {
+                "type": "INTEGER",
+                "description": "Number of progressive scroll steps for browse/scan (default: 6)"
+            },
+            "scroll_to": {
+                "type": "STRING",
+                "description": "top | bottom for scroll action"
             },
             "query": {
                 "type": "STRING",

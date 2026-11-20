@@ -88,6 +88,10 @@ docs/session_history/
 docs/history/session_history/
 Desktop/
 memory/episodic_memory.json
+memory/user_identity.json
+memory/phone_contacts.json
+memory/learned_knowledge.json
+.jarvis_*
 *.tar.gz
 *.tar
 *.zip
