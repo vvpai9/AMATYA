@@ -32,7 +32,7 @@ def generate_image(prompt: str, width: int = 1024, height: int = 1024, filename:
         clean_name = filename if filename.lower().endswith((".jpg", ".png", ".jpeg")) else f"{filename}.jpg"
         dest = DESKTOP / clean_name
     else:
-        dest = DESKTOP / f"jarvis_gen_{ts}.jpg"
+        dest = DESKTOP / f"amatya_gen_{ts}.jpg"
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     

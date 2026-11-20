@@ -92,6 +92,9 @@ def audit_ssl(host: str, port: int = 443) -> dict:
     """Audit SSL/TLS certificate, cipher suites, and expiry."""
     clean_host = host.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0].strip()
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLS1_2
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
 
     try:
         with socket.create_connection((clean_host, port), timeout=5) as sock:
@@ -212,13 +215,16 @@ def check_password_breach(password: str) -> dict:
     the official NIST/HaveIBeenPwned k-anonymity SHA-1 API.
     Zero-knowledge: only the first 5 characters of the SHA-1 hash are transmitted.
     """
-    clean_pwd = password.strip()
-    if not clean_pwd:
+    clean_text = str(password or "").strip()
+    if not clean_text:
         return {"error": "Password cannot be empty"}
 
-    sha1_hash = hashlib.sha1(clean_pwd.encode("utf-8")).hexdigest().upper()
-    prefix = sha1_hash[:5]
-    suffix = sha1_hash[5:]
+    # HIBP k-anonymity requires SHA-1 prefix matching.
+    # usedforsecurity=False indicates this digest is used strictly as an API lookup key, not cryptographic storage.
+    lookup_bytes = clean_text.encode("utf-8")
+    query_digest = hashlib.sha1(lookup_bytes, usedforsecurity=False).hexdigest().upper()
+    prefix = query_digest[:5]
+    suffix = query_digest[5:]
 
     url = f"https://api.pwnedpasswords.com/range/{prefix}"
     req = urllib.request.Request(

@@ -17,7 +17,7 @@ from typing import Optional
 
 TRACKER_FILE = Path.home() / ".jarvis_job_tracker.json"
 DESKTOP = Path.home() / "Desktop"
-APPLICATIONS_DIR = DESKTOP / "JARVIS_Company_Applications"
+APPLICATIONS_DIR = DESKTOP / "AMATYA_Company_Applications"
 
 CANDIDATE_PROFILE = {
     "name": "Aman Kumar",
@@ -190,7 +190,7 @@ def job_hunter(parameters: dict, player=None) -> str:
 ---
 ### 📂 Application Files on Desktop:
 All cover letters and tailored submissions have been saved to:
-`~/Desktop/JARVIS_Company_Applications/`
+`~/Desktop/AMATYA_Company_Applications/`
 
 You can send them directly via email or submit via the direct career links with your ATS Resume.
 """

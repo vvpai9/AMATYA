@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-DOWNLOADS_DIR = Path.home() / "Desktop" / "JARVIS_Downloads"
+DOWNLOADS_DIR = Path.home() / "Desktop" / "AMATYA_Downloads"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 

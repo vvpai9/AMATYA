@@ -1,6 +1,6 @@
 # AMATYA (अमात्य) — Universal Personal AI Operating Companion
 
-**Built upon [FatihMakes's Mark-LVII](https://github.com/FatihMakes/Mark-LVII)** — AMATYA evolves Mark-LVII into a local-first, universal autonomous personal AI operating companion designed for **all Linux distributions** (Ubuntu, Debian, Fedora, Arch, KDE Neon, openSUSE, GNOME, KDE Plasma, X11, Wayland), **Windows 10/11**, and **macOS** (Apple Silicon & Intel). AMATYA provides identical core functionality across operating systems, combining universal desktop automation, biometric speaker verification, permission-tiered security, a hardware-aware local AI model router, smart home orchestration, connected device control (Android phone, Android TV, SSH hosts), and **CREATOR** (an autonomous software engineering and multi-format document engine).
+**Built upon [FatihMakes's Mark-LVII](https://github.com/FatihMakes/Mark-LVII)** — AMATYA evolves Mark-LVII into a local-first, universal autonomous personal AI operating companion designed for **all Linux distributions** (Ubuntu, Debian, Fedora, Arch, KDE Neon, openSUSE, GNOME, KDE Plasma, X11, Wayland), **Windows 10/11**, and **macOS** (Apple Silicon & Intel). AMATYA provides identical core functionality across operating systems, combining universal desktop automation, biometric speaker verification, permission-tiered security, a hardware-aware local AI model router, smart home orchestration, connected device control (Android phone, Android TV, SSH hosts), the **Enterprise & Autonomous Intelligence Suite** (contributed by Aman Kumar), and **CREATOR** (an autonomous software engineering, self-repair and multi-format document engine).
 
 ---
 
@@ -175,6 +175,20 @@ AMATYA operates natively across all major desktop environments by detecting the 
 - **Network Intelligence (`plugins/network_intelligence.py`):** Active network interface metrics, gateway latencies, DNS resolution timings, and interface state monitoring.
 - **Downloads Folder Organizer (`plugins/downloads_organizer.py`):** Categorizes clutter in user downloads directory into logical bins (documents, images, videos, archives, installers) with preview and safe dry-run modes.
 - **Google Calendar & Google Drive Integration (`plugins/google_calendar.py`, `plugins/drive_search.py`):** Calendar schedule queries, event creation, and Google Drive file search with helpful guided authorization flows.
+
+### 16. Enterprise & Autonomous Intelligence Suite — Major Upgrade (`actions/`, `core/`)
+
+> **Major System Upgrade:** Natively integrates the comprehensive suite of autonomous intelligence, cybersecurity, quantitative trading, reverse engineering, and personal automation capabilities contributed by **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman))** from Mark-LVII PR #182 and his fork:
+
+- **Enterprise Cybersecurity & Defensive Reconnaissance (`actions/cyber_security.py`):** Multi-threaded TCP port scanning, SSL/TLS certificate chain auditing (enforcing minimum TLS 1.2+), HTTP security header evaluation (HSTS, CSP, X-Frame-Options), sub-domain discovery, password entropy scoring, and zero-knowledge k-anonymity breach verification via HaveIBeenPwned.
+- **Quantitative AI Trading & Risk Management (`actions/ai_trading.py`):** Real-time asset pricing, technical momentum indicators (14-period RSI, SMA, EMA), Kelly Criterion and fixed-fractional risk position sizing, portfolio tracking, and paper trading simulation.
+- **Reverse Engineering & Binary Analysis Suite (`actions/rea_tool.py`):** Shannon entropy analysis for packed or encrypted payloads, ASCII/Unicode string extraction, JWT bearer token decoding and claims analysis, curl-to-python translation, ELF/PE binary header inspection, and Android APK manifest extraction.
+- **Voice Biometrics & Neural Speaker Verification (`actions/voice_biometrics.py`, `core/voice_verifier.py`):** Continuous acoustic feature extraction, enrolled voice profile calibration, and cosine similarity matching to enforce hardware-level owner authentication.
+- **Adaptive Identity & Protocol Engine (`actions/adaptive_identity.py`):** Dynamically customizes honorifics (Sir, Boss, Captain, Doctor), formality levels, and interaction tones to match user preference.
+- **Autonomous Job Hunter & Career Copilot (`actions/job_hunter.py`, `actions/resume_studio.py`):** ATS resume analysis and scoring, Google XYZ-formula bullet transformation, bespoke cover letter drafting, interview preparation, and multi-company job application package generation (`~/Desktop/AMATYA_Company_Applications/`).
+- **Academic Study Copilot & Tutor (`actions/study_copilot.py`):** Feynman-technique concept explanations, interactive active-recall quizzes, step-by-step problem solving, and high-yield study cheat sheets.
+- **Multi-Modal Generation Studio (`actions/image_generator.py`, `actions/video_studio.py`, `actions/media_downloader.py`, `actions/music_recognition.py`):** AI artwork synthesis via FLUX (`Desktop/amatya_gen_*.jpg`), cinematic HUD motion clips (`~/Desktop/AMATYA_Videos/`), YouTube/web media downloads (`~/Desktop/AMATYA_Downloads/`), and ambient music recognition.
+- **Personal Concierge & Self-Learning Butler (`actions/concierge_service.py`, `actions/self_learning.py`):** Multi-day travel itineraries, flight/hotel logistics, dining recommendations, and autonomous skill acquisition that creates persistent user-defined rules and custom actions.
 
 ---
 
@@ -375,7 +389,7 @@ AMATYA is a fork and evolution of **[Mark-LVII by FatihMakes](https://github.com
 ### Major Contributors & Acknowledgements
 
 - **FatihMakes ([@FatihMakes](https://github.com/FatihMakes)):** Original creator and lead architect of Mark-LVII.
-- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Advanced autonomous software engineering suite, self-repair and system diagnostic protocols, AST surgical code editing, coding pipeline automation, document studio, and multi-modal image & video generation capabilities unified in the **CREATOR** suite.
+- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Major contributor of the Enterprise & Autonomous Intelligence Suite and unified CREATOR capabilities — spanning enterprise cybersecurity defense, quantitative algorithmic trading, binary reverse engineering (REA), voice biometrics, adaptive identity, job hunter & career copilot, study copilot, autonomous self-repair & diagnostics, AST surgical code editing, coding pipeline automation, document studio, and multi-modal image & video generation.
 - **AMATYA Community:** Cross-platform Linux (Wayland/X11), Windows, and macOS enhancements, cognitive orchestration, biometric voice authentication, and hardware-aware local AI routing.
 
 ---

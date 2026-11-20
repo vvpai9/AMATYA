@@ -97,13 +97,13 @@ memory/learned_knowledge.json
 *.zip
 *.bak
 
-# ── CREATOR and Studio Generation Outputs ────────────────────────────────────
-JARVIS_Videos/
-JARVIS_Downloads/
-JARVIS_Company_Applications/
-JARVIS_Documents/
-Desktop/JARVIS_*
-Desktop/jarvis_gen_*.jpg
+# ── AMATYA and Studio Generation Outputs ────────────────────────────────────
+AMATYA_Videos/
+AMATYA_Downloads/
+AMATYA_Company_Applications/
+AMATYA_Documents/
+Desktop/AMATYA_*
+Desktop/amatya_gen_*.jpg
 **/temp_frame_*.png
 merged_output.pdf
 extracted_pages.pdf

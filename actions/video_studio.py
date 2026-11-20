@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-OUTPUT_DIR = Path.home() / "Desktop" / "JARVIS_Videos"
+OUTPUT_DIR = Path.home() / "Desktop" / "AMATYA_Videos"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -50,7 +50,7 @@ def video_studio(parameters: dict, player=None) -> str:
 
     ffmpeg_bin = _find_ffmpeg()
     timestamp = int(time.time())
-    out_file = OUTPUT_DIR / f"jarvis_clip_{timestamp}.mp4"
+    out_file = OUTPUT_DIR / f"amatya_clip_{timestamp}.mp4"
     temp_frame = OUTPUT_DIR / f"temp_frame_{timestamp}.png"
 
     # Color themes

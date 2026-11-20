@@ -97,8 +97,8 @@ def test_rea_tool_entropy_calculation():
 def test_rea_tool_strings_extraction():
     binary_blob = b"\x00\x01\x02SECRET_TOKEN_12345\x00\xffhttps://api.amatya.org\x00"
     extracted = _extract_strings(binary_blob, min_len=5)
-    assert any("SECRET_TOKEN_12345" in s for s in extracted)
-    assert any("https://api.amatya.org" in s for s in extracted)
+    assert "SECRET_TOKEN_12345" in extracted
+    assert "https://api.amatya.org" in extracted
 
 
 def test_rea_tool_jwt_inspection():

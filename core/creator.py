@@ -847,7 +847,7 @@ class CreatorEngine:
             clean_name = filename if filename.lower().endswith((".jpg", ".png", ".jpeg")) else f"{filename}.jpg"
             dest = desktop / clean_name
         else:
-            dest = desktop / f"jarvis_gen_{ts}.jpg"
+            dest = desktop / f"amatya_gen_{ts}.jpg"
 
         dest.parent.mkdir(parents=True, exist_ok=True)
         req = urllib.request.Request(
@@ -885,10 +885,10 @@ class CreatorEngine:
         theme: str = "cyber",
     ) -> dict[str, Any]:
         """Synthesize cinematic motion cards and HUD clips. Contributed by Aman Kumar (@iamTechieAman)."""
-        out_dir = Path.home() / "Desktop" / "JARVIS_Videos"
+        out_dir = Path.home() / "Desktop" / "AMATYA_Videos"
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = int(time.time())
-        out_file = out_dir / f"jarvis_clip_{ts}.mp4"
+        out_file = out_dir / f"amatya_clip_{ts}.mp4"
         temp_frame = out_dir / f"temp_frame_{ts}.png"
 
         dur = max(2, min(int(duration or 5), 30))

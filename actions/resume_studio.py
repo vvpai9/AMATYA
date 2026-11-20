@@ -155,7 +155,7 @@ def resume_studio(parameters: dict, player=None) -> str:
         ]
         report_md = "\n".join(report)
 
-        out_file = DESKTOP / "JARVIS_Resume_Audit.md"
+        out_file = DESKTOP / "AMATYA_Resume_Audit.md"
         out_file.write_text(report_md, encoding="utf-8")
 
         if player and hasattr(player, "show_content"):
