@@ -144,8 +144,8 @@ class ProvidersOverlay(_HudOverlay):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             ProvidersOverlay {{
-                background: rgba(0, 6, 10, 249);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 8px;
             }}
         """)
@@ -276,12 +276,12 @@ class ProvidersOverlay(_HudOverlay):
             card.setStyleSheet(f"""
                 QPushButton {{
                     text-align: left; padding: 10px 12px;
-                    background: {C.PRI_GHO if on else 'transparent'};
-                    color: {C.TEXT if on else C.TEXT_DIM};
-                    border: 1px solid {C.PRI_DIM if on else C.BORDER};
+                    background: {C.ACTIVE if on else 'transparent'};
+                    color: {C.WHITE if on else C.TEXT_MED};
+                    border: 1px solid {C.BORDER_B if on else C.BORDER};
                     border-radius: 5px;
                 }}
-                QPushButton:hover {{ border-color: {C.BORDER_B}; }}
+                QPushButton:hover {{ border-color: {C.BORDER_B}; background: {C.HOVER}; }}
             """)
 
     def _on_live_ready(self) -> None:
@@ -423,11 +423,11 @@ class ProvidersOverlay(_HudOverlay):
         box.setFont(hud_font(8))
         box.setFixedHeight(29)
         box.setStyleSheet(
-            f"QComboBox {{ background: {C.DARK}; color: {C.TEXT}; "
+            f"QComboBox {{ background: {C.INPUT}; color: {C.TEXT}; "
             f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 3px 9px; }}"
             f"QComboBox:hover {{ border-color: {C.BORDER_B}; }}"
             f"QComboBox::drop-down {{ border: none; width: 18px; }}"
-            f"QComboBox QAbstractItemView {{ background: {C.DARK}; color: {C.TEXT}; "
+            f"QComboBox QAbstractItemView {{ background: {C.INPUT}; color: {C.TEXT}; "
             f"selection-background-color: {C.PRI_GHO}; "
             f"border: 1px solid {C.BORDER_B}; padding: 2px; }}")
         return box
@@ -437,7 +437,7 @@ class ProvidersOverlay(_HudOverlay):
         w.setFont(hud_font(8))
         w.setFixedHeight(27)
         w.setStyleSheet(
-            f"QLineEdit {{ background: {C.DARK}; color: {C.TEXT}; "
+            f"QLineEdit {{ background: {C.INPUT}; color: {C.TEXT}; "
             f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 2px 9px; }}"
             f"QLineEdit:focus {{ border-color: {C.PRI_DIM}; }}")
         return w

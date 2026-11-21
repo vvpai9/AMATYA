@@ -78,14 +78,6 @@ class HudCanvas(QWidget):
             except Exception:
                 self._reactor = None
 
-        # Wireframe Orb HUD centrepiece (core/orb_hud.py)
-        self._orb = None
-        try:
-            from core.orb_hud import OrbHud
-            self._orb = OrbHud()
-        except Exception:
-            self._orb = None
-
         # Which centrepiece to draw. Read once here and changed live by the
         # settings toggle; the avatar object is kept either way so switching
         # back is instant and costs no reload.
@@ -224,75 +216,25 @@ class HudCanvas(QWidget):
         cx = W / 2
 
         g = QRadialGradient(cx, H * 0.42, max(W, H) * 0.62)
-        g.setColorAt(0.0, blend(C.PRI, 0.10))
-        g.setColorAt(0.55, blend(C.PRI, 0.035))
+        g.setColorAt(0.0, QColor("#080808"))
+        g.setColorAt(0.60, qcol(C.BG))
         g.setColorAt(1.0, qcol(C.BG))
         p.fillRect(QRectF(0, 0, W, H), QBrush(g))
 
-        hy, vy = H * 0.70, H * 0.52
-        p.save()
-        p.setClipRect(QRectF(0, hy, W, H - hy))
-        for i in range(-14, 15):
-            x = cx + i * W * 0.11
-            p.setPen(QPen(blend(C.PRI, 0.10 * (1 - abs(i) / 16)), 1))
-            p.drawLine(QLineF(cx + (x - cx) * 0.05, vy, x, H))
-        y, step = hy, 5.0
-        while y < H:
-            k = (y - hy) / max(1.0, H - hy)
-            p.setPen(QPen(blend(C.PRI, 0.03 + 0.09 * k), 1))
-            p.drawLine(QLineF(0, y, W, y))
-            y += step
-            step *= 1.28
-        p.setPen(Qt.PenStyle.NoPen)
-        for side in (-1, 1):
-            for j in range(3, 12):
-                t = j / 11
-                x = cx + side * (W * 0.16 + t * t * W * 0.26)
-                yy = hy + (H - hy) * t * t
-                rr = (0.6 + 1.4 * t) * 3
-                gg = QRadialGradient(x, yy, rr)
-                gg.setColorAt(0.0, with_alpha(C.WHITE, 0.30 * (0.3 + t)))
-                gg.setColorAt(0.35, with_alpha(C.PRI, 0.12 * (0.3 + t)))
-                gg.setColorAt(1.0, with_alpha(C.PRI, 0.0))
-                p.setBrush(QBrush(gg))
-                p.drawEllipse(QPointF(x, yy), rr, rr)
-        p.restore()
-
-        lg = QLinearGradient(0, 0, W, 0)
-        lg.setColorAt(0.0, with_alpha(C.PRI, 0.0))
-        lg.setColorAt(0.5, with_alpha(C.PRI, 0.35))
-        lg.setColorAt(1.0, with_alpha(C.PRI, 0.0))
-        p.setPen(QPen(QBrush(lg), 1))
-        p.drawLine(QLineF(0, hy, W, hy))
-
         rnd = random.Random(57)
         p.setPen(Qt.PenStyle.NoPen)
-        for _ in range(int(W * H / 9000)):
-            x, yy = rnd.uniform(0, W), rnd.uniform(0, H * 0.72)
-            rr = rnd.uniform(0.8, 3.2) * 3
-            warm = rnd.random() < 0.12
-            c = C.ACC2 if warm else (C.WHITE if rnd.random() < 0.3 else C.PRI)
-            a = rnd.uniform(0.08, 0.40)
+        for _ in range(int(W * H / 12000)):
+            x, yy = rnd.uniform(0, W), rnd.uniform(0, H * 0.85)
+            rr = rnd.uniform(0.6, 2.4) * 2
+            warm = rnd.random() < 0.10
+            c = C.ACC2 if warm else (C.WHITE if rnd.random() < 0.45 else C.PRI)
+            a = rnd.uniform(0.04, 0.18)
             gg = QRadialGradient(x, yy, rr)
             gg.setColorAt(0.0, with_alpha(c, a))
             gg.setColorAt(1.0, with_alpha(c, 0.0))
             p.setBrush(QBrush(gg))
             p.drawEllipse(QPointF(x, yy), rr, rr)
 
-        # the screen's edge: a thin chamfered frame with lit corners
-        m, cut, arm = 6, 16, 46
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(blend(C.PRI, 0.20), 1))
-        p.drawPolygon(chamfer(QRectF(m, m, W - 2 * m, H - 2 * m), cut, ("tl", "tr", "br", "bl")))
-        p.setPen(QPen(blend(C.PRI, 0.9), 1.8))
-        for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-            x0 = m if sx > 0 else W - m
-            y0 = m if sy > 0 else H - m
-            p.drawLine(QLineF(x0, y0 + sy * (cut + arm), x0, y0 + sy * cut))
-            p.drawLine(QLineF(x0, y0 + sy * cut, x0 + sx * cut, y0))
-        p.setFont(px_font(10, QFont.Weight.DemiBold, spacing=2.2))
-        p.setPen(QPen(blend(C.PRI, 0.55)))
-        p.drawText(QRectF(m + 24, m + 8, 260, 16), Qt.AlignmentFlag.AlignVCenter, "VOICE INTERFACE")
         p.end()
         return pm
 
@@ -350,8 +292,11 @@ class HudCanvas(QWidget):
                               v_open=v_open, v_wide=v_wide or 0.0,
                               v_level=v_level, v_seq=v_seq,
                               v_hop=(sched[2] if sched is not None else 0.02))
-        elif self.hud_style in ("reactor_classic", "classic_core"):
-            # Classic Mark-LVI flat core: animate phase and breathing base target
+        else:
+            if self._reactor is not None:
+                self._reactor.step(dt, self.speaking,
+                                   self.state in ("THINKING", "PROCESSING"), self.muted)
+            # Fallback core: slow "breathing" base target, lifted by the level.
             if now - self._last_t > (0.12 if self.speaking else 0.5):
                 if self.speaking:
                     self._base_scale = 1.03
@@ -363,13 +308,6 @@ class HudCanvas(QWidget):
                     self._base_scale = random.uniform(1.001, 1.008)
                     self._base_halo  = random.uniform(48, 68)
                 self._last_t = now
-        elif self._orb is not None and self.hud_style == "orb":
-            self._orb.step(dt, amp, speaking=self.speaking,
-                           muted=self.muted, state=self.state)
-        else:
-            if self._reactor is not None:
-                self._reactor.step(dt, self.speaking,
-                                   self.state in ("THINKING", "PROCESSING"), self.muted)
 
             if self.muted:
                 self._tgt_scale, self._tgt_halo = self._base_scale, self._base_halo
@@ -485,12 +423,15 @@ class HudCanvas(QWidget):
         # which is what makes it look lit rather than tinted.
         lift = 1.0 + 0.55 * amp + (0.18 if self.speaking else 0.0)
         p.setPen(Qt.PenStyle.NoPen)
-        for gr, a0, a1 in ((r * 0.70, 0.30, 0.0), (r * 0.34, 0.34, 0.0)):
+        siri_violet = QColor("#c084fc")
+        siri_cyan   = QColor("#00e5ff")
+        siri_indigo = QColor("#6366f1")
+        for gr, a0, a1, col in ((r * 0.75, 0.28, 0.0, siri_indigo), (r * 0.42, 0.45, 0.0, siri_violet), (r * 0.22, 0.70, 0.0, siri_cyan)):
             g = QRadialGradient(cx, cy, gr)
-            g.setColorAt(0.00, blend(main, min(0.95, a0 * lift)))
-            g.setColorAt(0.45, blend(main, min(0.95, a0 * lift * 0.52)))
-            g.setColorAt(0.78, blend(main, min(0.95, a0 * lift * 0.18)))
-            g.setColorAt(1.00, blend(main, a1))
+            g.setColorAt(0.00, blend(col, min(0.95, a0 * lift)))
+            g.setColorAt(0.45, blend(col, min(0.95, a0 * lift * 0.52)))
+            g.setColorAt(0.78, blend(col, min(0.95, a0 * lift * 0.18)))
+            g.setColorAt(1.00, blend(col, a1))
             p.setBrush(QBrush(g))
             p.drawEllipse(QRectF(cx - gr, cy - gr, gr * 2, gr * 2))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -638,65 +579,49 @@ class HudCanvas(QWidget):
                 else:
                     acc = qcol(C.PRI)
             self._avatar.paint(p, cx, head_cy, r_head, main, acc, qcol(C.BG))
-        elif self.hud_style in ("reactor_classic", "classic_core"):
-            r = min(W * 0.46, band_h / 2.0)
-            self._paint_core_classic(p, cx, band_t + band_h / 2.0, r, W, band_h)
-        elif self._reactor is not None and self.hud_style in ("reactor_3d", "core"):
+        elif self._reactor is not None:
             ext = Reactor3D.TOP + Reactor3D.BOTTOM
             r = min(W * 0.25, band_h / ext)
             core_cy = band_t + (band_h - ext * r) / 2.0 + Reactor3D.TOP * r
             self._paint_core(p, cx, core_cy, r, W, band_h)
-        elif self._orb is not None and self.hud_style == "orb":
-            r_orb = min(W * 0.28, band_h * 0.38)
-            orb_cy = band_t + band_h / 2.0
-            if self.muted:
-                _main = _acc = qcol(C.MUTED_C)
-            else:
-                _main = qcol(C.PRI)
-                if self.speaking:
-                    _acc = qcol(C.ACC)
-                elif self.state in ("THINKING", "PROCESSING"):
-                    _acc = qcol(C.ACC2)
-                elif self.state == "LISTENING":
-                    _acc = qcol(C.GREEN)
-                else:
-                    _acc = qcol(C.PRI)
-            _paint_state = "RESPONDING" if self.speaking else self.state
-            self._orb.paint(p, cx, orb_cy, r_orb, _main, _acc, qcol(C.BG),
-                            self._amp_disp, _paint_state, muted=self.muted,
-                            W=W, H=band_h)
         else:
             r = min(W * 0.46, band_h / 2.0)
             self._paint_core_classic(p, cx, band_t + band_h / 2.0, r, W, band_h)
 
-        # state line: spaced capitals between two fading rules that pulse
+        # Perplexity conversational state caption
         if self.muted:
-            txt, col = "MUTED", qcol(C.MUTED_C)
+            txt, col = "Microphone Muted", qcol(C.MUTED_C)
         elif self.speaking:
-            txt, col = "SPEAKING", qcol(C.ACC)
+            txt, col = "Speaking...", qcol(C.ACC)
         elif self.state in ("THINKING", "PROCESSING"):
-            txt, col = self.state, qcol(C.ACC2)
+            txt, col = "Thinking...", qcol(C.ACC2)
         elif self.state == "LISTENING":
-            txt, col = "LISTENING", qcol(C.GREEN)
+            txt, col = "Say something...", qcol(C.PRI)
         else:
-            txt, col = str(self.state), qcol(C.PRI)
-        p.setFont(px_font(13, QFont.Weight.DemiBold, spacing=5))
+            txt, col = "Say something...", qcol(C.PRI)
+
+        p.setFont(px_font(13.5, QFont.Weight.Medium))
         tw = p.fontMetrics().horizontalAdvance(txt)
         p.setPen(QPen(col))
-        p.drawText(QRectF(0, sy, W, 22), Qt.AlignmentFlag.AlignCenter, txt)
-        pulse = 0.85 if (self._blink or self.speaking or self.muted) else 0.40
-        rule = min(110.0, W * 0.12)
-        for sgn in (-1, 1):
-            x0 = cx + sgn * (tw / 2 + 14)
-            lg = QLinearGradient(x0, 0, x0 + sgn * rule, 0)
-            lg.setColorAt(0.0, with_alpha(col, pulse))
-            lg.setColorAt(1.0, with_alpha(col, 0.0))
-            p.setPen(QPen(QBrush(lg), 1))
-            p.drawLine(QLineF(x0, sy + 11, x0 + sgn * rule, sy + 11))
+        p.drawText(QRectF(0, sy, W, 24), Qt.AlignmentFlag.AlignCenter, txt)
+
+        # Perplexity round control buttons [✕] (interrupt) and [🎤] (mic)
+        btn_y = sy + 38
+        p.setBrush(QBrush(qcol(C.ACTIVE)))
+        p.setPen(QPen(qcol(C.BORDER), 1))
+        p.drawEllipse(QPointF(cx - 24, btn_y), 15, 15)
+        p.drawEllipse(QPointF(cx + 24, btn_y), 15, 15)
+
+        p.setFont(px_font(11, QFont.Weight.Bold))
+        p.setPen(QPen(qcol(C.TEXT_DIM)))
+        p.drawText(QRectF(cx - 39, btn_y - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, "✕")
+        mic_c = qcol(C.GREEN) if (self.state == "LISTENING" and not self.muted) else qcol(C.TEXT_DIM)
+        p.setPen(QPen(mic_c))
+        p.drawText(QRectF(cx + 9, btn_y - 15, 30, 30), Qt.AlignmentFlag.AlignCenter, "🎤")
 
         # waveform — the real audio level (the mic while listening, the voice
         # while speaking), mirrored below its baseline like a reflection
-        wy = sy + 50
+        wy = sy + 74
         N = 48
         span = min(W * 0.60, 420.0)
         bw = span / N

@@ -7,19 +7,22 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:      #07090f;
-      --surface: rgba(255,255,255,0.04);
-      --border:  rgba(255,255,255,0.07);
-      --accent:  #6366f1;
-      --adim:    rgba(99,102,241,0.14);
-      --text:    #dde3ed;
-      --muted:   #5e6a7e;
-      --green:   #22c55e;
-      --gdim:    rgba(34,197,94,0.14);
+      --bg:      #080808;
+      --surface: #121212;
+      --surface-hover: #1a1a1a;
+      --border:  #242424;
+      --accent:  #00d4ff;
+      --adim:    rgba(0, 212, 255, 0.12);
+      --text:    #f5f5f5;
+      --muted:   #888888;
+      --green:   #10b981;
+      --gdim:    rgba(16, 185, 129, 0.14);
+      --card-j:  #141414;
+      --card-u:  #1c1c1c;
     }
     html, body {
       height: 100%; background: var(--bg); color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       display: flex; flex-direction: column; overflow: hidden;
     }
 
@@ -27,9 +30,11 @@
     header {
       flex-shrink: 0; display: flex; align-items: center; gap: 10px;
       padding: 12px 16px; border-bottom: 1px solid var(--border);
-      background: rgba(7,9,15,0.95);
+      background: rgba(10, 10, 10, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
-    .logo { font-size: 15px; font-weight: 700; letter-spacing: 6px; }
+    .logo { font-size: 15px; font-weight: 800; letter-spacing: 5px; color: #fff; }
     .logo em { color: var(--accent); font-style: normal; }
     .pill {
       display: flex; align-items: center; gap: 6px; padding: 4px 11px;
@@ -37,7 +42,7 @@
       font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
       color: var(--muted); transition: all 0.3s;
     }
-    .pill.on { background: var(--gdim); border-color: rgba(34,197,94,0.3); color: var(--green); }
+    .pill.on { background: var(--gdim); border-color: rgba(16, 185, 129, 0.35); color: var(--green); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
     .pill.on .dot { background: var(--green); animation: blink 2s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
@@ -46,35 +51,53 @@
       font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 3px 8px;
       border-radius: 4px; display: none;
     }
-    .enc-badge.on  { display: block; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); color: var(--green); }
+    .enc-badge.on  { display: block; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: var(--green); }
     .enc-badge.off { display: block; background: rgba(255,100,100,0.08); border: 1px solid rgba(255,100,100,0.2); color: #f87171; }
     .url { font-size: 10px; font-family: monospace; color: var(--muted); padding: 4px 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 
+    /* ── QUICK ACTION BAR ── */
+    .quick-bar {
+      display: flex; gap: 8px; overflow-x: auto; padding: 8px 14px 4px;
+      background: rgba(10, 10, 10, 0.7); flex-shrink: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .quick-bar::-webkit-scrollbar { display: none; }
+    .q-pill {
+      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      padding: 5px 12px; border-radius: 99px; font-size: 11px; font-weight: 600;
+      white-space: nowrap; cursor: pointer; transition: all 0.15s; outline: none;
+    }
+    .q-pill:hover, .q-pill:active {
+      background: var(--surface-hover); color: var(--accent); border-color: var(--accent);
+    }
+
     /* ── FEED ── */
-    main { flex: 1; overflow-y: auto; padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
+    main { flex: 1; overflow-y: auto; padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 12px; }
     main::-webkit-scrollbar { width: 3px; }
     main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    .msg { max-width: 82%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; animation: pop 0.18s ease; }
+    .msg { max-width: 86%; padding: 11px 15px; border-radius: 12px; font-size: 14px; line-height: 1.6; animation: pop 0.18s ease; word-break: break-word; }
     @keyframes pop { from { opacity:0; transform:translateY(4px); } }
-    .msg-j   { align-self:flex-start; background:var(--adim);   border:1px solid rgba(99,102,241,0.18); border-bottom-left-radius:4px; }
-    .msg-u   { align-self:flex-end;   background:var(--surface); border:1px solid var(--border);        border-bottom-right-radius:4px; }
+    .msg-j   { align-self:flex-start; background: var(--card-j); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-bottom-left-radius: 4px; color: var(--text); }
+    .msg-u   { align-self:flex-end;   background: var(--card-u); border: 1px solid var(--border); border-bottom-right-radius: 4px; color: #ffffff; }
     .msg-sys { align-self:center; font-size:11px; color:var(--muted); padding:2px 0; background:transparent; border:none; letter-spacing:0.3px; }
-    .lbl { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.45; margin-bottom:4px; }
-    .msg-j .lbl { color:var(--accent); }
-    .msg-u .lbl { color:var(--muted); text-align:right; }
+    .lbl { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.6; margin-bottom:4px; }
+    .msg-j .lbl { color: var(--accent); }
+    .msg-u .lbl { color: var(--muted); text-align:right; }
+    .msg-j pre { background: #0b0b0b; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; overflow-x: auto; margin: 6px 0; border: 1px solid #222; }
+    .msg-j code { background: #1c1c1c; padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 12px; }
 
     /* ── FILE CARD ── */
     .msg-file {
       align-self: flex-end;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 14px; border-bottom-right-radius: 4px;
+      background: var(--card-u); border: 1px solid var(--border);
+      border-radius: 12px; border-bottom-right-radius: 4px;
       padding: 11px 14px; display: flex; align-items: center; gap: 12px;
-      max-width: 82%; animation: pop 0.18s ease;
+      max-width: 86%; animation: pop 0.18s ease;
     }
     .fc-icon { font-size: 26px; flex-shrink: 0; }
     .fc-meta { flex: 1; min-width: 0; }
-    .fc-lbl  { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.45; color:var(--muted); margin-bottom:4px; }
-    .fc-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-lbl  { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.6; color:var(--muted); margin-bottom:4px; }
+    .fc-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
     .fc-size { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .fc-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; margin-top: 7px; overflow: hidden; }
     .fc-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 0.12s linear; }
@@ -82,52 +105,54 @@
     .fc-status.done { color: var(--green); }
     .fc-status.err  { color: #f87171; }
     .fc-dl { display:block; margin-top:6px; font-size:11px; color:var(--accent); text-decoration:none; font-weight:600; }
-    .fc-dl:hover { opacity: 0.8; }
+    .fc-dl:hover { opacity: 0.8; text-decoration: underline; }
 
     /* ── FOOTER ── */
-    footer { flex-shrink:0; padding:10px 14px; border-top:1px solid var(--border); background:rgba(7,9,15,0.95); display:flex; gap:8px; align-items:center; }
-    #inp { flex:1; padding:11px 14px; background:var(--surface); border:1.5px solid var(--border); border-radius:12px; color:var(--text); font-size:14px; outline:none; transition:border-color 0.15s; }
+    footer { flex-shrink:0; padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--border); background:rgba(10, 10, 10, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display:flex; gap:8px; align-items:center; }
+    #inp { flex:1; padding:12px 14px; background:var(--surface); border:1px solid var(--border); border-radius:12px; color:var(--text); font-size:14px; outline:none; transition:border-color 0.15s; }
     #inp:focus { border-color: var(--accent); }
     #inp::placeholder { color: var(--muted); }
-    .btn { padding:11px 15px; border:none; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:1.5px; cursor:pointer; transition:opacity 0.15s,transform 0.1s; }
+    .btn { padding:11px 16px; border:none; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:1px; cursor:pointer; transition:all 0.15s; }
     .btn:active { transform: scale(0.96); }
-    .btn:hover  { opacity: 0.82; }
-    .btn-send { background: var(--accent); color: #fff; }
+    .btn:hover  { opacity: 0.85; }
+    .btn-send { background: var(--accent); color: #000; font-weight: 800; }
     .btn-wake { background:var(--surface); border:1px solid var(--border); color:var(--muted); display:none; }
-    .btn-wake.show { display:block; color:var(--green); border-color:rgba(34,197,94,0.35); }
+    .btn-wake.show { display:block; color:var(--green); border-color:rgba(16, 185, 129, 0.4); }
     .btn-attach {
       background: var(--surface); border: 1px solid var(--border); color: var(--muted);
       padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px;
-      cursor: pointer; transition: opacity 0.15s, transform 0.1s; display: flex;
+      cursor: pointer; transition: all 0.15s; display: flex;
       align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .btn-attach:hover  { opacity: 0.82; border-color: var(--accent); color: var(--accent); }
+    .btn-attach:hover  { border-color: var(--accent); color: var(--accent); }
     .btn-attach:active { transform: scale(0.96); }
 
     /* ── MIC BUTTON ── */
     #mic-btn {
       background: var(--surface); border: 1px solid var(--border); color: var(--muted);
       padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px;
-      cursor: pointer; transition: opacity 0.15s, transform 0.1s, background 0.2s, border-color 0.2s;
+      cursor: pointer; transition: all 0.2s;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    #mic-btn:hover  { opacity: 0.82; border-color: var(--accent); color: var(--accent); }
+    #mic-btn:hover  { border-color: var(--accent); color: var(--accent); }
     #mic-btn:active { transform: scale(0.96); }
     #mic-btn.recording {
-      background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #ef4444;
+      background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.6); color: var(--green);
       animation: mic-pulse 1s ease-in-out infinite;
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
     }
     #mic-btn.unsupported { opacity: 0.3; cursor: not-allowed; }
-    @keyframes mic-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.65;transform:scale(0.97)} }
+    @keyframes mic-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.75;transform:scale(1.05)} }
 
     /* ── TOAST ── */
     #toast {
       position:fixed; top:66px; left:50%; transform:translateX(-50%) translateY(-8px);
-      background:rgba(34,197,94,0.16); border:1px solid rgba(34,197,94,0.4);
+      background:rgba(16, 185, 129, 0.18); border:1px solid rgba(16, 185, 129, 0.45);
       color:var(--green); font-size:12px; font-weight:700; letter-spacing:1px;
       padding:7px 18px; border-radius:99px;
       opacity:0; transition:opacity 0.22s,transform 0.22s;
       pointer-events:none; white-space:nowrap;
+      backdrop-filter: blur(8px);
     }
     #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   </style>
@@ -137,14 +162,21 @@
   <header>
     <div class="logo"><em>J</em>ARVIS</div>
     <div class="pill" id="pill"><span class="dot"></span><span id="st">Connecting</span></div>
-    <div class="pill" id="autonomy-pill" onclick="cycleAutonomy()" style="cursor:pointer;" title="Click to cycle autonomy level"><span id="autonomy-txt">🛡 L3: CONFIRM</span></div>
     <div class="enc-badge" id="enc">AES-GCM</div>
     <div class="spacer"></div>
     <div class="url">__IP__:__PORT__</div>
   </header>
+  <div class="quick-bar" id="quick-bar">
+    <button class="q-pill" onclick="quickCmd('system status')">📊 Status</button>
+    <button class="q-pill" onclick="quickCmd('take a screenshot')">📸 Screen</button>
+    <button class="q-pill" onclick="quickInput('Search the web for ')">🌐 Search</button>
+    <button class="q-pill" onclick="quickCmd('list active tasks')">⚡ Tasks</button>
+    <button class="q-pill" onclick="quickCmd('clean temporary cache files')">🧹 Clean</button>
+    <button class="q-pill" onclick="quickCmd('list installed plugins')">🧩 Plugins</button>
+  </div>
   <main id="feed"></main>
   <footer>
-    <input id="inp" placeholder="Send a command to AMATYA…" autocomplete="off">
+    <input id="inp" placeholder="Ask anything, control JARVIS, or run task…" autocomplete="off">
     <label class="btn-attach" for="file-inp" title="Send file">📎</label>
     <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
     <button id="mic-btn" onclick="doMic()" title="Voice command">🎤</button>
@@ -154,8 +186,8 @@
 
   <script>
     // ── Auth — bearer token ───────────────────────────────────────────────────
-    const _authToken  = sessionStorage.getItem('amatya_token');
-    const _sessionKey = sessionStorage.getItem('amatya_key');
+    const _authToken  = sessionStorage.getItem('jarvis_token');
+    const _sessionKey = sessionStorage.getItem('jarvis_key');
 
     if (!_authToken) {
       location.replace('/login');
@@ -248,62 +280,7 @@
     const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
     const ws       = new WebSocket(_wsUrl);
 
-    const AUTONOMY_LEVELS = [
-      "observe_only",
-      "recommend",
-      "confirm",
-      "autonomous_low_risk",
-      "autonomous_workflows"
-    ];
-    const AUTONOMY_LABELS = {
-      "observe_only": "🛡 L1: OBSERVE",
-      "recommend": "🛡 L2: RECOMMEND",
-      "confirm": "🛡 L3: CONFIRM",
-      "autonomous_low_risk": "🛡 L4: LOW-RISK",
-      "autonomous_workflows": "🛡 L5: FULL AUTO"
-    };
-    let _currentAutonomy = "confirm";
-
-    async function loadAutonomy() {
-      try {
-        const res = await _authFetch('/api/autonomy');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.autonomy_level) {
-            updateAutonomyUI(data.autonomy_level);
-          }
-        }
-      } catch (e) {}
-    }
-
-    function updateAutonomyUI(lvl) {
-      _currentAutonomy = lvl;
-      const el = document.getElementById('autonomy-txt');
-      if (el) {
-        el.textContent = AUTONOMY_LABELS[lvl] || `🛡 ${lvl.toUpperCase()}`;
-      }
-    }
-
-    async function cycleAutonomy() {
-      const idx = AUTONOMY_LEVELS.indexOf(_currentAutonomy);
-      const nextLvl = AUTONOMY_LEVELS[(idx + 1) % AUTONOMY_LEVELS.length];
-      try {
-        const res = await _authFetch('/api/autonomy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ autonomy_level: nextLvl })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          updateAutonomyUI(data.autonomy_level || nextLvl);
-          toast(`Autonomy: ${AUTONOMY_LABELS[nextLvl] || nextLvl}`);
-        }
-      } catch (e) {
-        toast('Failed to change autonomy');
-      }
-    }
-
-    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to AMATYA'); loadAutonomy(); };
+    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to JARVIS'); };
     ws.onclose   = () => sys('Connection lost — refresh to reconnect.');
     ws.onerror   = () => sys('Connection error.');
     ws.onmessage = (e) => {
@@ -323,23 +300,40 @@
       }
     }
 
+    function quickCmd(cmd) {
+      const inp = document.getElementById('inp');
+      inp.value = cmd;
+      doSend();
+    }
+    function quickInput(prefix) {
+      const inp = document.getElementById('inp');
+      inp.value = prefix;
+      inp.focus();
+    }
+
+    function formatMarkdown(s) {
+      if (!s) return '';
+      let html = esc(s);
+      html = html.replace(/```([a-zA-Z0-9_]*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/^\s*[-•]\s+(.+)$/gm, '<li style="margin-left:14px;">$1</li>');
+      html = html.replace(/^\s*(\d+)\.\s+(.+)$/gm, '<li style="margin-left:14px;" value="$1">$2</li>');
+      html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600;">$1</a>');
+      html = html.replace(/(^|[^"'])(https?:\/\/[^\s\)<>]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600;">$2</a>');
+      html = html.replace(/\n/g, '<br>');
+      return html;
+    }
+
     function append(speaker, text) {
       const d = document.createElement('div');
-      const lbl = document.createElement('div');
-      lbl.className = 'lbl';
-      if (speaker === 'amatya') {
+      if (speaker === 'jarvis' || speaker === 'amatya') {
         d.className = 'msg msg-j';
-        lbl.textContent = 'Amatya';
+        d.innerHTML = `<div class="lbl">AMATYA</div>${formatMarkdown(text)}`;
       } else {
         d.className = 'msg msg-u';
-        lbl.textContent = 'You';
+        d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
       }
-      d.appendChild(lbl);
-
-      const body = document.createElement('div');
-      body.textContent = String(text ?? '');
-      d.appendChild(body);
-
       feed.appendChild(d);
       feed.scrollTop = feed.scrollHeight;
     }
@@ -351,12 +345,7 @@
     }
 
     function esc(s) {
-      return String(s ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     // ── File helpers ──────────────────────────────────────────────────────────
@@ -385,50 +374,20 @@
     function _uploadFile(file) {
       const id = 'fc_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
-      // Create file card in feed via DOM nodes to prevent XSS / markup injection
+      // Create file card in feed
       const card = document.createElement('div');
       card.className = 'msg-file';
       card.id = id;
-
-      const icon = document.createElement('div');
-      icon.className = 'fc-icon';
-      icon.textContent = _fileIcon(file.name);
-      card.appendChild(icon);
-
-      const meta = document.createElement('div');
-      meta.className = 'fc-meta';
-
-      const lbl = document.createElement('div');
-      lbl.className = 'fc-lbl';
-      lbl.textContent = 'Sending';
-      meta.appendChild(lbl);
-
-      const nameEl = document.createElement('div');
-      nameEl.className = 'fc-name';
-      nameEl.textContent = file.name;
-      meta.appendChild(nameEl);
-
-      const sizeEl = document.createElement('div');
-      sizeEl.className = 'fc-size';
-      sizeEl.textContent = _fmtSize(file.size);
-      meta.appendChild(sizeEl);
-
-      const barWrap = document.createElement('div');
-      barWrap.className = 'fc-bar-wrap';
-      const bar = document.createElement('div');
-      bar.className = 'fc-bar';
-      bar.id = `${id}_bar`;
-      barWrap.appendChild(bar);
-      meta.appendChild(barWrap);
-
-      card.appendChild(meta);
-
-      const statusEl = document.createElement('div');
-      statusEl.className = 'fc-status';
-      statusEl.id = `${id}_st`;
-      statusEl.textContent = '0%';
-      card.appendChild(statusEl);
-
+      card.innerHTML = `
+        <div class="fc-icon">${_fileIcon(file.name)}</div>
+        <div class="fc-meta">
+          <div class="fc-lbl">Sending</div>
+          <div class="fc-name">${esc(file.name)}</div>
+          <div class="fc-size">${_fmtSize(file.size)}</div>
+          <div class="fc-bar-wrap"><div class="fc-bar" id="${id}_bar"></div></div>
+        </div>
+        <div class="fc-status" id="${id}_st">0%</div>
+      `;
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
 
@@ -439,38 +398,40 @@
       xhr.upload.onprogress = (e) => {
         if (!e.lengthComputable) return;
         const pct = Math.round(e.loaded / e.total * 100);
+        const bar = document.getElementById(`${id}_bar`);
+        const st  = document.getElementById(`${id}_st`);
         if (bar) bar.style.width = pct + '%';
-        if (statusEl) statusEl.textContent = pct + '%';
+        if (st)  st.textContent  = pct + '%';
       };
 
       xhr.onload = () => {
+        const bar  = document.getElementById(`${id}_bar`);
+        const st   = document.getElementById(`${id}_st`);
+        const meta = card.querySelector('.fc-meta');
+        const lbl  = card.querySelector('.fc-lbl');
         if (xhr.status === 200) {
           let savedName = file.name;
           try { savedName = JSON.parse(xhr.responseText).name || file.name; } catch {}
           const dlUrl = `/uploads/${encodeURIComponent(savedName)}?token=${encodeURIComponent(_authToken)}`;
-          if (bar) { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
-          if (statusEl) { statusEl.textContent = '✓'; statusEl.className = 'fc-status done'; }
-          if (lbl) lbl.textContent = 'Sent';
-
-          const dlLink = document.createElement('a');
-          dlLink.className = 'fc-dl';
-          dlLink.href = dlUrl;
-          dlLink.setAttribute('download', savedName);
-          dlLink.textContent = '⬇ Download back';
-          meta.appendChild(dlLink);
-
+          if (bar)  { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
+          if (st)   { st.textContent = '✓'; st.className = 'fc-status done'; }
+          if (lbl)  lbl.textContent = 'Sent';
+          if (meta) meta.insertAdjacentHTML('beforeend',
+            `<a class="fc-dl" href="${dlUrl}" download="${esc(savedName)}">⬇ Download back</a>`);
           toast('File sent!');
         } else {
           let errMsg = 'Upload failed';
           try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
           if (bar) bar.style.background = '#f87171';
-          if (statusEl) { statusEl.textContent = 'ERR'; statusEl.className = 'fc-status err'; }
+          if (st)  { st.textContent = 'ERR'; st.className = 'fc-status err'; }
           if (lbl) lbl.textContent = errMsg;
         }
       };
 
       xhr.onerror = () => {
-        if (statusEl) { statusEl.textContent = 'ERR'; statusEl.className = 'fc-status err'; }
+        const st  = document.getElementById(`${id}_st`);
+        const lbl = card.querySelector('.fc-lbl');
+        if (st)  { st.textContent = 'ERR'; st.className = 'fc-status err'; }
         if (lbl) lbl.textContent = 'Connection error';
       };
 
@@ -481,50 +442,19 @@
 
     // File received by another WebSocket client (e.g., second open tab)
     function _onFileReceived(m) {
-      const fileName = String(m?.name || 'file');
-      const fileSize = Number(m?.size || 0);
-      const dlUrl = `/uploads/${encodeURIComponent(fileName)}?token=${encodeURIComponent(_authToken)}`;
-
-      const card = document.createElement('div');
+      const dlUrl = `/uploads/${encodeURIComponent(m.name)}?token=${encodeURIComponent(_authToken)}`;
+      const card  = document.createElement('div');
       card.className = 'msg-file';
-
-      const icon = document.createElement('div');
-      icon.className = 'fc-icon';
-      icon.textContent = _fileIcon(fileName);
-      card.appendChild(icon);
-
-      const meta = document.createElement('div');
-      meta.className = 'fc-meta';
-
-      const lbl = document.createElement('div');
-      lbl.className = 'fc-lbl';
-      lbl.textContent = 'Received';
-      meta.appendChild(lbl);
-
-      const nameEl = document.createElement('div');
-      nameEl.className = 'fc-name';
-      nameEl.textContent = fileName;
-      meta.appendChild(nameEl);
-
-      const sizeEl = document.createElement('div');
-      sizeEl.className = 'fc-size';
-      sizeEl.textContent = _fmtSize(fileSize);
-      meta.appendChild(sizeEl);
-
-      const dlLink = document.createElement('a');
-      dlLink.className = 'fc-dl';
-      dlLink.href = dlUrl;
-      dlLink.setAttribute('download', fileName);
-      dlLink.textContent = '⬇ Download';
-      meta.appendChild(dlLink);
-
-      card.appendChild(meta);
-
-      const statusEl = document.createElement('div');
-      statusEl.className = 'fc-status done';
-      statusEl.textContent = '✓';
-      card.appendChild(statusEl);
-
+      card.innerHTML = `
+        <div class="fc-icon">${_fileIcon(m.name)}</div>
+        <div class="fc-meta">
+          <div class="fc-lbl">Received</div>
+          <div class="fc-name">${esc(m.name)}</div>
+          <div class="fc-size">${_fmtSize(m.size)}</div>
+          <a class="fc-dl" href="${dlUrl}" download="${esc(m.name)}">⬇ Download</a>
+        </div>
+        <div class="fc-status done">✓</div>
+      `;
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       toast('File received on computer!');
@@ -578,8 +508,8 @@
     let _audioNd  = null;
 
     function _micIdle() {
-      micBtn.textContent = '🎤';
-      micBtn.title       = 'Voice — tap to speak';
+      micBtn.innerHTML = '🎤';
+      micBtn.title     = 'Voice — tap to speak';
       micBtn.classList.remove('recording');
     }
 
@@ -615,16 +545,14 @@
         '<ol style="padding-left:18px;color:#8899aa;margin:0;display:flex;flex-direction:column;gap:4px">' +
         '<li>Open a new tab → go to <span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px">chrome://flags</span></li>' +
         '<li>Search: <strong style="color:#dde3ed">Insecure origins treated as secure</strong></li>' +
-        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer"></span></li>' +
+        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer">' + esc(origin) + '</span></li>' +
         '<li>Set to <strong style="color:#22c55e">Enabled</strong> → tap <strong style="color:#dde3ed">Relaunch</strong></li>' +
         '<li>Return here and tap 🎤</li>' +
         '</ol>';
-      const flagsUrl = card.querySelector('#flags-url');
-      if (flagsUrl) flagsUrl.textContent = origin;
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       // tap to copy
-      flagsUrl?.addEventListener('click', () => {
+      card.querySelector('#flags-url').addEventListener('click', () => {
         navigator.clipboard?.writeText(origin).then(() => toast('URL copied!')).catch(() => {});
       });
     }
@@ -696,8 +624,8 @@
           _audioNd = sp;
         }
 
-        micBtn.textContent = '⏹';
-        micBtn.title       = 'Tap to stop';
+        micBtn.innerHTML = '⏹';
+        micBtn.title     = 'Tap to stop';
         micBtn.classList.add('recording');
         sys('Voice live — speak now');
         toast('🎤 Live');

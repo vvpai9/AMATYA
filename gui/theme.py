@@ -88,8 +88,8 @@ def _read_full_config() -> dict:
 APP_VERSION  = "MARK LVII"
 APP_PROTOCOL = APP_VERSION.split()[-1]
 
-_DEFAULT_W, _DEFAULT_H = 980, 700
-_MIN_W,     _MIN_H     = 820, 580
+_DEFAULT_W, _DEFAULT_H = 1260, 800
+_MIN_W,     _MIN_H     = 940, 620
 _LEFT_W  = 148
 _RIGHT_W = 340
 
@@ -97,34 +97,41 @@ _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 
 class C:
-    BG        = "#00060a"
-    PANEL     = "#010d14"
-    PANEL2    = "#010f18"
-    BORDER    = "#0d3347"
-    BORDER_B  = "#1a5c7a"
-    BORDER_A  = "#0f4060"
-    PRI       = "#00d4ff"
-    PRI_DIM   = "#007a99"
-    PRI_GHO   = "#001f2e"
-    ACC       = "#ff6b00"
-    ACC2      = "#ffcc00"
-    GREEN     = "#00ff88"
-    GREEN_D   = "#00aa55"
-    RED       = "#ff3355"
-    MUTED_C   = "#ff3366"
-    TEXT      = "#8ffcff"
-    TEXT_DIM  = "#3a8a9a"
-    TEXT_MED  = "#5ab8cc"
-    WHITE     = "#d8f8ff"
-    DARK      = "#000d14"
-    BAR_BG    = "#011520"
+    # ── Premium Deep-Black Dark Theme System ──────────────────────────────────
+    BG        = "#050505"      # Main app background & main voice/HUD canvas: #050505
+    SIDEBAR   = "#080808"      # Sidebar and top bar: #080808
+    TOPBAR    = "#080808"      # Top bar background: #080808
+    CANVAS    = "#050505"      # Main voice/HUD canvas: #050505
+    PANEL     = "#101010"      # Cards and panels: #101010
+    PANEL2    = "#0C0C0C"      # Nested secondary panels / cards: #0C0C0C
+    INPUT     = "#121212"      # Inputs and composer: #121212
+    HOVER     = "#1A1A1A"      # Hover surfaces: #1A1A1A
+    ACTIVE    = "#202020"      # Active / selected surfaces: #202020
+    BORDER    = "#303030"      # Standard visible borders: #303030
+    BORDER_B  = "#555555"      # Interactive control borders: #555555
+    BORDER_A  = "#404040"      # Focus / active borders: #404040
+    PRI       = "#22D3EE"      # Restrained cyan accent: #22D3EE
+    PRI_DIM   = "#0E7490"      # Deep cyan: #0E7490
+    PRI_GHO   = "#0F2830"      # Translucent subtle tint
+    ACC       = "#F59E0B"      # Speaking state: warm amber #F59E0B
+    ACC2      = "#D97706"      # Bright golden highlight
+    GREEN     = "#4ADE80"      # Live/success green: #4ADE80
+    GREEN_D   = "#166534"      # Emerald dim: #166534
+    RED       = "#F87171"      # Muted/error red: #F87171
+    MUTED_C   = "#F87171"      # Muted state: soft red: #F87171
+    TEXT      = "#F5F5F5"      # Primary text: #F5F5F5
+    TEXT_MED  = "#B8B8B8"      # Secondary text: #B8B8B8
+    TEXT_DIM  = "#949494"      # Muted readable text: #949494
+    ICON_PRI  = "#E5E5E5"      # Primary icons: #E5E5E5
+    ICON_SEC  = "#A6A6A6"      # Secondary icons: #A6A6A6
+    WHITE     = "#FFFFFF"      # High contrast white
+    DARK      = "#050505"      # Deepest black
+    BAR_BG    = "#1A1A1A"      # Progress bar trough
 
 
-# Keys tied to the accent colour — status colours (ACC, GREEN, RED…) stay fixed
+# Keys tied to the accent colour — dark glass surfaces and typography stay crisp & neutral
 _HUE_LINKED = (
-    "BG", "PANEL", "PANEL2", "BORDER", "BORDER_B", "BORDER_A",
-    "PRI", "PRI_DIM", "PRI_GHO", "TEXT", "TEXT_DIM", "TEXT_MED",
-    "WHITE", "DARK", "BAR_BG",
+    "PRI", "PRI_DIM", "PRI_GHO",
 )
 _PALETTE_DEFAULTS: dict[str, str] = {k: getattr(C, k) for k in _HUE_LINKED}
 

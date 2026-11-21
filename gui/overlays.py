@@ -40,7 +40,7 @@ from gui.theme import (
     qcol,
 )
 
-from gui.style import hud_font, mono_font, px_font
+from gui.style import hud_font, px_font
 
 
 class SetupOverlay(QWidget):
@@ -51,8 +51,8 @@ class SetupOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             SetupOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -76,8 +76,8 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("◈  INITIALISATION REQUIRED", 13, True))
-        layout.addWidget(_lbl("Configure AMATYA / J.A.R.V.I.S. Mark-LVII Enterprise Edition", 9, color=C.PRI_DIM))
-        layout.addWidget(_lbl("Architects: Varun Vivek Pai & FatihMakes • Enterprise Contributor: Aman Kumar (@iamTechieAman)", 8, color=C.ACC2))
+        layout.addWidget(_lbl("Configure J.A.R.V.I.S. Mark-LVII Enterprise Edition", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl("Architect: FatihMakes • Enterprise Contributor: Aman Kumar (@iamTechieAman)", 8, color=C.ACC2))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
@@ -99,7 +99,7 @@ class SetupOverlay(QWidget):
             pass
         self._key_input.setStyleSheet(f"""
             QLineEdit {{
-                background: #000d12; color: {C.TEXT};
+                background: #121212; color: {C.TEXT};
                 border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
             }}
             QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
@@ -178,7 +178,7 @@ class SetupOverlay(QWidget):
             else:
                 btn.setStyleSheet(f"""
                     QPushButton {{
-                        background: #000d12; color: {C.TEXT_DIM};
+                        background: {C.PANEL}; color: {C.TEXT_DIM};
                         border: 1px solid {C.BORDER}; border-radius: 3px;
                     }}
                     QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
@@ -301,8 +301,8 @@ class CustomizeOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             CustomizeOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -317,7 +317,7 @@ class CustomizeOverlay(QWidget):
             w.setStyleSheet(f"color: {color}; background: transparent;")
             return w
 
-        _fs = (f"QLineEdit {{ background: #000d12; color: {C.TEXT}; "
+        _fs = (f"QLineEdit {{ background: #121212; color: {C.TEXT}; "
                f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px; }}"
                f"QLineEdit:focus {{ border: 1px solid {C.PRI}; }}")
 
@@ -517,8 +517,8 @@ class PluginManagerOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             PluginManagerOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -687,34 +687,6 @@ class ConfirmBanner(_HudOverlay):
             dtl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             lay.addWidget(dtl)
 
-        from core.confirm import is_awaiting_pin
-        self._awaiting_pin = is_awaiting_pin()
-        if self._awaiting_pin:
-            pin_hdr = QLabel("SECURITY PIN (MASKED):")
-            pin_hdr.setFont(hud_font(8, QFont.Weight.Bold))
-            pin_hdr.setStyleSheet(f"color: {C.ACC}; background: transparent;")
-            lay.addWidget(pin_hdr)
-
-            self._pin_edit = QLineEdit()
-            self._pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            self._pin_edit.setPlaceholderText("Enter PIN (masked)…")
-            self._pin_edit.setFont(mono_font(12))
-            self._pin_edit.setStyleSheet(f"""
-                QLineEdit {{
-                    background: #000d12; color: {C.TEXT};
-                    border: 1px solid {C.BORDER}; border-radius: 3px;
-                    padding: 4px 8px;
-                }}
-                QLineEdit:focus {{ border: 1px solid {C.ACC}; }}
-            """)
-            self._pin_edit.returnPressed.connect(self._on_confirm_click)
-            lay.addWidget(self._pin_edit)
-        else:
-            voice_hint = QLabel("🎙 Speak 'Confirm' to authorize via Voice Biometrics (or click below)")
-            voice_hint.setFont(hud_font(8, QFont.Weight.Bold))
-            voice_hint.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-            lay.addWidget(voice_hint)
-
         row = QHBoxLayout(); row.setSpacing(8)
 
         yes = QPushButton("▸  CONFIRM")
@@ -726,7 +698,7 @@ class ConfirmBanner(_HudOverlay):
                 border: 1px solid {C.ACC}; border-radius: 3px; }}
             QPushButton:hover {{ background: rgba(255,107,0,40); }}
         """)
-        yes.clicked.connect(self._on_confirm_click)
+        yes.clicked.connect(lambda: self.answered.emit(True))
         row.addWidget(yes)
 
         no = QPushButton("CANCEL")
@@ -742,251 +714,10 @@ class ConfirmBanner(_HudOverlay):
         row.addWidget(no)
         lay.addLayout(row)
 
-        if self._awaiting_pin and hasattr(self, "_pin_edit"):
-            self._pin_edit.setFocus()
-        else:
-            yes.setDefault(True)
-            yes.setFocus()
-
-    def _on_confirm_click(self):
-        if getattr(self, "_awaiting_pin", False) and hasattr(self, "_pin_edit"):
-            pin = self._pin_edit.text().strip()
-            if not pin:
-                self._pin_edit.setPlaceholderText("PIN required to authorize!")
-                self._pin_edit.setFocus()
-                return
-            from core.confirm import pin_authorize
-            ok, msg = pin_authorize(pin)
-            if not ok:
-                self._pin_edit.clear()
-                self._pin_edit.setPlaceholderText(f"Invalid PIN: {msg}")
-                self._pin_edit.setFocus()
-                return
-        self.answered.emit(True)
-
-
-class SecurityPinOverlay(_HudOverlay):
-    """Secure on-screen interface for configuring, updating, and removing the security PIN.
-
-    Ensures the PIN is:
-      1. Entered securely via QLineEdit.EchoMode.Password (never visible while typing).
-      2. Stored using PBKDF2-HMAC-SHA256 with 0600 file permissions.
-      3. Never spoken aloud, never sent over voice/LLM session, never printed in communication logs.
-    """
-    closed = pyqtSignal()
-    _OW = 440
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            SecurityPinOverlay {{
-                background: rgba(10, 16, 24, 252);
-                border: 1px solid {C.PRI_DIM};
-                border-radius: 8px;
-            }}
-        """)
-        self.setFixedWidth(self._OW)
-
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 18, 22, 18)
-        lay.setSpacing(10)
-
-        hdr = QLabel("🔒  SECURITY PIN MANAGEMENT")
-        hdr.setFont(hud_font(11, QFont.Weight.Bold))
-        hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        lay.addWidget(hdr)
-
-        from core.security import has_pin
-        self._is_configured = has_pin()
-
-        sub = QLabel(
-            "Manage your local security PIN (PBKDF2-HMAC-SHA256). "
-            "Input is masked to prevent shoulder-surfing."
-        )
-        sub.setWordWrap(True)
-        sub.setFont(hud_font(8))
-        sub.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-        lay.addWidget(sub)
-
-        # Current PIN (if already set)
-        self._cur_edit = None
-        if self._is_configured:
-            lay.addWidget(self._field_label("CURRENT PIN"))
-            self._cur_edit = self._make_pin_input("Enter current PIN…")
-            lay.addWidget(self._cur_edit)
-
-        # New PIN
-        lay.addWidget(self._field_label("NEW PIN (4–32 CHARACTERS)"))
-        self._new_edit = self._make_pin_input("Enter new PIN…")
-        lay.addWidget(self._new_edit)
-
-        # Confirm New PIN
-        lay.addWidget(self._field_label("CONFIRM NEW PIN"))
-        self._confirm_edit = self._make_pin_input("Re-enter new PIN…")
-        lay.addWidget(self._confirm_edit)
-
-        # Mask toggle row
-        opt_row = QHBoxLayout()
-        self._show_chk = QPushButton("👁  Show Characters")
-        self._show_chk.setFixedHeight(24)
-        self._show_chk.setFont(hud_font(8))
-        self._show_chk.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._show_chk.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {C.TEXT_DIM}; border: none; text-align: left; }}
-            QPushButton:hover {{ color: {C.PRI}; }}
-        """)
-        self._show_chk.clicked.connect(self._toggle_mask)
-        self._masked = True
-        opt_row.addWidget(self._show_chk)
-        opt_row.addStretch(1)
-        lay.addLayout(opt_row)
-
-        # Status / Feedback label
-        self._status_lbl = QLabel("")
-        self._status_lbl.setFont(hud_font(8, QFont.Weight.Bold))
-        self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        lay.addWidget(self._status_lbl)
-
-        # Action Buttons
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        save_txt = "▸  UPDATE PIN" if self._is_configured else "▸  SAVE PIN"
-        save_btn = QPushButton(save_txt)
-        save_btn.setFixedHeight(34)
-        save_btn.setFont(hud_font(9, QFont.Weight.Bold))
-        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.setStyleSheet(f"""
-            QPushButton {{ background: {C.PRI_GHO}; color: {C.PRI};
-                border: 1px solid {C.PRI}; border-radius: 4px; }}
-            QPushButton:hover {{ background: rgba(0, 230, 153, 30); }}
-        """)
-        save_btn.clicked.connect(self._on_save)
-        btn_row.addWidget(save_btn)
-
-        if self._is_configured:
-            rem_btn = QPushButton("REMOVE PIN")
-            rem_btn.setFixedHeight(34)
-            rem_btn.setFont(hud_font(9))
-            rem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            rem_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; color: {C.RED};
-                    border: 1px solid {C.RED}; border-radius: 4px; }}
-                QPushButton:hover {{ background: rgba(255, 60, 60, 30); }}
-            """)
-            rem_btn.clicked.connect(self._on_remove)
-            btn_row.addWidget(rem_btn)
-
-        cancel_btn = QPushButton("CLOSE")
-        cancel_btn.setFixedHeight(34)
-        cancel_btn.setFont(hud_font(9))
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {C.TEXT_MED};
-                border: 1px solid {C.BORDER}; border-radius: 4px; }}
-            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-        """)
-        cancel_btn.clicked.connect(self._close)
-        btn_row.addWidget(cancel_btn)
-
-        lay.addLayout(btn_row)
-
-    def _field_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setFont(hud_font(8, QFont.Weight.Bold))
-        lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        return lbl
-
-    def _make_pin_input(self, placeholder: str) -> QLineEdit:
-        w = QLineEdit()
-        w.setEchoMode(QLineEdit.EchoMode.Password)
-        w.setPlaceholderText(placeholder)
-        w.setFixedHeight(32)
-        w.setFont(mono_font(12))
-        w.setStyleSheet(f"""
-            QLineEdit {{
-                background: #000d12; color: {C.TEXT};
-                border: 1px solid {C.BORDER}; border-radius: 4px;
-                padding: 4px 8px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
-        """)
-        w.returnPressed.connect(self._on_save)
-        return w
-
-    def _toggle_mask(self):
-        self._masked = not self._masked
-        mode = QLineEdit.EchoMode.Password if self._masked else QLineEdit.EchoMode.Normal
-        if self._cur_edit:
-            self._cur_edit.setEchoMode(mode)
-        self._new_edit.setEchoMode(mode)
-        self._confirm_edit.setEchoMode(mode)
-        self._show_chk.setText("🔒  Mask Characters" if not self._masked else "👁  Show Characters")
-
-    def _on_save(self):
-        from core.security import verify_pin, set_pin, has_pin
-        if self._cur_edit:
-            cur = self._cur_edit.text().strip()
-            if not cur:
-                self._show_status("Current PIN required to make changes.", is_error=True)
-                self._cur_edit.setFocus()
-                return
-            ok, msg = verify_pin(cur)
-            if not ok:
-                self._show_status(f"Current PIN incorrect: {msg}", is_error=True)
-                self._cur_edit.clear()
-                self._cur_edit.setFocus()
-                return
-
-        new_val = self._new_edit.text().strip()
-        conf_val = self._confirm_edit.text().strip()
-        if len(new_val) < 4 or len(new_val) > 32:
-            self._show_status("PIN must be between 4 and 32 characters.", is_error=True)
-            self._new_edit.setFocus()
-            return
-        if new_val != conf_val:
-            self._show_status("New PIN and Confirm PIN do not match.", is_error=True)
-            self._confirm_edit.setFocus()
-            return
-
-        ok, msg = set_pin(new_val)
-        if ok:
-            self._show_status("✓ Security PIN updated successfully.", is_error=False)
-            QTimer.singleShot(1100, self._close)
-        else:
-            self._show_status(f"Failed to set PIN: {msg}", is_error=True)
-
-    def _on_remove(self):
-        from core.security import clear_pin
-        if not self._cur_edit:
-            return
-        cur = self._cur_edit.text().strip()
-        if not cur:
-            self._show_status("Current PIN required to remove PIN.", is_error=True)
-            self._cur_edit.setFocus()
-            return
-        ok, msg = clear_pin(cur)
-        if ok:
-            self._show_status("✓ Security PIN removed.", is_error=False)
-            QTimer.singleShot(1100, self._close)
-        else:
-            self._show_status(f"Failed to remove PIN: {msg}", is_error=True)
-
-    def _show_status(self, text: str, is_error: bool = False):
-        color = C.RED if is_error else C.PRI
-        self._status_lbl.setStyleSheet(f"color: {color}; background: transparent;")
-        self._status_lbl.setText(text)
-
-    def _close(self):
-        if self._cur_edit:
-            self._cur_edit.clear()
-        self._new_edit.clear()
-        self._confirm_edit.clear()
-        self.closed.emit()
-        self.hide()
-        self.deleteLater()
+        # Default focus on CANCEL: if someone hits Enter without reading, the
+        # safe answer wins.
+        no.setDefault(True)
+        no.setFocus()
 
 
 class AudioDeviceOverlay(_HudOverlay):
@@ -1025,8 +756,8 @@ class AudioDeviceOverlay(_HudOverlay):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             AudioDeviceOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -1046,10 +777,10 @@ class AudioDeviceOverlay(_HudOverlay):
         lay.addWidget(sep)
 
         _combo_css = (
-            f"QComboBox {{ background: #000d12; color: {C.TEXT}; "
+            f"QComboBox {{ background: #121212; color: {C.TEXT}; "
             f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px; }}"
             f"QComboBox:hover {{ border-color: {C.BORDER_B}; }}"
-            f"QComboBox QAbstractItemView {{ background: #000d12; color: {C.TEXT}; "
+            f"QComboBox QAbstractItemView {{ background: #121212; color: {C.TEXT}; "
             f"selection-background-color: {C.PRI_GHO}; border: 1px solid {C.BORDER}; }}"
         )
 
@@ -1116,7 +847,7 @@ class AudioDeviceOverlay(_HudOverlay):
             meter.setTextVisible(False)
             meter.setFixedHeight(6)
             meter.setStyleSheet(
-                f"QProgressBar {{ background: #000d12; border: 1px solid {C.BORDER}; "
+                f"QProgressBar {{ background: #121212; border: 1px solid {C.BORDER}; "
                 f"border-radius: 3px; }}"
                 f"QProgressBar::chunk {{ background: {C.PRI}; border-radius: 2px; }}")
             meter.hide()
@@ -1176,7 +907,7 @@ class AudioDeviceOverlay(_HudOverlay):
             self._vol.setValue(int(_vol_now))
             self._vol.setFixedHeight(22)
             self._vol.setStyleSheet(
-                f"QSlider::groove:horizontal {{ background: #000d12; height: 4px; "
+                f"QSlider::groove:horizontal {{ background: #121212; height: 4px; "
                 f"border: 1px solid {C.BORDER}; border-radius: 2px; }}"
                 f"QSlider::sub-page:horizontal {{ background: {C.PRI_DIM}; "
                 f"border-radius: 2px; }}"
@@ -1364,8 +1095,8 @@ class MemoryOverlay(_HudOverlay):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             MemoryOverlay {{
-                background: rgba(0, 6, 10, 246);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -1679,8 +1410,8 @@ class PluginSettingsOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             PluginSettingsOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
+                background: rgba(10, 10, 10, 252);
+                border: 1px solid {C.BORDER};
                 border-radius: 6px;
             }}
         """)
@@ -1690,7 +1421,7 @@ class PluginSettingsOverlay(QWidget):
         self._status_labels: dict[str, QLabel] = {} # namespace -> status QLabel
         self._test_done.connect(self._on_test_done)
 
-        self._fs = (f"QLineEdit {{ background: #000d12; color: {C.TEXT}; "
+        self._fs = (f"QLineEdit {{ background: #121212; color: {C.TEXT}; "
                     f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px; }}"
                     f"QLineEdit:focus {{ border: 1px solid {C.PRI}; }}")
 
@@ -1787,9 +1518,9 @@ class PluginSettingsOverlay(QWidget):
                 w.setFont(hud_font(9))
                 w.setFixedHeight(30)
                 w.setStyleSheet(
-                    f"QComboBox {{ background: #000d12; color: {C.TEXT}; "
+                    f"QComboBox {{ background: #121212; color: {C.TEXT}; "
                     f"border: 1px solid {C.BORDER}; border-radius: 3px; padding: 2px 8px; }}"
-                    f"QComboBox QAbstractItemView {{ background: #000d12; color: {C.TEXT}; "
+                    f"QComboBox QAbstractItemView {{ background: #121212; color: {C.TEXT}; "
                     f"selection-background-color: {C.PRI_GHO}; }}")
                 if stored is not None:
                     w.setCurrentText(str(stored))
@@ -1825,9 +1556,9 @@ class PluginSettingsOverlay(QWidget):
             ab.setFont(hud_font(8, QFont.Weight.Bold))
             ab.setCursor(Qt.CursorShape.PointingHandCursor)
             ab.setStyleSheet(f"""
-                QPushButton {{ background: #00091a; color: {C.PRI};
+                QPushButton {{ background: {C.ACTIVE}; color: {C.PRI};
                     border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
-                QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.PRI}; }}
+                QPushButton:hover {{ background: {C.HOVER}; border-color: {C.PRI}; }}
             """)
             ab.clicked.connect(lambda _=False, n=ns: self._run_action(n))
             form.addWidget(ab)
@@ -1921,7 +1652,7 @@ class RemoteKeyOverlay(QWidget):
 
     closed = pyqtSignal()
 
-    _OW, _OH = 400, 465
+    _OW, _OH = 420, 520
 
     def __init__(self, url: str, key: str, auto_login_url: str = "",
                  manual_url: str = "", expiry_secs: int = 600, parent=None,
@@ -1930,8 +1661,8 @@ class RemoteKeyOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             RemoteKeyOverlay {{
-                background: rgba(0, 4, 12, 0.95);
-                border: 1px solid {C.BORDER_B};
+                background: #0E0E0E;
+                border: 1px solid #282828;
                 border-radius: 14px;
             }}
         """)
@@ -1941,30 +1672,51 @@ class RemoteKeyOverlay(QWidget):
         self._manual_url      = manual_url or url
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 16, 24, 16)
-        lay.setSpacing(5)
+        lay.setContentsMargins(22, 16, 22, 16)
+        lay.setSpacing(6)
 
-        def _lbl(txt, fs=9, bold=False, color=C.PRI,
-                 align=Qt.AlignmentFlag.AlignCenter):
-            w = QLabel(txt)
-            w.setAlignment(align)
-            w.setFont(hud_font(fs,
-                            QFont.Weight.Bold if bold else QFont.Weight.Normal))
-            w.setStyleSheet(f"color: {color}; background: transparent;")
-            w.setWordWrap(True)
-            return w
+        # ── Header: Title + Close Button ──────────────────────────────────────
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(0, 0, 0, 0)
+        hdr.setSpacing(6)
 
-        lay.addWidget(_lbl("◈  REMOTE ACCESS", 12, True))
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {C.BORDER}; margin: 1px 0;")
+        title_lbl = QLabel("◈  REMOTE CONTROL DASHBOARD")
+        title_lbl.setFont(px_font(12, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {C.WHITE}; background: transparent; letter-spacing: 0.8px;")
+        hdr.addWidget(title_lbl, stretch=1)
+
+        x_btn = QPushButton("✕")
+        x_btn.setFixedSize(22, 22)
+        x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        x_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {C.TEXT_MED};
+                border: 1px solid transparent;
+                border-radius: 4px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                color: {C.WHITE};
+                background: #1C1C1C;
+                border: 1px solid {C.BORDER};
+            }}
+        """)
+        x_btn.clicked.connect(self._do_close)
+        hdr.addWidget(x_btn)
+        lay.addLayout(hdr)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #222222; max-height: 1px; margin: 2px 0;")
         lay.addWidget(sep)
 
         # ── QR code ───────────────────────────────────────────────────────────
         self._qr_label = QLabel()
         self._qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._qr_label.setFixedSize(176, 176)
+        self._qr_label.setFixedSize(164, 164)
         self._qr_label.setStyleSheet(
-            "background: white; border-radius: 10px; padding: 4px;"
+            "background: white; border: 1px solid #333333; border-radius: 10px; padding: 4px;"
         )
         qr_row = QHBoxLayout()
         qr_row.addStretch()
@@ -1974,26 +1726,18 @@ class RemoteKeyOverlay(QWidget):
 
         self._update_qr(auto_login_url)
 
-        lay.addWidget(_lbl("Scan with phone camera to connect instantly", 8, color=C.TEXT_DIM))
+        sub_lbl = QLabel("Scan with phone camera to connect instantly")
+        sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub_lbl.setFont(px_font(9.5))
+        sub_lbl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        lay.addWidget(sub_lbl)
 
-        # THE ONE FAILURE THAT LOOKS LIKE THE SERVER BEING OFF.
-        #
-        # Windows writes a BLOCK rule for an executable when its "Allow access?"
-        # prompt is dismissed, and a block overrides every allow rule there is —
-        # including the port rule this app carefully creates. The phone then
-        # reports "refused to connect" while the server is running perfectly.
-        #
-        # It is invisible from the HUD, which is where the person scanning the
-        # QR code is looking, and it is per-EXECUTABLE: the shortcut runs
-        # pythonw.exe while an editor runs python.exe, so it can block one launch
-        # method and not the other on the same machine. That difference is
-        # unguessable without being told, so it is said here.
-        # Whatever is stopping this from working, say it HERE — beside the QR
-        # code, where the person about to scan it is looking. A dashboard that
-        # cannot be reached and does not explain why is the single most
-        # frustrating failure this app has.
         if bind_error:
-            lay.addWidget(_lbl("⚠  " + bind_error, 8, color="#f4b942"))
+            err_lbl = QLabel("⚠  " + bind_error)
+            err_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            err_lbl.setFont(px_font(8.5))
+            err_lbl.setStyleSheet("color: #F59E0B; background: transparent;")
+            lay.addWidget(err_lbl)
 
         try:
             from dashboard.server import blocking_firewall_rules
@@ -2001,74 +1745,92 @@ class RemoteKeyOverlay(QWidget):
         except Exception:
             _blocked = []
         if _blocked:
-            warn = _lbl(
-                "⚠  Windows is blocking incoming connections to this copy of "
-                "Python, so your phone cannot reach this page. Restart JARVIS "
-                "and accept the Windows prompt, or remove the rules named "
-                + ", ".join(sorted({n for n, _ in _blocked}))
-                + " under Windows Defender Firewall → Inbound Rules.",
-                8, color="#f4b942")
+            warn = QLabel(
+                "⚠  Windows is blocking incoming connections to Python. "
+                "Restart JARVIS and accept prompt, or allow rules under Windows Defender.",
+            )
+            warn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            warn.setFont(px_font(8))
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #F59E0B; background: transparent;")
             lay.addWidget(warn)
 
-        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet(f"color: {C.BORDER}; margin: 1px 0;")
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("background: #222222; max-height: 1px; margin: 2px 0;")
         lay.addWidget(sep2)
 
-        lay.addWidget(_lbl("Or enter manually:", 7, color=C.TEXT_DIM,
-                           align=Qt.AlignmentFlag.AlignLeft))
+        manual_title = QLabel("OR CONNECT MANUALLY ON PHONE BROWSER:")
+        manual_title.setFont(px_font(8.5, QFont.Weight.Bold))
+        manual_title.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; letter-spacing: 0.5px;")
+        lay.addWidget(manual_title)
 
         self._url_lbl = QLabel(self._manual_url)
-        self._url_lbl.setFont(hud_font(8))
-        self._url_lbl.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
+        self._url_lbl.setFont(px_font(9, mono=True))
+        self._url_lbl.setStyleSheet(f"color: {C.PRI}; background: #141414; border: 1px solid #222222; border-radius: 4px; padding: 3px 6px;")
         self._url_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._url_lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._url_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lay.addWidget(self._url_lbl)
 
         self._key_lbl = QLabel(key)
-        self._key_lbl.setFont(hud_font(28, QFont.Weight.Bold))
+        self._key_lbl.setFont(px_font(24, QFont.Weight.Bold, mono=True))
         self._key_lbl.setStyleSheet(f"""
-            color: {C.ACC};
-            background: {C.PANEL2};
-            border: 1px solid {C.BORDER_B};
+            color: {C.WHITE};
+            background: #141414;
+            border: 1px solid #333333;
             border-radius: 8px;
-            padding: 6px 4px;
-            letter-spacing: 10px;
+            padding: 4px 4px;
+            letter-spacing: 8px;
         """)
         self._key_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._key_lbl)
 
         self._timer_lbl = QLabel()
-        self._timer_lbl.setFont(hud_font(8))
-        self._timer_lbl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        self._timer_lbl.setFont(px_font(9))
+        self._timer_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         self._timer_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._timer_lbl)
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
-        new_btn = QPushButton("NEW KEY")
-        new_btn.setFixedHeight(32)
-        new_btn.setFont(hud_font(8, QFont.Weight.Bold))
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        new_btn = QPushButton("GENERATE NEW KEY")
+        new_btn.setFixedHeight(30)
+        new_btn.setFont(px_font(9.5, QFont.Weight.DemiBold))
         new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         new_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {C.PANEL}; color: {C.PRI};
-                border: 1px solid {C.PRI_DIM}; border-radius: 5px;
+                background: #1C1C1C;
+                color: {C.WHITE};
+                border: 1px solid #383838;
+                border-radius: 6px;
+                padding: 0 12px;
             }}
-            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+            QPushButton:hover {{
+                background: #252525;
+                border-color: {C.PRI};
+                color: {C.PRI};
+            }}
         """)
         new_btn.clicked.connect(self._refresh_key)
         btn_row.addWidget(new_btn)
 
         close_btn = QPushButton("DISMISS")
-        close_btn.setFixedHeight(32)
-        close_btn.setFont(hud_font(8, QFont.Weight.Bold))
+        close_btn.setFixedHeight(30)
+        close_btn.setFont(px_font(9.5, QFont.Weight.DemiBold))
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {C.TEXT_MED};
-                border: 1px solid {C.BORDER}; border-radius: 5px;
+                background: transparent;
+                color: {C.TEXT_MED};
+                border: 1px solid #282828;
+                border-radius: 6px;
+                padding: 0 12px;
             }}
-            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+            QPushButton:hover {{
+                color: {C.TEXT};
+                background: #141414;
+                border-color: #383838;
+            }}
         """)
         close_btn.clicked.connect(self._do_close)
         btn_row.addWidget(close_btn)
@@ -2131,16 +1893,16 @@ class RemoteKeyOverlay(QWidget):
         self._key_lbl.setText("CONNECTED")
         self._key_lbl.setStyleSheet(f"""
             color: {C.GREEN};
-            background: rgba(34,197,94,0.08);
-            border: 2px solid rgba(34,197,94,0.4);
+            background: rgba(16, 185, 129, 0.10);
+            border: 1px solid rgba(16, 185, 129, 0.40);
             border-radius: 8px;
             padding: 6px 4px;
             letter-spacing: 4px;
         """)
         self._qr_label.setText("✓")
-        self._qr_label.setFont(hud_font(54, QFont.Weight.Bold))
+        self._qr_label.setFont(px_font(48, QFont.Weight.Bold))
         self._qr_label.setStyleSheet(
-            "color: #00ff88; background: #001a0d; border-radius: 10px;"
+            f"color: {C.GREEN}; background: #141414; border: 1px solid rgba(16, 185, 129, 0.40); border-radius: 10px;"
         )
         self._timer_lbl.setText("Phone connected — JARVIS ready")
         self._timer_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
@@ -2160,15 +1922,15 @@ class RemoteKeyOverlay(QWidget):
                 self._update_qr(auto or url)
                 self._expiry = time.time() + 600
                 self._key_lbl.setStyleSheet(f"""
-                    color: {C.ACC};
-                    background: {C.PANEL2};
-                    border: 1px solid {C.BORDER_B};
+                    color: {C.WHITE};
+                    background: #141414;
+                    border: 1px solid #333333;
                     border-radius: 8px;
-                    padding: 6px 4px;
-                    letter-spacing: 10px;
+                    padding: 4px 4px;
+                    letter-spacing: 8px;
                 """)
                 self._timer_lbl.setStyleSheet(
-                    f"color: {C.TEXT_MED}; background: transparent;"
+                    f"color: {C.TEXT_DIM}; background: transparent;"
                 )
                 self._ctimer.start(1000)
                 self._tick()

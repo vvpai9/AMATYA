@@ -97,11 +97,11 @@ class MetricBar(QWidget):
             p.setBrush(QBrush(bar_col))
             p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 2, 2)
 
-        p.setFont(hud_font(8.5, QFont.Weight.Bold))
+        p.setFont(hud_font(7, QFont.Weight.Bold))
         p.setPen(QPen(qcol(C.TEXT_DIM), 1))
-        p.drawText(QRectF(8, 4, 55, 16), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._label)
+        p.drawText(QRectF(8, 5, 50, 14), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._label)
 
-        p.setFont(hud_font(9.5, QFont.Weight.Bold))
+        p.setFont(hud_font(9, QFont.Weight.Bold))
         p.setPen(QPen(bar_col if self._text != "--" else qcol(C.TEXT_DIM), 1))
         p.drawText(QRectF(0, 4, W - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, self._text)
 
@@ -150,12 +150,7 @@ class LogWidget(QTextEdit):
         self._sig.connect(self._enqueue)
 
     def append_log(self, text: str):
-        try:
-            from core.security import redact_secrets
-            safe_text = redact_secrets(str(text or ""))
-        except Exception:
-            safe_text = text
-        self._sig.emit(safe_text)
+        self._sig.emit(text)
 
     def _enqueue(self, text: str):
         self._queue.append(text)
@@ -181,10 +176,10 @@ class LogWidget(QTextEdit):
     def _colours(tag: str) -> tuple[QColor, QColor]:
         """(label colour, words colour) for a tag."""
         return {
-            "you":  (qcol(C.WHITE), qcol(C.WHITE)),
-            "ai":   (qcol(C.PRI), qcol(C.TEXT)),
+            "you":  (qcol(C.PRI), qcol(C.WHITE)),
+            "ai":   (qcol(C.GREEN), qcol(C.TEXT)),
             "err":  (qcol(C.RED), qcol(C.RED)),
-            "file": (qcol(C.GREEN), qcol(C.TEXT)),
+            "file": (qcol(C.ACC), qcol(C.TEXT)),
             # SYS lines are the bulk of the log, so they sit back. TEXT_MED
             # follows the theme and drops the contrast to a level you read past.
             "sys":  (qcol(C.TEXT_DIM), qcol(C.TEXT_MED)),
@@ -315,6 +310,11 @@ class FileDropZone(QWidget):
         layout.setSpacing(0)
         self._canvas = _DropCanvas(self)
         layout.addWidget(self._canvas)
+
+    def clear(self):
+        self._current_file = None
+        self._folder_files = 0
+        self._canvas.update()
 
     def _animate(self):
         # The marching-ants dashed border is only meaningful while the user is
@@ -506,8 +506,8 @@ class _CameraPreview(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             _CameraPreview {{
-                background: rgba(0, 6, 10, 242);
-                border: 1px solid {C.PRI};
+                background: rgba(10, 10, 10, 250);
+                border: 1px solid {C.BORDER_B};
                 border-radius: 6px;
             }}
         """)
@@ -626,40 +626,36 @@ class HoloPanel(QWidget):
             return
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         W, H = self.width(), self.height()
-        cut = 11
+        cut = 10
         g = QLinearGradient(0, 0, 0, H)
-        g.setColorAt(0.0, blend(C.PRI, 0.085))
-        g.setColorAt(0.18, blend(C.PRI, 0.045))
-        g.setColorAt(1.0, blend(C.PRI, 0.025))
+        g.setColorAt(0.0, QColor(C.PANEL))
+        g.setColorAt(1.0, QColor(C.PANEL2))
         p.setBrush(QBrush(g))
-        p.setPen(QPen(blend(C.PRI, 0.24), 1))
+        p.setPen(QPen(QColor(C.BORDER), 1))
         p.drawPolygon(chamfer(QRectF(0.5, 0.5, W - 1, H - 1), cut))
-        # lit edges: the two chamfers and a short run along from each
-        p.setPen(QPen(blend(C.PRI, 0.85), 1.6))
-        p.drawLine(QLineF(0.5, cut + 0.5, cut + 0.5, 0.5))
-        p.drawLine(QLineF(cut + 0.5, 0.5, cut + 44, 0.5))
-        p.drawLine(QLineF(W - 0.5, H - cut - 0.5, W - cut - 0.5, H - 0.5))
-        p.drawLine(QLineF(W - cut - 0.5, H - 0.5, W - cut - 34, H - 0.5))
+        # subtle illuminated top accent border
+        p.setPen(QPen(with_alpha(C.PRI, 0.25), 1.0))
+        p.drawLine(QLineF(cut + 0.5, 0.5, min(W - cut, cut + 50), 0.5))
         if self._title:
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(qcol(C.ACC)))
-            p.drawRect(QRectF(12, 11, 3, 10))
+            p.setBrush(QBrush(qcol(C.PRI)))
+            p.drawRoundedRect(QRectF(12, 10, 3, 11), 1.5, 1.5)
             right = self._header_right()
             code_w = 0.0
             if self._code:
-                p.setFont(px_font(10, mono=True))
+                p.setFont(px_font(9.5, mono=True))
                 code_w = p.fontMetrics().horizontalAdvance(self._code) + 8
-                p.setPen(QPen(blend(C.PRI, 0.5)))
+                p.setPen(QPen(qcol(C.TEXT_DIM)))
                 p.drawText(QRectF(right - code_w, 6, code_w, 20),
                            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self._code)
-            p.setFont(px_font(11, QFont.Weight.DemiBold, spacing=1.8))
-            p.setPen(QPen(qcol(C.PRI)))
+            p.setFont(px_font(11, QFont.Weight.DemiBold, spacing=1.2))
+            p.setPen(QPen(qcol(C.WHITE)))
             room = max(10.0, right - code_w - 26)
             p.drawText(QRectF(21, 6, room, 20), Qt.AlignmentFlag.AlignVCenter,
                        p.fontMetrics().elidedText(self._title, Qt.TextElideMode.ElideRight, int(room)))
             lg = QLinearGradient(12, 0, W - 12, 0)
-            lg.setColorAt(0.0, with_alpha(C.PRI, 0.55))
-            lg.setColorAt(0.6, with_alpha(C.PRI, 0.12))
+            lg.setColorAt(0.0, with_alpha(C.PRI, 0.20))
+            lg.setColorAt(0.5, with_alpha(C.PRI, 0.05))
             lg.setColorAt(1.0, with_alpha(C.PRI, 0.0))
             p.setPen(QPen(QBrush(lg), 1))
             p.drawLine(QLineF(12, self.HEADER, W - 12, self.HEADER))
@@ -982,7 +978,7 @@ class ArcLogo(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx = cy = 17
         g = QRadialGradient(cx, cy, 16)
-        g.setColorAt(0, with_alpha(C.PRI, 0.55))
+        g.setColorAt(0, with_alpha(C.PRI, 0.28))
         g.setColorAt(1, with_alpha(C.PRI, 0.0))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(g))
@@ -1004,13 +1000,17 @@ class ArcLogo(QWidget):
 class StateChip(QWidget):
     """What the assistant is doing, in the middle of the header."""
 
-    _COLOURS = {"LISTENING": "GREEN", "SPEAKING": "ACC", "THINKING": "ACC2",
-                "PROCESSING": "ACC2", "MUTED": "MUTED_C"}
+    _COLOURS = {
+        "LISTENING": "GREEN", "SPEAKING": "ACC", "THINKING": "ACC2",
+        "PROCESSING": "ACC2", "MUTED": "MUTED_C", "SLEEPING": "TEXT_DIM",
+        "STANDBY": "TEXT_DIM", "DISCONNECTED": "RED", "ERROR": "RED",
+        "INITIALISING": "PRI"
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._state = "INITIALISING"
-        self.setFixedSize(196, 34)
+        self.setFixedSize(130, 26)
 
     def set_state(self, state: str) -> None:
         state = str(state or "").upper()
@@ -1026,44 +1026,29 @@ class StateChip(QWidget):
         W, H = self.width(), self.height()
         col = qcol(getattr(C, self._COLOURS.get(self._state, "PRI")))
         p.setBrush(QBrush(blend(col, 0.10)))
-        p.setPen(QPen(blend(col, 0.55), 1))
-        p.drawPolygon(chamfer(QRectF(0.5, 0.5, W - 1, H - 1), 9, ("tl", "tr", "br", "bl")))
-        g = QRadialGradient(22, H / 2, 10)
-        g.setColorAt(0, with_alpha(col, 0.9))
-        g.setColorAt(1, with_alpha(col, 0.0))
+        p.setPen(QPen(qcol(C.BORDER), 1))
+        p.drawRoundedRect(QRectF(0.5, 0.5, W - 1, H - 1), 13, 13)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(g))
-        p.drawEllipse(QPointF(22, H / 2), 10, 10)
         p.setBrush(QBrush(col))
-        p.drawEllipse(QPointF(22, H / 2), 3.5, 3.5)
-        p.setFont(px_font(12, QFont.Weight.DemiBold, spacing=2.6))
+        p.drawEllipse(QPointF(14, H / 2), 3.5, 3.5)
+        p.setFont(px_font(9.5, QFont.Weight.Bold, spacing=1.2))
         p.setPen(QPen(col))
-        p.drawText(QRectF(38, 0, W - 44, H), Qt.AlignmentFlag.AlignVCenter,
-                   p.fontMetrics().elidedText(self._state, Qt.TextElideMode.ElideRight, int(W - 44)))
+        p.drawText(QRectF(24, 0, W - 28, H), Qt.AlignmentFlag.AlignVCenter,
+                   p.fontMetrics().elidedText(self._state, Qt.TextElideMode.ElideRight, int(W - 28)))
         p.end()
 
 
 class HeaderBar(QWidget):
-    """The header's ground: a faint wash, and a bright rule along the bottom
-    that is brightest in the middle, under the state chip."""
+    """The header's ground: clean dark surface with a subtle minimal border."""
 
     def paintEvent(self, _):
         p = QPainter(self)
         if not p.isActive():
             return
         W, H = self.width(), self.height()
-        g = QLinearGradient(0, 0, 0, H)
-        g.setColorAt(0, blend(C.PRI, 0.06))
-        g.setColorAt(1, qcol(C.BG))
-        p.fillRect(self.rect(), QBrush(g))
-        lg = QLinearGradient(0, 0, W, 0)
-        lg.setColorAt(0.0, with_alpha(C.PRI, 0.05))
-        lg.setColorAt(0.5, with_alpha(C.PRI, 0.9))
-        lg.setColorAt(1.0, with_alpha(C.PRI, 0.05))
-        p.setPen(QPen(QBrush(lg), 1))
-        p.drawLine(QLineF(0, H - 1.5, W, H - 1.5))
-        p.setPen(QPen(qcol(C.PRI), 2))
-        p.drawLine(QLineF(W / 2 - 70, H - 1.5, W / 2 + 70, H - 1.5))
+        p.fillRect(self.rect(), qcol(C.TOPBAR))
+        p.setPen(QPen(qcol(C.BORDER), 1))
+        p.drawLine(QLineF(0, H - 1, W, H - 1))
         p.end()
 
 
@@ -1092,8 +1077,8 @@ class StatusStrip(QWidget):
             return
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         W, H = self.width(), self.height()
-        p.fillRect(self.rect(), blend(C.PRI, 0.03))
-        p.setPen(QPen(blend(C.PRI, 0.2), 1))
+        p.fillRect(self.rect(), qcol(C.SIDEBAR))
+        p.setPen(QPen(qcol(C.BORDER), 1))
         p.drawLine(QLineF(0, 0.5, W, 0.5))
         p.setFont(px_font(9.5, QFont.Weight.DemiBold, spacing=1.4))
         fm = p.fontMetrics()
@@ -1147,9 +1132,9 @@ class CommandFrame(QWidget):
         W, H = self.width(), self.height()
         fw = QApplication.focusWidget()
         focus = fw is not None and self.isAncestorOf(fw)
-        p.setBrush(QBrush(blend(C.PRI, 0.10 if focus else 0.06)))
-        p.setPen(QPen(blend(C.PRI, 0.95 if focus else 0.5), 1))
-        p.drawPolygon(chamfer(QRectF(0.5, 0.5, W - 1, H - 1), 8))
+        p.setBrush(QBrush(QColor(C.PANEL2)))
+        p.setPen(QPen(QColor(C.PRI if focus else C.BORDER_B), 1.2 if focus else 1.0))
+        p.drawRoundedRect(QRectF(0.5, 0.5, W - 1, H - 1), 8, 8)
         p.end()
 
 
@@ -1275,7 +1260,7 @@ class TaskRow(QWidget):
         W, H = self.width(), self.height()
         col = qcol(getattr(C, self._COLOURS.get(t["status"], "PRI")))
         if self.underMouse():
-            p.fillRect(self.rect(), blend(C.PRI, 0.08))
+            p.fillRect(self.rect(), qcol(C.HOVER))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(col))
         p.drawEllipse(QPointF(5, 10), 3, 3)

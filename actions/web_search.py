@@ -211,11 +211,17 @@ def _format_ddg(query: str, results: list[dict]) -> str:
     if not results:
         return f"No results found for: {query}"
 
-    lines = [f"Search results for: {query}\n"]
+    lines = [f"### Search results for: {query}\n"]
     for i, r in enumerate(results, 1):
-        if r.get("title"):   lines.append(f"{i}. {r['title']}")
-        if r.get("snippet"): lines.append(f"   {r['snippet']}")
-        if r.get("url"):     lines.append(f"   Source: {r['url']}")
+        title = r.get("title") or "Source Link"
+        url = r.get("url") or ""
+        snippet = r.get("snippet") or ""
+        if url:
+            lines.append(f"{i}. **[{title}]({url})**")
+        else:
+            lines.append(f"{i}. **{title}**")
+        if snippet:
+            lines.append(f"   {snippet}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -224,17 +230,20 @@ def _format_news(query: str, results: list[dict]) -> str:
     if not results:
         return f"No news found for: {query}"
 
-    lines = [f"Latest news: {query}\n"]
+    lines = [f"### Latest news: {query}\n"]
     for i, r in enumerate(results, 1):
         title = r.get("title", "")
         if not title:
             continue
-        src = f"  [{r['source']}]" if r.get("source") else ""
-        lines.append(f"{i}. {title}{src}")
-        if r.get("snippet"):
-            lines.append(f"   {r['snippet'][:140]}")
-        if r.get("url"):
-            lines.append(f"   {r['url']}")
+        src = f" • *{r['source']}*" if r.get("source") else ""
+        url = r.get("url", "")
+        snippet = (r.get("snippet") or "")[:180]
+        if url:
+            lines.append(f"{i}. **[{title}]({url})**{src}")
+        else:
+            lines.append(f"{i}. **{title}**{src}")
+        if snippet and snippet != title:
+            lines.append(f"   {snippet}")
         lines.append("")
     return "\n".join(lines).strip()
 

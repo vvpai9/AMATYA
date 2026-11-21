@@ -23,10 +23,12 @@ We express sincere gratitude to everyone who has contributed code, documentation
   - Core desktop automation, vision, and provider abstraction.
 
 #### 3. **Aman Kumar** ([@iamTechieAman](https://github.com/iamTechieAman))
-- **Role:** Enterprise Suite Contributor & Maintainer.
+- **Role:** Enterprise Suite & UI Contributor & Maintainer.
 - **Contributions:**
+  - **Perplexity-Inspired UI Redesign & 3D Celestial Particle Orb:** 3-mode central workspace (AI Search, Personal Assistant, 3D Voice HUD), Siri 3D particle sphere projection, starlight canvas, collapsible navigation sidebar, contextual research panel with citations, and universal composer.
+  - **Godmode Assistant & Telemetry (`plugins/godmode_assistant.py`):** Cross-platform hardware health diagnostics, cache/temp bloat purging, CPU-top processes, and system clipboard integration.
+  - **Document Studio Mastery & PDF Problem Solvers:** High-fidelity multi-page ReportLab / PyMuPDF typesetting, scanned PDF OCR problem-solving (`solve`, `explain`, `analyze`), PDF to Word, and Word to PDF.
   - **ChatGPT Code Interpreter & Claude Artifacts Canvas Engine:** Subprocess Python execution with Matplotlib auto-detection, SymPy symbolic calculus/math solver, interactive HTML5/SVG/Mermaid artifact canvas, and dataset explorer.
-  - **Document Studio Enhancements:** PDF to Word (`pdf2docx`), Word to PDF (`reportlab`), and direct in-place PDF text editing (`pymupdf`).
   - **Cyber Security & Defense Suite:** Deep system security audit (SIP, FileVault, Firewall, Gatekeeper, exposed sockets), safe cross-platform temp/cache cleanup, and k-anonymity password breach checking.
   - **Multi-Key Gemini Auto-Rotation Pool:** Dynamic key rotation and automatic failover upon HTTP 429 quota exhaustion or key errors.
   - **Universal UI Upload & Drag-and-Drop Context Injection:** Top-bar `📎 UPLOAD` button and multi-modal drag-and-drop folder/file/image indexing.

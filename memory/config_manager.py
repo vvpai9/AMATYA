@@ -613,7 +613,13 @@ def get_sidecar_provider() -> str:
     without changing the voice at all, is the cheapest useful thing this whole
     folder does.
     """
-    return str(get_providers().get("sidecar", "") or "").strip()
+    val = str(get_providers().get("sidecar", "") or "").strip()
+    if val:
+        return val
+    creds = get_providers().get("creds", {})
+    if isinstance(creds, dict) and "openai_compat@groq" in creds:
+        return "openai_compat@groq"
+    return ""
 
 
 def _patch_providers(**fields) -> None:

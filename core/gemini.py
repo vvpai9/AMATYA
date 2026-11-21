@@ -155,21 +155,35 @@ PROVIDER_PREFIX = "prov:"
 # real quota when they are healthy, and a rung that is down is set aside by the
 # cooldown after one attempt instead of being paid for on every call.
 _LADDERS = {
-    FAST: (LIVE,
-           "gemini-2.5-flash-lite", "gemini-3.5-flash-lite",
-           "gemini-3.1-flash-lite", "gemini-flash-lite-latest",
-           "gemini-2.5-flash", "gemini-3.5-flash",
-           "gemini-3.6-flash", "gemini-3-flash-preview"),
-    SMART: (LIVE,
-            "gemini-2.5-flash", "gemini-3.5-flash",
-            "gemini-2.5-flash-lite", "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-flash-latest"),
+    FAST: (
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        LIVE,
+    ),
+    SMART: (
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        LIVE,
+    ),
     # Grounded search needs response.candidates[...].grounding_metadata, which a
     # Live turn does not produce. REST only, and it says so rather than silently
     # returning an answer with no sources behind it.
-    SEARCH: ("gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite",
-             "gemini-flash-latest"),
+    SEARCH: (
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ),
 }
 
 # The conversation's own model, and ONE careful fallback behind it.
@@ -764,6 +778,7 @@ def call(contents, tier: str = FAST, config=None,
 
     cl = None
     tried = [m for m in ladder if not _cooling(m)] or list(ladder)
+    key_refused = False
     for model in tried:
         try:
             if model == LIVE:
@@ -782,20 +797,22 @@ def call(contents, tier: str = FAST, config=None,
         except Exception as e:
             msg = str(e)
             if ("API key not valid" in msg or "1007" in msg) and not model.startswith(PROVIDER_PREFIX):
-                if has_alternative_keys():
-                    new_key = rotate_api_key(reason="key_refused")
-                    if new_key and new_key not in attempted:
-                        return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
+                key_refused = True
+                break
             elif is_quota_error(msg):
                 _cool(model)
-                if has_alternative_keys():
-                    new_key = rotate_api_key(reason="quota_exhausted")
-                    if new_key and new_key not in attempted:
-                        return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
+                continue
             elif is_gone_error(msg):
                 _cool(model, _GONE_SECONDS)
+                continue
             elif is_unavailable_error(msg):
                 _cool(model, _UNAVAILABLE_SECONDS)
+                continue
+
+    if has_alternative_keys():
+        new_key = rotate_api_key(reason="key_refused" if key_refused else "all_models_exhausted")
+        if new_key and new_key not in attempted:
+            return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
     return None
 
 

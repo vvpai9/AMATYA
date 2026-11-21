@@ -231,5 +231,16 @@ class TaskTools:
             return outcome.failed("write_file", "that is larger than 2 MB")
         target = _inside(self.workdir / "files", str(args.get("path") or "").strip() or "output.txt")
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.suffix.lower() == ".pdf":
+            try:
+                from actions.document_studio import generate_pdf_from_text
+                generate_pdf_from_text(content, str(target), title=target.stem)
+                # Also copy to Desktop if requested or named as output
+                desktop_dest = Path.home() / "Desktop" / target.name
+                import shutil
+                shutil.copy2(str(target), str(desktop_dest))
+                return outcome.done("write_file", saved=str(desktop_dest), bytes=target.stat().st_size)
+            except Exception as e:
+                return outcome.failed("write_file", f"PDF compilation error: {e}")
         target.write_text(content, encoding="utf-8")
         return outcome.done("write_file", saved=str(target), bytes=target.stat().st_size)

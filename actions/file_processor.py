@@ -187,80 +187,121 @@ def _process_image(path: Path, action: str, params: dict, speak=None) -> str:
 
 def _process_pdf(path: Path, action: str, params: dict, speak=None) -> str:
     action = action or "summarize"
+    instruction = (
+        params.get("instruction")
+        or params.get("query")
+        or params.get("question")
+        or params.get("prompt")
+        or ""
+    ).strip()
 
-    def _extract_pdf_text(max_chars=50000) -> str:
+    def _extract_pdf_text(max_chars=65000) -> str:
+        try:
+            from actions.document_studio import extract_document_text
+            txt = extract_document_text(str(path))
+            if txt and not txt.startswith("Error") and not txt.startswith("File not found"):
+                return txt[:max_chars]
+        except Exception:
+            pass
         text = ""
         try:
-            import pdfplumber
-            with pdfplumber.open(path) as pdf:
-                for page in pdf.pages:
-                    text += (page.extract_text() or "") + "\n"
-        except ImportError:
+            import pymupdf
+            doc = pymupdf.open(str(path))
+            text = "\n\n".join(page.get_text() or "" for page in doc)
+            doc.close()
+        except Exception:
             try:
-                import PyPDF2
-                with open(path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages:
-                        text += page.extract_text() + "\n"
-            except ImportError:
-                return ""
+                import pdfplumber
+                with pdfplumber.open(path) as pdf:
+                    for page in pdf.pages:
+                        text += (page.extract_text() or "") + "\n"
+            except Exception:
+                try:
+                    import PyPDF2
+                    with open(path, "rb") as f:
+                        reader = PyPDF2.PdfReader(f)
+                        for page in reader.pages:
+                            text += (page.extract_text() or "") + "\n"
+                except Exception:
+                    return ""
         return text[:max_chars]
 
-    if action in ("summarize", "extract_text", "translate_hint", "analyze", "reformat"):
+    if action in ("summarize", "extract_text", "translate_hint", "analyze", "reformat", "solve", "solution", "explain", "ask") or instruction:
         text = _extract_pdf_text()
         if not text.strip():
-            return "Could not extract text from PDF (may be scanned/image-based)."
+            return "Could not extract text from PDF (may be scanned or image-based with unreadable font)."
 
         if action == "extract_text":
             out = _output_path(path, "text", ".txt")
             out.write_text(text, encoding="utf-8")
             return f"Text extracted ({len(text)} chars). Saved: {out.name}"
 
-        prompt_map = {
-            "summarize":      f"Summarize this PDF document concisely:\n\n{text}",
-            "analyze":        f"Analyze this document thoroughly:\n\n{text}",
-            "translate_hint": f"What language is this document in and what does it say? Summarize:\n\n{text}",
-            "reformat":       f"Reformat this text cleanly with proper structure:\n\n{text}",
-        }
+        # ChatGPT & Claude style comprehensive analysis prompt
+        task_instruction = instruction or {
+            "solve": "Solve all questions, problems, and numericals in this document step-by-step with full workings and boxed answers.",
+            "solution": "Provide complete, rigorous step-by-step solutions for every problem in this document.",
+            "explain": "Explain all concepts, theorems, equations, and sections in this document in thorough detail.",
+            "analyze": "Analyze this document thoroughly with comprehensive breakdowns, key findings, and technical explanations.",
+            "translate_hint": "What language is this document in and what does it say? Provide a full detailed breakdown.",
+            "reformat": "Reformat this text cleanly with proper hierarchical structure, formulas, and headings.",
+            "summarize": "Provide a comprehensive executive summary with key takeaways, chapter breakdown, and conclusions.",
+        }.get(action, "Analyze this document thoroughly and answer all aspects with complete detail.")
+
+        full_prompt = (
+            f"You are an elite academic and professional document analyst (ChatGPT & Claude grade).\n"
+            f"Document: {path.name}\n\n"
+            f"TASK: {task_instruction}\n\n"
+            f"DOCUMENT CONTENT:\n{text}\n\n"
+            f"GUIDELINES:\n"
+            f"- Provide exhaustive, step-by-step solutions without skipping any steps.\n"
+            f"- Use Markdown headings, bullet points, numbered steps, bold highlights, and code/math formatting.\n"
+            f"- Never abbreviate or truncate the output.\n"
+        )
+
         try:
-            model    = _gemini_client()
-            response = model.generate_content(prompt_map.get(action, f"Analyze:\n\n{text}"))
-            result   = response.text.strip()
-            if len(result) > 600 and params.get("save", True):
-                out = _output_path(path, action, ".txt")
-                out.write_text(result, encoding="utf-8")
-                return f"{result[:400]}...\n\nFull result saved: {out.name}"
+            model = _gemini_client()
+            response = model.generate_content(full_prompt)
+            result = response.text.strip()
+            if params.get("save", True):
+                out = _output_path(path, action or "solution", ".md")
+                out.write_text(f"# {action.upper()}: {path.name}\n\n{result}", encoding="utf-8")
+                return f"{result}\n\n---\n*Full detailed solution saved to:* `{out.name}`"
             return result
         except Exception as e:
             return f"AI analysis failed: {e}"
 
     if action == "info":
         try:
-            import pdfplumber
-            with pdfplumber.open(path) as pdf:
-                pages = len(pdf.pages)
+            import pymupdf
+            doc = pymupdf.open(str(path))
+            pages = len(doc)
+            doc.close()
             return f"PDF: {pages} pages, size: {_file_size_str(path)}"
         except Exception:
             return f"PDF size: {_file_size_str(path)}"
 
-    if action == "to_word":
-        text = _extract_pdf_text()
-        if not text:
-            return "Could not extract text to convert."
+    if action in ("to_word", "to_docx"):
         try:
-            from docx import Document
-            doc  = Document()
-            doc.add_heading(path.stem, 0)
-            for para in text.split("\n\n"):
-                if para.strip():
-                    doc.add_paragraph(para.strip())
-            out = _output_path(path, "converted", ".docx")
-            doc.save(out)
-            return f"Converted to Word document. Saved: {out.name}"
-        except ImportError:
-            return "python-docx not installed. Run: pip install python-docx"
+            from actions.document_studio import pdf_to_docx
+            return pdf_to_docx(str(path))
+        except Exception:
+            text = _extract_pdf_text()
+            if not text:
+                return "Could not extract text to convert."
+            try:
+                from docx import Document
+                doc = Document()
+                doc.add_heading(path.stem, 0)
+                for para in text.split("\n\n"):
+                    if para.strip():
+                        doc.add_paragraph(para.strip())
+                out = _output_path(path, "converted", ".docx")
+                doc.save(out)
+                return f"Converted to Word document. Saved: {out.name}"
+            except Exception as e:
+                return f"Word conversion failed: {e}"
 
-    return f"Unknown PDF action: '{action}'. Try: summarize, extract_text, info, to_word"
+    return f"Unknown PDF action: '{action}'. Try: solve, analyze, explain, summarize, extract_text, info, to_word"
 
 def _process_text_doc(path: Path, file_type: str, action: str,
                        params: dict, speak=None) -> str:

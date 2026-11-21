@@ -239,3 +239,41 @@ def test_security_gateway_authorizes_enterprise_tools():
 
     auth2 = authorize_tool_execution("cyber_security", {"action": "headers", "target": "https://google.com"})
     assert auth2.get("allowed") is True
+
+
+# ── 10. Godmode Assistant & Document Studio Tests ─────────────────────────────
+
+def test_godmode_assistant_operations():
+    from plugins import godmode_assistant
+
+    # 1. Hardware health
+    res_health = godmode_assistant.run({"operation": "hardware_health"})
+    assert "hardware" in res_health.lower() or "telemetry" in res_health.lower() or "battery" in res_health.lower()
+
+    # 2. Disk clean
+    res_clean = godmode_assistant.run({"operation": "clean_disk"})
+    assert "cleanup is complete" in res_clean.lower() or "cleared" in res_clean.lower()
+
+    # 3. Top processes
+    res_proc = godmode_assistant.run({"operation": "top_processes"})
+    assert "processes" in res_proc.lower() or "cpu" in res_proc.lower()
+
+    # 4. Clipboard copy
+    res_clip = godmode_assistant.run({"operation": "clipboard_copy", "query_or_text": "AMATYA Enterprise System"})
+    assert "copied" in res_clip.lower() or "clipboard" in res_clip.lower()
+
+
+def test_document_studio_pdf_generation(tmp_path):
+    from actions.document_studio import generate_pdf_from_text, extract_document_text
+
+    out_pdf = tmp_path / "test_doc.pdf"
+    content = "# Executive Summary\n\nAMATYA delivers autonomous AI orchestration.\n\n- Point 1: Low latency\n- Point 2: High security"
+    res = generate_pdf_from_text(content, str(out_pdf), title="AMATYA Architecture")
+    assert out_pdf.exists()
+    assert out_pdf.stat().st_size > 0
+    assert "generated" in res.lower()
+
+    # Verify text extraction via PyMuPDF / fallback
+    extracted = extract_document_text(str(out_pdf))
+    assert "Executive Summary" in extracted or "AMATYA" in extracted
+

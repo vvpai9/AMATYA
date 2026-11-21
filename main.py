@@ -388,6 +388,24 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
     joined = " ".join(buf)
     return txt in joined
 
+
+def _join_transcript_tokens(tokens: list[str]) -> str:
+    res = ""
+    for t in tokens:
+        if not t:
+            continue
+        t = t.strip()
+        if not t:
+            continue
+        if not res:
+            res = t
+        elif any("\u0900" <= c <= "\u097F" for c in t) and any("\u0900" <= c <= "\u097F" for c in res[-1]):
+            res += t
+        else:
+            res += " " + t
+    return res.strip()
+
+
 def _clean_transcript(text: str) -> str:    
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
@@ -682,6 +700,7 @@ class AmatyaLive:
         self._visemes              = VisemeStream()
         self._last_out_logged      = ""      # de-dupes a re-sent transcript tail
         self._last_user_logged     = ""      # de-dupes user speech display
+        self._user_in_accumulator  = ""      # aggregates partial syllables / fragments
         # Push-to-talk
         self._ptt_enabled          = False
         self._ptt_held             = False
@@ -2040,23 +2059,20 @@ class AmatyaLive:
                             if txt:
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
-                                if txt != self._last_user_logged:
-                                    self._last_user_logged = txt
-                                    self._last_out_logged = ""
-                                    self.ui.write_log(f"You: {txt}")
-                                    self.ui.set_state("THINKING")
-                                    if self._dashboard:
-                                        asyncio.create_task(self._dashboard.broadcast({
-                                            "type": "log", "speaker": "user",
-                                            "text": txt,
-                                            "ts": datetime.now().isoformat(),
-                                        }))
+                                self.ui.set_state("THINKING")
 
                         if sc.turn_complete:
                             if self._turn_done_event:
                                 self._turn_done_event.set()
 
-                            full_in = " ".join(in_buf).strip()
+                            raw_in = _join_transcript_tokens(in_buf)
+                            if raw_in:
+                                if len(raw_in.strip()) <= 2:
+                                    self._user_in_accumulator = (self._user_in_accumulator + " " + raw_in).strip()
+                                else:
+                                    self._user_in_accumulator = raw_in
+
+                            full_in = self._user_in_accumulator.strip() or " ".join(in_buf).strip()
 
                             # If an interactive confirmation is pending, prioritize evaluating the user's
                             # voice response even if the turn was flagged as an interruption of the assistant's speech.
@@ -2075,9 +2091,10 @@ class AmatyaLive:
                                 self._visemes.reset()
                                 continue
 
-                            if full_in and full_in != self._last_user_logged:
+                            if full_in and len(full_in) > 2 and full_in != self._last_user_logged:
                                 self._last_user_logged = full_in
                                 self._last_out_logged = ""   # new exchange
+                                self._user_in_accumulator = ""
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 if self._dashboard:

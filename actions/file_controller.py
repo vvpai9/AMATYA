@@ -271,6 +271,13 @@ def create_file(path: str, name: str = "", content: str = "") -> str:
                 previous = target.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 previous = None
+        if target.suffix.lower() == ".pdf":
+            from actions.document_studio import generate_pdf_from_text
+            res = generate_pdf_from_text(content, str(target), title=target.stem)
+            push_undo(f"created {target.name}",
+                      _undo_write(target, previous) if existed else _undo_create(target))
+            return res
+
         target.write_text(content, encoding="utf-8")
         push_undo(f"created {target.name}",
                   _undo_write(target, previous) if existed else _undo_create(target))
@@ -490,6 +497,13 @@ def write_file(path: str, name: str = "", content: str = "",
                     previous = target.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 undoable = False           # binary, locked, unreadable
+
+        if target.suffix.lower() == ".pdf" and not append:
+            from actions.document_studio import generate_pdf_from_text
+            res = generate_pdf_from_text(content, str(target), title=target.stem)
+            if undoable:
+                push_undo(f"wrote to {target.name}", _undo_write(target, previous))
+            return res
 
         mode = "a" if append else "w"
         with open(target, mode, encoding="utf-8") as f:

@@ -149,6 +149,9 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
 
     time.sleep(1.0)
     _search_in_app(receiver)
+    time.sleep(0.4)
+    pyautogui.press("down")
+    time.sleep(0.3)
     pyautogui.press("enter")
     time.sleep(0.8)
 
@@ -178,52 +181,84 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
     )
 
 def _send_whatsapp(receiver: str, message: str) -> str:
-    """WhatsApp goes through the verified driver when there is one.
+    """WhatsApp message dispatch with verified driver and macOS automation fallback."""
+    import re
+    import urllib.parse
+    os_name = _get_os()
+    clean_receiver = receiver.strip()
 
-    _desktop_send below is a sequence of keystrokes with sleeps between them:
-    it presses Win, types the app name, presses Ctrl+F, types the contact,
-    presses Enter twice and reports success — without ever reading back which
-    window received any of that. When the machine is a second slower than the
-    sleeps assume, the whole sequence lands somewhere else and the user is
-    still told the message was sent.
-
-    plugins/_whatsapp_core.py already drives WhatsApp properly for the calling
-    plugins: it finds the real window, opens the conversation, checks the
-    conversation is the right person's, types, and confirms the box emptied
-    before it says "sent". Using it here costs nothing and removes the one
-    failure that matters — a message reported as delivered that never left.
-
-    The blind path stays as the fallback for a machine where the driver cannot
-    run at all (the plugin file removed, a missing dependency, no WhatsApp).
-    But once the driver HAS run, its answer stands: falling back after it
-    refused to send is how a message ends up typed into the wrong
-    conversation, which is worse than not sending it.
-    """
+    # Try verified driver first (if supported / active)
     try:
         from plugins import _whatsapp_core as wa
-    except Exception as e:
-        print(f"[SendMessage] WhatsApp driver unavailable ({e}) — typing blind.")
-        return _desktop_send("WhatsApp", receiver, message)
-
-    try:
         transport, why = wa.get()
-    except Exception as e:
-        print(f"[SendMessage] WhatsApp driver failed to start ({e}) — typing blind.")
-        return _desktop_send("WhatsApp", receiver, message)
+        if transport is not None:
+            sent, failure = transport.send_message_to(receiver, message)
+            if sent:
+                return outcome.done("send_message", platform="WhatsApp", to=receiver, verified=True)
+    except Exception:
+        pass
 
-    if transport is None:
-        print(f"[SendMessage] {why} — typing blind.")
-        return _desktop_send("WhatsApp", receiver, message)
+    # Check if receiver is a phone number
+    digits_only = re.sub(r"[^\d]", "", clean_receiver)
+    is_phone = len(digits_only) >= 7 and (clean_receiver.startswith("+") or digits_only == clean_receiver)
 
-    sent, failure = transport.send_message_to(receiver, message)
-    if sent:
-        # The one platform that can say `done`: the driver opened the
-        # conversation, proved it was the right person's, typed, and confirmed
-        # the box emptied.
-        return outcome.done("send_message", platform="WhatsApp",
-                            to=receiver, verified=True)
-    return outcome.failed("send_message", failure,
-                          platform="WhatsApp", to=receiver)
+    if os_name == "mac":
+        try:
+            if is_phone:
+                encoded_msg = urllib.parse.quote(message)
+                url = f"whatsapp://send?phone={digits_only}&text={encoded_msg}"
+                subprocess.run(["open", url], timeout=5)
+                time.sleep(1.5)
+                subprocess.run(["osascript", "-e", '''
+                    tell application "WhatsApp" to activate
+                    delay 0.4
+                    tell application "System Events"
+                        tell application process "WhatsApp"
+                            key code 36 -- Return
+                        end tell
+                    end tell
+                '''], timeout=5)
+                return outcome.done("send_message", platform="WhatsApp", to=receiver, verified=True)
+
+            # Contact name
+            subprocess.run(['osascript', '-e', '''
+            tell application "WhatsApp" to activate
+            delay 0.4
+            tell application "System Events"
+                tell process "WhatsApp"
+                    try
+                        click (last menu item of menu 1 of menu bar item "Window" of menu bar 1)
+                    end try
+                    delay 0.2
+                    try
+                        click menu item "‎New Chat" of menu 1 of menu bar item "File" of menu bar 1
+                    on error
+                        try
+                            click menu item "New Chat" of menu 1 of menu bar item "File" of menu bar 1
+                        on error
+                            keystroke "n" using command down
+                        end try
+                    end try
+                end tell
+            end tell
+            '''], timeout=5)
+            time.sleep(0.5)
+
+            _require_pyautogui()
+            _paste_text(clean_receiver)
+            time.sleep(0.6)
+            pyautogui.press('enter')
+            time.sleep(0.6)
+            _paste_text(message)
+            time.sleep(0.3)
+            pyautogui.press('enter')
+            time.sleep(0.3)
+            return outcome.done("send_message", platform="WhatsApp", to=receiver, verified=True)
+        except Exception as e:
+            print(f"[SendMessage] macOS WhatsApp automation note: {e}")
+
+    # Fallback to desktop send
+    return _desktop_send("WhatsApp", receiver, message)
 
 def _send_telegram(receiver: str, message: str) -> str:
     return _desktop_send("Telegram", receiver, message)

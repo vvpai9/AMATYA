@@ -395,7 +395,7 @@ AMATYA is a fork and evolution of **[Mark-LVII by FatihMakes](https://github.com
 
 - **Varun Vivek Pai ([@vvpai9](https://github.com/vvpai9)):** Creator & Lead Architect of AMATYA.
 - **FatihMakes ([@FatihMakes](https://github.com/FatihMakes)):** Original creator and lead architect of Mark-LVII.
-- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Major contributor of the Enterprise & Autonomous Intelligence Suite, ChatGPT Code Interpreter & Claude Artifacts Canvas engine, Document Studio converters, Cyber Security audits, multi-key rotation, and unified CREATOR capabilities.
+- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Major contributor of the Enterprise & Autonomous Intelligence Suite, Perplexity-inspired UI redesign (3D celestial particle orb, 3-mode workspace, context drawer), Godmode Assistant, ChatGPT Code Interpreter & Claude Artifacts Canvas engine, Document Studio converters & solvers, Cyber Security audits, multi-key rotation pool, and unified CREATOR capabilities.
 - **AMATYA Community:** Cross-platform Linux (Wayland/X11), Windows, and macOS enhancements, cognitive orchestration, biometric voice authentication, and hardware-aware local AI routing.
 
 ---
