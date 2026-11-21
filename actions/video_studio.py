@@ -13,8 +13,9 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-OUTPUT_DIR = Path.home() / "Desktop" / "AMATYA_Videos"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+from core.paths import get_generated_subfolder
+
+OUTPUT_DIR = get_generated_subfolder("videos")
 
 
 def _find_ffmpeg() -> str:
@@ -144,7 +145,7 @@ def video_studio(parameters: dict, player=None) -> str:
 
         return (
             f"I have created the video clip '{title}', sir. "
-            f"It is saved at {out_file.name} on your Desktop and playing directly on your HUD."
+            f"It is saved at {out_file.name} in AMATYA_Generated/videos and playing directly on your HUD."
         )
     except Exception as e:
         if temp_frame.exists():

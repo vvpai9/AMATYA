@@ -263,6 +263,55 @@ class TestAmatyaSuite(unittest.TestCase):
         self.assertIn("model_router", snap)
         self.assertIn("orchestrator", snap)
 
+    def test_09_amatya_generated_paths(self):
+        import os
+        from unittest.mock import patch
+        from core.paths import get_amatya_generated_dir, get_generated_subfolder, ensure_generated_folders
+        import actions.code_interpreter as ci
+        import actions.media_downloader as md
+        import actions.video_studio as vs
+
+        # 1. Linux / POSIX default -> Path.home() / 'AMATYA_Generated'
+        with patch("sys.platform", "linux"):
+            p_linux = get_amatya_generated_dir()
+            self.assertEqual(p_linux, Path.home() / "AMATYA_Generated")
+
+        # 2. Windows default -> Path.home() / 'Desktop' / 'AMATYA_Generated'
+        with patch("sys.platform", "win32"):
+            p_win = get_amatya_generated_dir(ensure_dir=False)
+            self.assertEqual(p_win, Path.home() / "Desktop" / "AMATYA_Generated")
+
+        # 3. Custom override via environment variable
+        with tempfile.TemporaryDirectory() as tmp:
+            custom_dir = Path(tmp) / "Custom_AMATYA_Gen"
+            with patch.dict(os.environ, {"AMATYA_GENERATED_DIR": str(custom_dir)}):
+                p_custom = get_amatya_generated_dir()
+                self.assertEqual(p_custom, custom_dir)
+                self.assertTrue(custom_dir.exists())
+
+                # Subfolder creation
+                art_dir = get_generated_subfolder("artifacts")
+                self.assertEqual(art_dir, custom_dir / "artifacts")
+                self.assertTrue(art_dir.exists())
+
+        # 4. Standard subfolders verification
+        folders = ensure_generated_folders()
+        for expected in ("artifacts", "charts", "downloads", "videos"):
+            self.assertIn(expected, folders)
+            self.assertTrue(folders[expected].exists())
+            self.assertEqual(folders[expected].name, expected)
+            self.assertEqual(folders[expected].parent, folders["root"])
+
+        # 5. Tool modules point to AMATYA_Generated subfolders
+        self.assertEqual(ci.CHARTS_DIR.name, "charts")
+        self.assertEqual(ci.CHARTS_DIR.parent.name, "AMATYA_Generated")
+        self.assertEqual(ci.ARTIFACTS_DIR.name, "artifacts")
+        self.assertEqual(ci.ARTIFACTS_DIR.parent.name, "AMATYA_Generated")
+        self.assertEqual(md.DOWNLOADS_DIR.name, "downloads")
+        self.assertEqual(md.DOWNLOADS_DIR.parent.name, "AMATYA_Generated")
+        self.assertEqual(vs.OUTPUT_DIR.name, "videos")
+        self.assertEqual(vs.OUTPUT_DIR.parent.name, "AMATYA_Generated")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-DOWNLOADS_DIR = Path.home() / "Desktop" / "AMATYA_Downloads"
-DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+from core.paths import get_generated_subfolder
+
+DOWNLOADS_DIR = get_generated_subfolder("downloads")
 
 
 def _clean_filename(title: str) -> str:

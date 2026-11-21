@@ -4,7 +4,7 @@ Contributed by Aman Kumar (@iamTechieAman).
 
 Provides:
 1. Python Code Execution & Data Analysis (executing scripts, math calculations, Pandas dataframes).
-2. Data Visualization & Auto-Plotting (Matplotlib charts saved to Desktop and rendered in HUD).
+2. Data Visualization & Auto-Plotting (Matplotlib charts saved to AMATYA_Generated/charts and rendered in HUD).
 3. Symbolic Mathematics & Calculus Solver (SymPy step-by-step calculus, integrals, limits, algebra).
 4. Claude-Style Interactive Artifacts & Canvas (HTML5/JS apps, SVG graphics, Mermaid architecture diagrams).
 5. Dataset Explorer (CSV, Excel summary stats, correlation, and distribution).
@@ -23,12 +23,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DESKTOP = Path.home() / "Desktop"
-CHARTS_DIR = DESKTOP / "AMATYA_Charts"
-ARTIFACTS_DIR = DESKTOP / "AMATYA_Artifacts"
+from core.paths import get_amatya_generated_dir, get_generated_subfolder
 
-for d in (CHARTS_DIR, ARTIFACTS_DIR):
-    d.mkdir(parents=True, exist_ok=True)
+DESKTOP = Path.home() / "Desktop"
+GENERATED_ROOT = get_amatya_generated_dir()
+CHARTS_DIR = get_generated_subfolder("charts")
+ARTIFACTS_DIR = get_generated_subfolder("artifacts")
 
 
 def _get_python_executable() -> str:
@@ -95,7 +95,7 @@ except Exception:
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(DESKTOP),
+            cwd=str(GENERATED_ROOT),
         )
         stdout = proc.stdout.strip()
         stderr = proc.stderr.strip()
@@ -457,7 +457,7 @@ TOOL = {
     "description": (
         "ChatGPT Code Interpreter & Claude Artifacts Engine for AMATYA. "
         "Executes arbitrary Python code safely with standard data science libraries (Pandas, NumPy, SciPy), "
-        "auto-generates and opens Matplotlib charts on Desktop/HUD, solves advanced symbolic calculus/math with SymPy, "
+        "auto-generates and opens Matplotlib charts in AMATYA_Generated/charts and HUD, solves advanced symbolic calculus/math with SymPy, "
         "renders interactive Claude-style HTML5/JS canvas artifacts and Mermaid diagrams, and performs "
         "automated CSV/Excel exploratory data analysis."
     ),

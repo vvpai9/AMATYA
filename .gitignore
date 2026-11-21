@@ -98,6 +98,7 @@ memory/learned_knowledge.json
 *.bak
 
 # ── AMATYA and Studio Generation Outputs ────────────────────────────────────
+AMATYA_Generated/
 AMATYA_Videos/
 AMATYA_Downloads/
 AMATYA_Company_Applications/

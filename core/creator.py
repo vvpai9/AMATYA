@@ -885,8 +885,8 @@ class CreatorEngine:
         theme: str = "cyber",
     ) -> dict[str, Any]:
         """Synthesize cinematic motion cards and HUD clips. Contributed by Aman Kumar (@iamTechieAman)."""
-        out_dir = Path.home() / "Desktop" / "AMATYA_Videos"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        from core.paths import get_generated_subfolder
+        out_dir = get_generated_subfolder("videos")
         ts = int(time.time())
         out_file = out_dir / f"amatya_clip_{ts}.mp4"
         temp_frame = out_dir / f"temp_frame_{ts}.png"
