@@ -1,10 +1,10 @@
 # 👥 Project Contributors
 
-We express sincere gratitude to everyone who has contributed code, documentation, architecture, and testing to AMATYA and upstream Mark-LVII.
+The official contributors to the AMATYA repository:
 
 ---
 
-### 🌟 Core Authors & Maintainers
+### 🌟 Contributors (2)
 
 #### 1. **Varun Vivek Pai** ([@vvpai9](https://github.com/vvpai9))
 - **Role:** Creator & Lead Architect of AMATYA.
@@ -22,17 +22,11 @@ We express sincere gratitude to everyone who has contributed code, documentation
   - Software-rendered holographic avatar & HUD architecture.
   - Core desktop automation, vision, and provider abstraction.
 
-#### 3. **Aman Kumar** ([@iamTechieAman](https://github.com/iamTechieAman))
-- **Role:** Enterprise Suite Contributor & Maintainer.
-- **Contributions:**
-  - **ChatGPT Code Interpreter & Claude Artifacts Canvas Engine:** Subprocess Python execution with Matplotlib auto-detection, SymPy symbolic calculus/math solver, interactive HTML5/SVG/Mermaid artifact canvas, and dataset explorer.
-  - **Document Studio Enhancements:** PDF to Word (`pdf2docx`), Word to PDF (`reportlab`), and direct in-place PDF text editing (`pymupdf`).
-  - **Cyber Security & Defense Suite:** Deep system security audit (SIP, FileVault, Firewall, Gatekeeper, exposed sockets), safe cross-platform temp/cache cleanup, and k-anonymity password breach checking.
-  - **Multi-Key Gemini Auto-Rotation Pool:** Dynamic key rotation and automatic failover upon HTTP 429 quota exhaustion or key errors.
-  - **Universal UI Upload & Drag-and-Drop Context Injection:** Top-bar `📎 UPLOAD` button and multi-modal drag-and-drop folder/file/image indexing.
-  - **Messaging Enhancements:** Native email composer (`mailto:` / webmail Gmail) and verified WhatsApp delivery.
-  - **Local Model Optimization:** Condensed system prompts preventing Ollama context freezing, and audio latency / VAD sensitivity tuning.
-  - **Real-Time Background Task Progress:** Dynamic HUD cards displaying live agent steps and rounds.
+---
+
+### 🎖️ Upstream & Community Acknowledgements
+
+- **Aman Kumar** ([@iamTechieAman](https://github.com/iamTechieAman)) — Upstream contributor whose Mark-LVII PR #182 and fork features were integrated into AMATYA's CREATOR suite and enterprise utilities (Code Interpreter, Document Studio, Security audits, multi-key rotation, and UI context injection).
 
 ---
 

@@ -391,11 +391,14 @@ PYTHONPATH=. ./AMATYA/bin/pytest tests/test_feature_improvements.py
 
 AMATYA is a fork and evolution of **[Mark-LVII by FatihMakes](https://github.com/FatihMakes/Mark-LVII)**. All credit for the foundational architecture goes to FatihMakes. For upstream Mark-LVII documentation, original setup guides, provider configuration, and project background, see the **[Mark-LVII README](https://github.com/FatihMakes/Mark-LVII/blob/main/readme.md)**.
 
-### Major Contributors & Acknowledgements
+### Contributors
 
+- **Varun Vivek Pai ([@vvpai9](https://github.com/vvpai9)):** Creator & Lead Architect of AMATYA.
 - **FatihMakes ([@FatihMakes](https://github.com/FatihMakes)):** Original creator and lead architect of Mark-LVII.
-- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Major contributor of the Enterprise & Autonomous Intelligence Suite and unified CREATOR capabilities — spanning enterprise cybersecurity defense, quantitative algorithmic trading, binary reverse engineering (REA), voice biometrics, adaptive identity, job hunter & career copilot, study copilot, autonomous self-repair & diagnostics, AST surgical code editing, coding pipeline automation, document studio, and multi-modal image & video generation.
-- **AMATYA Community:** Cross-platform Linux (Wayland/X11), Windows, and macOS enhancements, cognitive orchestration, biometric voice authentication, and hardware-aware local AI routing.
+
+### Upstream Acknowledgements
+
+- **Aman Kumar ([@iamTechieAman](https://github.com/iamTechieAman)):** Author of upstream Mark-LVII PR #182 and fork features integrated into the CREATOR suite and enterprise toolkits (Code Interpreter, Document Studio, Cyber Security audits, multi-key rotation, and UI context injection).
 
 ---
 
