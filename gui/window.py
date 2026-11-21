@@ -456,6 +456,8 @@ class MainWindow(QMainWindow):
         self._clipboard_panel.action_requested.connect(self._on_clipboard_action)
         QApplication.clipboard().dataChanged.connect(self._on_clipboard_changed)
 
+        self.setAcceptDrops(True)
+
         self._overlay: SetupOverlay | None = None
         self._ready = self._check_config()
         if not self._ready:
@@ -1279,6 +1281,125 @@ class MainWindow(QMainWindow):
             self._position_ctrl_drawer()
         self._fit_video()
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        paths = [Path(u.toLocalFile()) for u in urls if u.toLocalFile()]
+        if not paths:
+            return
+        event.acceptProposedAction()
+        for p in paths:
+            self._handle_uploaded_path(p)
+
+    def _prompt_upload(self):
+        from PyQt6.QtWidgets import QMenu, QFileDialog
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background: {C.PANEL};
+                color: {C.WHITE};
+                border: 1px solid {C.BORDER};
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 18px;
+                border-radius: 3px;
+            }}
+            QMenu::item:selected {{
+                background: {C.PRI};
+                color: {C.BG};
+            }}
+        """)
+        act_file = menu.addAction("📄 Upload Files / Images / PDFs...")
+        act_folder = menu.addAction("📁 Upload Entire Folder...")
+        chosen = menu.exec(self._upload_btn.mapToGlobal(self._upload_btn.rect().bottomLeft()))
+        if chosen == act_file:
+            files, _ = QFileDialog.getOpenFileNames(
+                self, "Select Files to Upload", "",
+                "All Supported Files (*.*);;PDF Documents (*.pdf);;Word Documents (*.docx);;Images (*.png *.jpg *.jpeg *.webp *.gif);;Spreadsheets (*.xlsx *.csv);;Code Files (*.py *.js *.ts *.html *.css *.json *.sh)"
+            )
+            for f in files:
+                self._handle_uploaded_path(Path(f))
+        elif chosen == act_folder:
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder to Upload")
+            if folder:
+                self._handle_uploaded_path(Path(folder))
+
+    def _handle_uploaded_path(self, p: Path):
+        try:
+            from actions.file_processor import set_last_uploaded
+            set_last_uploaded(p)
+        except Exception:
+            pass
+
+        if p.is_dir():
+            self._log_sig.emit(f"SYS: Folder uploaded: {p.name}/")
+            try:
+                entries = list(p.glob("*"))
+                file_list = "\n".join(f"- `{e.name}` ({round(e.stat().st_size/1024, 1)} KB)" if e.is_file() else f"- 📁 `{e.name}/`" for e in entries[:30])
+                more = f"\n\n*...and {len(entries) - 30} more items*" if len(entries) > 30 else ""
+                report = (
+                    f"# 📁 Folder Uploaded: `{p.name}/`\n"
+                    f"**Location:** `{p}`  \n"
+                    f"**Total Items:** `{len(entries)}`  \n\n"
+                    f"### Files & Subdirectories:\n"
+                    f"{file_list}{more}\n\n"
+                    f"---\n"
+                    f"*Indexed into AMATYA working context. Say 'Analyze this folder' or ask questions about its code or data.*"
+                )
+                self._content_sig.emit(f"Folder: {p.name}/", report)
+                if hasattr(self, 'on_text_command') and callable(self.on_text_command):
+                    self.on_text_command(f"SYS_CONTEXT: The user uploaded folder '{p.name}/' at '{p}' with {len(entries)} items: {', '.join(e.name for e in entries[:15])}")
+            except Exception:
+                self._content_sig.emit(f"Folder: {p.name}", f"**Location:** `{p}`\n\nReady for processing.")
+        elif p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"):
+            self._log_sig.emit(f"SYS: Image uploaded: {p.name}")
+            sz = round(p.stat().st_size / 1024, 1)
+            report = (
+                f"# 🖼️ Image Uploaded: `{p.name}`\n"
+                f"**Size:** `{sz} KB` | **Format:** `{p.suffix.upper()}`  \n"
+                f"**Path:** `{p}`  \n\n"
+                f"Image received and indexed for vision analysis, OCR text extraction, visual object recognition, or editing.\n"
+                f"Ask AMATYA: *'What is in this image?'* or *'Explain this diagram'*."
+            )
+            self._content_sig.emit(f"Image: {p.name}", report)
+            if hasattr(self, 'on_text_command') and callable(self.on_text_command):
+                self.on_text_command(f"SYS_CONTEXT: The user uploaded image '{p.name}' at '{p}'. Ready for visual analysis.")
+        else:
+            self._log_sig.emit(f"SYS: File uploaded: {p.name}")
+            try:
+                from actions.document_studio import extract_document_text
+                txt = extract_document_text(str(p))
+                if txt and not txt.startswith("Error") and not txt.startswith("File not found"):
+                    preview = txt[:2500] + ("\n...[content truncated]" if len(txt) > 2500 else "")
+                    report = (
+                        f"# 📄 Document Uploaded: `{p.name}`\n"
+                        f"**Path:** `{p}`  \n"
+                        f"**Length:** `{len(txt)}` characters  \n\n"
+                        f"### Content Preview:\n"
+                        f"```\n{preview}\n```\n\n"
+                        f"---\n"
+                        f"*Ready for deep summarization, question answering, rewriting, or editing.*"
+                    )
+                    self._content_sig.emit(f"Document: {p.name}", report)
+                    if hasattr(self, 'on_text_command') and callable(self.on_text_command):
+                        self.on_text_command(f"SYS_CONTEXT: The user uploaded document '{p.name}' at '{p}'. Content:\n{txt[:2500]}")
+                else:
+                    self._content_sig.emit(f"File: {p.name}", f"**Location:** `{p}`\n\nIndexed and ready for processing.")
+                    if hasattr(self, 'on_text_command') and callable(self.on_text_command):
+                        self.on_text_command(f"SYS_CONTEXT: The user uploaded file '{p.name}' at '{p}'. Ready for processing with file_processor.")
+            except Exception:
+                self._content_sig.emit(f"File: {p.name}", f"**Location:** `{p}`\n\nReady for processing.")
+                if hasattr(self, 'on_text_command') and callable(self.on_text_command):
+                    self.on_text_command(f"SYS_CONTEXT: The user uploaded file '{p.name}' at '{p}'. Ready for processing with file_processor.")
+
     def closeEvent(self, event):
         try:
             if hasattr(self, "_plugin_hud_host") and self._plugin_hud_host:
@@ -1364,6 +1485,27 @@ class MainWindow(QMainWindow):
         self._ctrl_btn.setToolTip("Controls — the everyday switches")
         self._ctrl_btn.clicked.connect(self._toggle_controls)
         lay.addWidget(self._ctrl_btn)
+
+        self._upload_btn = QPushButton("📎 UPLOAD")
+        self._upload_btn.setFont(hud_font(8, QFont.Weight.Bold))
+        self._upload_btn.setFixedHeight(28)
+        self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._upload_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL};
+                color: {C.PRI};
+                border: 1px solid {C.BORDER};
+                border-radius: 4px;
+                padding: 4px 10px;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI};
+                color: {C.BG};
+            }}
+        """)
+        self._upload_btn.setToolTip("Upload Files, Images, or Folders (Claude / ChatGPT style)")
+        self._upload_btn.clicked.connect(self._prompt_upload)
+        lay.addWidget(self._upload_btn)
         lay.addStretch()
 
         self._state_chip = StateChip()
@@ -3311,10 +3453,13 @@ class MainWindow(QMainWindow):
         # the whole file with these two keys, so re-entering a key after an
         # "API key invalid" error erased every other setting — the wake word, the
         # local engine, plugin credentials, the assistant's name.
-        from memory.config_manager import update_config
+        from memory.config_manager import update_config, save_provider_mode
         fields = {"os_system": os_name, "local_only": not key}
         if key:
-            fields["gemini_api_key"] = key
+            raw_keys = [k.strip() for k in key.replace("\n", ",").split(",") if k.strip()]
+            fields["gemini_api_key"] = raw_keys[0] if raw_keys else key.strip()
+            fields["gemini_api_keys"] = raw_keys
+            save_provider_mode("gemini")
         update_config(**fields)
         try:
             from core import gemini as _gemini
@@ -3328,7 +3473,9 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
+        self._assistant_name = _read_full_config().get("assistant_name", "AMATYA") or "AMATYA"
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+        if self.on_audio_device_change:
+            self.on_audio_device_change()
 
 

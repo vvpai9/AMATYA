@@ -111,6 +111,9 @@ pdfplumber                   # file_processor — PDF text and tables
 PyPDF2                       # file_processor — PDF fallback reader
 pypdf                        # Anthropic PDF skills — form field extraction & structure
 python-docx                  # file_processor — .docx reading
+pdf2docx                     # document_studio — PDF to Word conversion
+PyMuPDF                      # document_studio — PDF direct editing & text replacement
+matplotlib                   # code_interpreter — data visualization & charts
 pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 
 # ── Optional: heavy extras, install only if you want the feature ──────────────

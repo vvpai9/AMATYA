@@ -329,8 +329,15 @@ def _render_prompt(template: str, values: dict) -> str:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core import gemini
+    key = gemini.api_key()
+    if key:
+        return key
+    try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f).get("gemini_api_key", "")
+    except Exception:
+        return ""
 
 
 def _load_system_prompt() -> str:
@@ -674,6 +681,7 @@ class AmatyaLive:
         # loop as words arrive, drained by the playback loop against the audio.
         self._visemes              = VisemeStream()
         self._last_out_logged      = ""      # de-dupes a re-sent transcript tail
+        self._last_user_logged     = ""      # de-dupes user speech display
         # Push-to-talk
         self._ptt_enabled          = False
         self._ptt_held             = False
@@ -2032,6 +2040,17 @@ class AmatyaLive:
                             if txt:
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
+                                if txt != self._last_user_logged:
+                                    self._last_user_logged = txt
+                                    self._last_out_logged = ""
+                                    self.ui.write_log(f"You: {txt}")
+                                    self.ui.set_state("THINKING")
+                                    if self._dashboard:
+                                        asyncio.create_task(self._dashboard.broadcast({
+                                            "type": "log", "speaker": "user",
+                                            "text": txt,
+                                            "ts": datetime.now().isoformat(),
+                                        }))
 
                         if sc.turn_complete:
                             if self._turn_done_event:
@@ -2056,7 +2075,8 @@ class AmatyaLive:
                                 self._visemes.reset()
                                 continue
 
-                            if full_in:
+                            if full_in and full_in != self._last_user_logged:
+                                self._last_user_logged = full_in
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
@@ -3089,12 +3109,29 @@ class AmatyaLive:
                     )
                     continue
 
-                # Invalid API key — stop hammering the API, prompt re-configuration
+                # Quota exhaustion / 429 — rotate keys if alternatives exist
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                    from core import gemini as _gemini
+                    if _gemini.has_alternative_keys():
+                        next_k = _gemini.rotate_api_key(reason="live_quota")
+                        self.ui.write_log(f"SYS: Gemini quota reached — rotated to key #{_gemini.get_key_index() + 1}.")
+                        self._conn_backoff = 1
+                        continue
+                    else:
+                        self.ui.write_log("SYS: Gemini free quota limit reached. Add backup keys in config/api_keys.json under 'gemini_api_keys' or switch to Ollama in Settings.")
+
+                # Invalid API key — rotate if backup keys exist, else prompt re-configuration
                 is_auth_err = any(
                     s in err_str.lower()
                     for s in ("api key not valid", "api_key_invalid", "invalid api key", "pass a valid api key")
                 )
                 if is_auth_err:
+                    from core import gemini as _gemini
+                    if _gemini.has_alternative_keys():
+                        next_k = _gemini.rotate_api_key(reason="key_invalid")
+                        self.ui.write_log(f"SYS: Gemini key refused — rotated to key #{_gemini.get_key_index() + 1}.")
+                        self._conn_backoff = 1
+                        continue
                     self.ui.write_log("ERR: API key invalid — please re-enter your key.")
                     self.ui.set_state("SLEEPING")
                     self.ui.prompt_reconfig()

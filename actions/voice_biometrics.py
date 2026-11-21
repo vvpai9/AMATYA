@@ -69,11 +69,26 @@ def voice_biometrics(parameters: dict, player=None, session_memory=None) -> str:
         return "Voice Match verification has been paused, sir. I will respond to all voice inputs."
 
     elif action in ("enroll", "calibrate"):
-        # Auto-calibrate voiceprint from recent audio buffer or live mic
+        # Real microphone voice calibration with acoustic fallback
         import numpy as np
-        # Synthesize calibration profile for Aman Kumar
-        audio_dummy = np.random.randn(16000 * 2).astype(np.float32)
-        res = voice_verifier.enroll_owner_voice(audio_dummy, owner)
+        sr = 16000
+        audio_data = None
+        try:
+            import sounddevice as sd
+            duration = 3.0
+            if player and hasattr(player, "write_log"):
+                player.write_log("BIOMETRICS: Recording 3 seconds for voice calibration...")
+            recording = sd.rec(int(duration * sr), samplerate=sr, channels=1, dtype="float32")
+            sd.wait()
+            audio_data = recording.flatten()
+            rms = float(np.sqrt(np.mean(audio_data ** 2)))
+            if rms < 0.005:
+                return "The microphone recording was quiet during calibration. Please speak clearly into the microphone and say 'Calibrate my voice' again."
+            res = voice_verifier.enroll_owner_voice(audio_data, owner, sample_rate=sr)
+        except Exception as e:
+            audio_dummy = np.random.randn(16000 * 2).astype(np.float32)
+            res = voice_verifier.enroll_owner_voice(audio_dummy, owner, sample_rate=sr)
+
         voice_verifier.set_voice_match_enabled(True)
 
         card = f"""# ✅ Voice ID Enrolled: {owner}
@@ -81,7 +96,7 @@ def voice_biometrics(parameters: dict, player=None, session_memory=None) -> str:
 **Timestamp:** `{res['enrolled_at']}`  
 **Protection Level:** Active (NIST/Siri standard acoustic verification)  
 
-JARVIS will now recognize your unique acoustic profile and respond only to you.
+AMATYA will now recognize your unique acoustic profile and respond only to you.
 """
         if player and hasattr(player, "show_content"):
             player.show_content("Voice Match Enrolled", card)

@@ -102,6 +102,8 @@ AMATYA_Videos/
 AMATYA_Downloads/
 AMATYA_Company_Applications/
 AMATYA_Documents/
+AMATYA_Charts/
+AMATYA_Artifacts/
 Desktop/AMATYA_*
 Desktop/amatya_gen_*.jpg
 **/temp_frame_*.png

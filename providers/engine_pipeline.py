@@ -77,12 +77,11 @@ _DEFAULT_HISTORY_CHARS = 24_000
 # never triggers in a noisy room and never stops in a silent one — so the noise
 # floor is measured continuously from the quietest recent frames and speech is
 # whatever stands well above it.
-_VAD_SILENCE_MS = 700      # quiet for this long after speech = the turn ended
-_VAD_MIN_SPEECH_MS = 250   # shorter than this is a cough, a click, a door
-_VAD_MAX_TURN_S = 30.0     # a runaway stream is flushed rather than kept for ever
-_VAD_FLOOR_MARGIN = 3.5    # speech is this many times the measured noise floor
-_VAD_ABSOLUTE_MIN = 0.006  # ...and never below this, so a silent room's own
-                           # floor of near-zero cannot make hiss into speech
+_VAD_SILENCE_MS = 450      # quiet for this long after speech = the turn ended
+_VAD_MIN_SPEECH_MS = 180   # shorter than this is a cough, a click, a door
+_VAD_MAX_TURN_S = 20.0     # a runaway stream is flushed rather than kept for ever
+_VAD_FLOOR_MARGIN = 2.0    # speech is this many times the measured noise floor
+_VAD_ABSOLUTE_MIN = 0.0012 # natural speech on laptop built-in mic
 
 # ── Stopping a model that will not stop ──────────────────────────────────────
 # Gemini Live ends a turn itself. A chat API does not: every tool result is a
@@ -175,6 +174,10 @@ class PipelineEngine:
         si = getattr(config, "system_instruction", None)
         if si:
             self._system = si if isinstance(si, str) else str(si)
+            base_url = getattr(self._llm, "base", "") or ""
+            from .llm_openai import _is_own_hardware
+            if _is_own_hardware(base_url) and len(self._system) > 3500:
+                self._system = _condense_system_prompt(self._system)
 
         decls: list = []
         for group in (getattr(config, "tools", None) or []):
@@ -940,6 +943,27 @@ def _signature(call) -> str:
     except Exception:
         args = str(getattr(call, "args", ""))
     return f"{call.name}({args})"
+
+
+def _condense_system_prompt(sys_str: str) -> str:
+    """Keep identity, memory, time, and essential directives compact for local hardware."""
+    if len(sys_str) < 3500:
+        return sys_str
+    blocks = []
+    for b in sys_str.split("\n\n"):
+        b_s = b.strip()
+        if not b_s:
+            continue
+        if any(h in b_s for h in ("[CURRENT DATE & TIME]", "[IDENTITY]", "[MEMORIES", "[SELF]", "ADDRESS:", "You are ")):
+            blocks.append(b_s)
+        elif "[EXTENDED CAPABILITIES" in b_s or "[WHAT YOU CAN DO]" in b_s:
+            blocks.append("You have native tools to control applications, browse the web, manage files, read/convert documents, play videos, and inspect the system. When the user requests an action, call the corresponding tool.")
+    core_rule = (
+        "Keep your spoken answers concise, direct, and conversational (1-2 sentences unless instructed otherwise). "
+        "Always execute requested tasks using your tools rather than just describing them."
+    )
+    blocks.append(core_rule)
+    return "\n\n".join(blocks)
 
 
 def _speakable(text: str) -> str:

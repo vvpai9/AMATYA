@@ -297,8 +297,39 @@ def _send_messenger(receiver: str, message: str) -> str:
         "was never read back, so it is NOT known to have been sent",
         platform="Messenger", to=receiver)
 
+
+def _send_email(receiver: str, message: str) -> str:
+    """Composes an email via default mail client or Gmail web interface."""
+    import urllib.parse
+    subject = "Message via AMATYA"
+    clean_to = receiver.strip()
+    encoded_sub = urllib.parse.quote(subject)
+    encoded_body = urllib.parse.quote(message)
+    os_name = _get_os()
+
+    if "@" in clean_to:
+        mailto_url = f"mailto:{clean_to}?subject={encoded_sub}&body={encoded_body}"
+        if os_name == "mac":
+            subprocess.run(["open", mailto_url], timeout=5)
+        elif os_name == "linux" and os.environ.get("DISPLAY"):
+            subprocess.run(["xdg-open", mailto_url], timeout=5, stderr=subprocess.DEVNULL)
+        else:
+            import webbrowser
+            webbrowser.open(mailto_url)
+        return outcome.done("send_message", platform="Email", to=clean_to,
+                            note="Email draft opened in default mail client.", verified=True)
+    else:
+        # Open webmail Gmail composer
+        gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={urllib.parse.quote(clean_to)}&su={encoded_sub}&body={encoded_body}"
+        import webbrowser
+        webbrowser.open(gmail_url)
+        return outcome.done("send_message", platform="Gmail", to=clean_to,
+                            note="Opened Gmail composer with pre-filled message.", verified=True)
+
+
 _PLATFORM_MAP = [
     ({"whatsapp", "wp", "wapp"},              _send_whatsapp),
+    ({"email", "mail", "gmail"},              _send_email),
     ({"telegram", "tg"},                      _send_telegram),
     ({"instagram", "ig", "insta"},            _send_instagram),
     ({"signal"},                               _send_signal),

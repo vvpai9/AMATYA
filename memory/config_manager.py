@@ -49,7 +49,33 @@ def load_api_keys() -> dict:
         return {}
 
 def get_gemini_key() -> str | None:
-    return load_api_keys().get("gemini_api_key")
+    cfg = load_api_keys()
+    keys = cfg.get("gemini_api_keys")
+    if isinstance(keys, list) and keys:
+        for k in keys:
+            if isinstance(k, str) and k.strip():
+                return k.strip()
+    return cfg.get("gemini_api_key")
+
+
+def get_gemini_keys() -> list[str]:
+    cfg = load_api_keys()
+    out = []
+    single = str(cfg.get("gemini_api_key") or "").strip()
+    if single:
+        out.append(single)
+    multi = cfg.get("gemini_api_keys") or []
+    if isinstance(multi, list):
+        for k in multi:
+            k_str = str(k or "").strip()
+            if k_str and k_str not in out:
+                out.append(k_str)
+    elif isinstance(multi, str) and multi.strip():
+        for k in multi.split(","):
+            k_str = k.strip()
+            if k_str and k_str not in out:
+                out.append(k_str)
+    return out
 
 def is_configured() -> bool:
     key = get_gemini_key()

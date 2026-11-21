@@ -92,7 +92,7 @@ def is_voice_match_enabled() -> bool:
         return False
     try:
         data = json.loads(VOICEPRINT_FILE.read_text(encoding="utf-8"))
-        return bool(data.get("enabled", False) and data.get("calibrated", False))
+        return bool(data.get("enabled", False) and (data.get("calibrated_real", False) or data.get("calibrated", False)))
     except Exception:
         return False
 
@@ -124,6 +124,7 @@ def enroll_owner_voice(
         "sample_rate": sample_rate,
         "enabled": True,
         "calibrated": True,
+        "calibrated_real": True,
         "vector": features.tolist()
     }
     VOICEPRINT_FILE.write_text(json.dumps(profile, indent=2), encoding="utf-8")

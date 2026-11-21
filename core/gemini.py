@@ -235,6 +235,8 @@ MIN_TIMEOUT_MS = 10_000
 
 _key_lock = threading.Lock()
 _cached_key: str | None = None
+_key_pool: list[str] = []
+_key_idx: int = 0
 
 # A rung that answered 429 is out of quota, and on the free tier it will stay
 # that way for a while. Retrying it on every single call is a wasted round trip
@@ -323,17 +325,72 @@ def _cooling(model: str) -> bool:
 
 
 def api_key(refresh: bool = False) -> str:
-    """The Gemini key from config/api_keys.json. Cached; never raises."""
-    global _cached_key
+    """The Gemini key from config/api_keys.json. Cached; never raises. Supports key rotation across multiple free keys."""
+    global _cached_key, _key_pool, _key_idx
     with _key_lock:
-        if _cached_key is not None and not refresh:
+        if _cached_key is not None and not refresh and _key_pool:
             return _cached_key
         try:
             data = json.loads(_KEY_FILE.read_text(encoding="utf-8"))
-            _cached_key = str(data.get("gemini_api_key") or "")
+            keys: list[str] = []
+            single = str(data.get("gemini_api_key") or "").strip()
+            if single and single not in keys:
+                keys.append(single)
+            multi = data.get("gemini_api_keys") or []
+            if isinstance(multi, list):
+                for k in multi:
+                    k_str = str(k or "").strip()
+                    if k_str and k_str not in keys:
+                        keys.append(k_str)
+            elif isinstance(multi, str) and multi.strip():
+                for k in multi.split(","):
+                    k_str = k.strip()
+                    if k_str and k_str not in keys:
+                        keys.append(k_str)
+            _key_pool = keys
+            if _key_pool:
+                _key_idx = _key_idx % len(_key_pool)
+                new_key = _key_pool[_key_idx]
+            else:
+                new_key = single
         except Exception:
-            _cached_key = ""
+            new_key = ""
+        _cached_key = new_key
         return _cached_key
+
+
+def rotate_api_key(failed_key: str = "", reason: str = "") -> str:
+    """Rotate to the next Gemini API key in the pool upon quota or rate limit exhaustion."""
+    global _cached_key, _key_pool, _key_idx
+    with _key_lock:
+        if not _key_pool:
+            api_key(refresh=True)
+        if len(_key_pool) > 1:
+            prev_idx = _key_idx
+            _key_idx = (_key_idx + 1) % len(_key_pool)
+            _cached_key = _key_pool[_key_idx]
+            # Reset cooldowns because the new key has fresh quota limits
+            with _cool_lock:
+                _cooldown.clear()
+            print(f"[Gemini] 🔄 Rotated API key: #{prev_idx + 1} -> #{_key_idx + 1} of {len(_key_pool)} (reason: {reason})")
+            return _cached_key
+        return _cached_key or ""
+
+
+def has_alternative_keys() -> bool:
+    """True if more than one key is configured in the pool."""
+    global _key_pool
+    if not _key_pool:
+        api_key()
+    return len(_key_pool) > 1
+
+
+def get_key_index() -> int:
+    return _key_idx
+
+
+def get_key_count() -> int:
+    return len(_key_pool)
 
 
 def client(timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = ""):
@@ -654,7 +711,7 @@ def _provider_call(model: str, contents, config, timeout_ms: int):
 
 def call(contents, tier: str = FAST, config=None,
          timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "",
-         provider: str = ""):
+         provider: str = "", _attempted_keys: set | None = None):
     """Run one generation, walking the ladder until one answers.
 
     Returns the SDK's own response object, so callers that need more than the
@@ -663,6 +720,7 @@ def call(contents, tier: str = FAST, config=None,
     a silent None during a session nobody can debug is how the original problem
     stayed hidden.
     """
+    attempted = set(_attempted_keys or [])
     ladder = _LADDERS.get(tier)
     if ladder is None:
         ladder = (tier,) + tuple(m for m in _LADDERS[SMART] if m != tier)
@@ -681,6 +739,8 @@ def call(contents, tier: str = FAST, config=None,
         ladder = (chosen,) + tuple(m for m in ladder if m != chosen)
 
     resolved_key = key or api_key()
+    if resolved_key:
+        attempted.add(resolved_key)
     if not resolved_key:
         # A provider does not need a Gemini key. Before this, a missing key
         # meant every one-shot call in the app failed — which is exactly the
@@ -721,8 +781,19 @@ def call(contents, tier: str = FAST, config=None,
             return cl.models.generate_content(**kwargs)
         except Exception as e:
             msg = str(e)
-            if is_quota_error(msg):
+            if ("API key not valid" in msg or "1007" in msg) and not model.startswith(PROVIDER_PREFIX):
+                print(f"[Gemini] the API key was refused — {msg[:120]}")
+                if has_alternative_keys():
+                    new_key = rotate_api_key(failed_key=resolved_key, reason="key_refused")
+                    if new_key and new_key not in attempted:
+                        return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
+            elif is_quota_error(msg):
                 _cool(model)
+                print(f"[Gemini] {model}: out of quota — skipping it for {_COOLDOWN_SECONDS}s")
+                if has_alternative_keys():
+                    new_key = rotate_api_key(failed_key=resolved_key, reason="quota_exhausted")
+                    if new_key and new_key not in attempted:
+                        return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
             elif is_gone_error(msg):
                 _cool(model, _GONE_SECONDS)
             elif is_unavailable_error(msg):

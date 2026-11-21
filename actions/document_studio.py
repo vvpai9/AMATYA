@@ -228,6 +228,120 @@ pre {{ background: #f6f8fa; padding: 15px; border-radius: 6px; overflow-x: auto;
 
     return f"Created document as formatted web document at `{html_path}` (open and print to save as PDF)."
 
+
+def pdf_to_docx(pdf_path: str, output_docx: Optional[str] = None) -> str:
+    """Convert any PDF document to an editable Microsoft Word (.docx) document."""
+    path = Path(pdf_path).expanduser().resolve()
+    if not path.is_file():
+        return f"File not found: {pdf_path}"
+
+    dest = _resolve_dest(output_docx or f"{path.stem}.docx")
+    try:
+        from pdf2docx import Converter
+        cv = Converter(str(path))
+        cv.convert(str(dest))
+        cv.close()
+        return f"✅ Successfully converted PDF `{path.name}` to Word document: `{dest}`"
+    except ImportError:
+        return "pdf2docx is not installed. Install it with: pip install pdf2docx"
+    except Exception as e:
+        return f"Error converting PDF to Word: {e}"
+
+
+def docx_to_pdf(docx_path: str, output_pdf: Optional[str] = None) -> str:
+    """Convert Microsoft Word (.docx) to a clean, formatted PDF."""
+    path = Path(docx_path).expanduser().resolve()
+    if not path.is_file():
+        return f"File not found: {docx_path}"
+
+    dest = _resolve_dest(output_pdf or f"{path.stem}.pdf")
+    try:
+        import docx
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors
+
+        doc = docx.Document(str(path))
+        pdf_doc = SimpleDocTemplate(str(dest), pagesize=letter, leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40)
+        styles = getSampleStyleSheet()
+        story = []
+
+        for p in doc.paragraphs:
+            txt = p.text.strip()
+            if not txt:
+                story.append(Spacer(1, 6))
+                continue
+            clean = txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            s_name = (p.style.name or "").lower() if p.style else ""
+            if "title" in s_name:
+                story.append(Paragraph(f"<b>{clean}</b>", styles["Title"]))
+                story.append(Spacer(1, 12))
+            elif "heading 1" in s_name:
+                story.append(Paragraph(f"<b>{clean}</b>", styles["Heading1"]))
+                story.append(Spacer(1, 10))
+            elif "heading 2" in s_name:
+                story.append(Paragraph(f"<b>{clean}</b>", styles["Heading2"]))
+                story.append(Spacer(1, 8))
+            else:
+                story.append(Paragraph(clean, styles["Normal"]))
+                story.append(Spacer(1, 6))
+
+        for t in doc.tables:
+            table_data = []
+            for row in t.rows:
+                table_data.append([c.text.strip() for c in row.cells])
+            if table_data:
+                t_obj = Table(table_data)
+                t_obj.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f0f2f5')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#1a1a1a')),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d0d7de')),
+                ]))
+                story.append(t_obj)
+                story.append(Spacer(1, 10))
+
+        pdf_doc.build(story)
+        return f"✅ Successfully converted Word document `{path.name}` to PDF: `{dest}`"
+    except ImportError as e:
+        return f"Required packages missing for Word to PDF conversion ({e}). Install with: pip install python-docx reportlab"
+    except Exception as e:
+        return f"Error converting Word to PDF: {e}"
+
+
+def edit_pdf_text(pdf_path: str, search_text: str, replace_text: str, output_pdf: Optional[str] = None) -> str:
+    """Search and replace text directly inside a PDF without breaking layout."""
+    path = Path(pdf_path).expanduser().resolve()
+    if not path.is_file():
+        return f"File not found: {pdf_path}"
+
+    dest = _resolve_dest(output_pdf or f"{path.stem}_edited.pdf")
+    try:
+        import pymupdf
+        doc = pymupdf.open(str(path))
+        replaced_count = 0
+
+        for page in doc:
+            rects = page.search_for(search_text)
+            for r in rects:
+                page.add_redact_annot(r, fill=(1, 1, 1))
+                page.apply_redactions()
+                page.insert_text((r.x0, r.y1 - 2), replace_text, fontsize=10, color=(0, 0, 0))
+                replaced_count += 1
+
+        doc.save(str(dest))
+        doc.close()
+        return f"✅ Replaced {replaced_count} occurrence(s) of '{search_text}' with '{replace_text}'. Saved to `{dest}`"
+    except ImportError:
+        return "PyMuPDF is not installed. Install it with: pip install PyMuPDF"
+    except Exception as e:
+        return f"Error editing PDF: {e}"
+
+
 def create_any_file(file_path: str, content: str) -> str:
     """Create or overwrite any file with specified content."""
     dest = _resolve_dest(file_path)
@@ -235,19 +349,24 @@ def create_any_file(file_path: str, content: str) -> str:
         f.write(content)
     return f"Created file `{dest}` ({len(content)} characters)."
 
+
 def document_studio(parameters: dict, player=None, session_memory=None) -> str:
     """Entry handler for document_studio."""
     action = parameters.get("action", "read").lower().strip()
     file_path = parameters.get("file_path", "")
     content = parameters.get("content", "")
-    output_filename = parameters.get("output_filename", "output.pdf")
+    output_filename = parameters.get("output_filename", "")
     title = parameters.get("title", "Generated Document")
     pages_spec = parameters.get("pages_spec", "1")
     input_paths = parameters.get("input_paths", [])
+    search_text = parameters.get("search_text", "")
+    replace_text = parameters.get("replace_text", "")
 
     if player:
-        try: player.write_log(f"DOC: Executing {action}...")
-        except Exception: pass
+        try:
+            player.write_log(f"DOC: Executing {action}...")
+        except Exception:
+            pass
 
     if action in ("read", "analyze", "ask", "summarize"):
         if not file_path:
@@ -259,24 +378,41 @@ def document_studio(parameters: dict, player=None, session_memory=None) -> str:
             preview = text
         return f"📄 Document Content Preview from `{file_path}`:\n\n{preview}"
 
+    elif action in ("pdf_to_word", "pdf_to_docx", "convert_pdf_to_word", "pdf2docx"):
+        if not file_path:
+            return "Please provide 'file_path' of the PDF to convert to Word."
+        return pdf_to_docx(file_path, output_filename or None)
+
+    elif action in ("word_to_pdf", "docx_to_pdf", "convert_word_to_pdf", "docx2pdf"):
+        if not file_path:
+            return "Please provide 'file_path' of the Word document (.docx) to convert to PDF."
+        return docx_to_pdf(file_path, output_filename or None)
+
+    elif action in ("edit_pdf", "replace_text", "modify_pdf", "edit_pdf_text"):
+        if not file_path:
+            return "Please provide 'file_path' of the PDF to edit."
+        if not search_text:
+            return "Please provide 'search_text' to find and replace in the PDF."
+        return edit_pdf_text(file_path, search_text, replace_text, output_filename or None)
+
     elif action in ("generate_pdf", "create_pdf", "make_pdf"):
         if not content:
             return "Please provide 'content' text to generate the PDF."
-        return generate_pdf_from_text(content, output_filename, title)
+        return generate_pdf_from_text(content, output_filename or "document.pdf", title)
 
     elif action in ("merge_pdf", "merge"):
         if not input_paths:
             return "Please provide a list of 'input_paths' to merge."
-        return merge_pdfs(input_paths, output_filename)
+        return merge_pdfs(input_paths, output_filename or "merged_output.pdf")
 
     elif action in ("split_pdf", "extract_pages"):
         if not file_path:
             return "Please provide 'file_path' of the PDF to extract pages from."
-        return extract_pdf_pages(file_path, pages_spec, output_filename)
+        return extract_pdf_pages(file_path, pages_spec, output_filename or "extracted_pages.pdf")
 
     elif action in ("create_file", "write_file", "make_file"):
         if not file_path:
-            file_path = output_filename
+            file_path = output_filename or "output.txt"
         return create_any_file(file_path, content)
 
     return f"Document Studio action '{action}' completed."
@@ -286,20 +422,32 @@ TOOL = {
     "name": "document_studio",
     "description": (
         "ChatGPT & Claude style Document Studio. Reads, summarizes and queries any document "
-        "(PDF, DOCX, XLSX, PPTX, CSV, JSON, Markdown). Edits and manipulates PDFs (merging multiple files, "
-        "extracting specific page ranges, converting text/markdown to formatted PDF), and creates any type of "
-        "file on demand (.py, .docx, .csv, .json, .sh, .html, .md)."
+        "(PDF, DOCX, XLSX, PPTX, CSV, JSON, Markdown). Converts PDF to Word (.docx) and Word (.docx) to PDF, "
+        "edits and replaces text directly inside PDFs without breaking layout, merges multiple PDFs, "
+        "extracts specific page ranges, converts text/markdown to formatted PDF, and creates any type of "
+        "file on demand (.docx, .pdf, .py, .csv, .json, .sh, .html, .md)."
     ),
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "read | generate_pdf | merge_pdf | extract_pages | create_file",
+                "description": (
+                    "pdf_to_word | word_to_pdf | edit_pdf | read | generate_pdf | "
+                    "merge_pdf | split_pdf | create_file"
+                ),
             },
             "file_path": {
                 "type": "STRING",
-                "description": "Path to target document or output file",
+                "description": "Path to target document or input file (.pdf, .docx, etc.)",
+            },
+            "search_text": {
+                "type": "STRING",
+                "description": "Target text to search and replace inside a PDF (for edit_pdf)",
+            },
+            "replace_text": {
+                "type": "STRING",
+                "description": "Replacement text to substitute in place of search_text (for edit_pdf)",
             },
             "content": {
                 "type": "STRING",
@@ -307,7 +455,7 @@ TOOL = {
             },
             "output_filename": {
                 "type": "STRING",
-                "description": "Destination file name (e.g. report.pdf or script.py, saved to Desktop by default)",
+                "description": "Destination file name or path (saved to Desktop by default)",
             },
             "title": {
                 "type": "STRING",

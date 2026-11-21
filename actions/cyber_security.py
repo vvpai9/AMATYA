@@ -10,13 +10,17 @@ and local listening socket monitoring.
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import math
 import os
+import platform
 import re
+import shutil
 import socket
 import ssl
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -391,6 +395,232 @@ def list_local_listening_sockets() -> List[dict]:
     return sorted(results, key=lambda x: x.get("port", 0))
 
 
+def clean_temp_files(player=None) -> dict:
+    """Safely cleans temporary caches, logs, and stale temp files across macOS/Linux/Windows."""
+    home = os.path.expanduser("~")
+    sys_platform = platform.system()
+
+    candidates = []
+    if sys_platform == "Darwin":
+        candidates.extend([
+            ("Homebrew Cache", os.path.join(home, "Library/Caches/Homebrew")),
+            ("Python Pip Cache", os.path.join(home, "Library/Caches/pip")),
+            ("NPM Cache", os.path.join(home, ".npm/_cacache")),
+            ("Yarn Cache", os.path.join(home, "Library/Caches/Yarn")),
+            ("Chrome Web Cache", os.path.join(home, "Library/Caches/Google/Chrome/Default/Cache")),
+            ("Brave Web Cache", os.path.join(home, "Library/Caches/BraveSoftware/Brave-Browser/Default/Cache")),
+            ("Diagnostic Reports", os.path.join(home, "Library/Logs/DiagnosticReports")),
+            ("System /tmp", "/tmp"),
+        ])
+    elif sys_platform == "Windows":
+        temp_env = os.environ.get("TEMP", "")
+        candidates.extend([
+            ("User Temp", temp_env),
+            ("Local AppData Temp", os.path.expandvars(r"%LOCALAPPDATA%\Temp")),
+            ("Python Pip Cache", os.path.expandvars(r"%LOCALAPPDATA%\pip\cache")),
+            ("NPM Cache", os.path.expandvars(r"%APPDATA%\npm-cache")),
+        ])
+    else:  # Linux / Unix
+        candidates.extend([
+            ("System /tmp", "/tmp"),
+            ("User Cache Pip", os.path.join(home, ".cache/pip")),
+            ("User Cache Thumbnails", os.path.join(home, ".cache/thumbnails")),
+            ("NPM Cache", os.path.join(home, ".npm/_cacache")),
+        ])
+
+    freed_bytes = 0
+    files_deleted = 0
+    category_breakdown = {}
+
+    for cat_name, cat_path in candidates:
+        if not cat_path or not os.path.exists(cat_path):
+            continue
+        cat_freed = 0
+        cat_files = 0
+
+        if cat_path == "/tmp":
+            try:
+                curr_uid = os.getuid() if hasattr(os, "getuid") else None
+                for entry in os.scandir("/tmp"):
+                    try:
+                        st = entry.stat()
+                        if curr_uid is not None and st.st_uid != curr_uid:
+                            continue
+                        if entry.is_file(follow_symlinks=False) and not entry.name.startswith("."):
+                            if time.time() - st.st_mtime > 3600:
+                                fsize = st.st_size
+                                os.unlink(entry.path)
+                                cat_freed += fsize
+                                cat_files += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        else:
+            for root, dirs, files in os.walk(cat_path, topdown=False):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        if not os.path.islink(fp):
+                            fsize = os.path.getsize(fp)
+                            os.unlink(fp)
+                            cat_freed += fsize
+                            cat_files += 1
+                    except Exception:
+                        pass
+                for d in dirs:
+                    dp = os.path.join(root, d)
+                    try:
+                        os.rmdir(dp)
+                    except Exception:
+                        pass
+
+        if cat_files > 0:
+            category_breakdown[cat_name] = {
+                "files": cat_files,
+                "freed_mb": round(cat_freed / (1024 * 1024), 2),
+            }
+            freed_bytes += cat_freed
+            files_deleted += cat_files
+
+    total_mb = round(freed_bytes / (1024 * 1024), 2)
+    total_gb = round(freed_bytes / (1024 * 1024 * 1024), 2)
+    display_size = f"{total_gb} GB" if total_mb >= 1024 else f"{total_mb} MB"
+
+    return {
+        "files_deleted": files_deleted,
+        "freed_bytes": freed_bytes,
+        "freed_display": display_size,
+        "categories": category_breakdown,
+    }
+
+
+def deep_system_scan(player=None) -> dict:
+    """Comprehensive Cyber Defense & System Security Audit."""
+    os_name = platform.system()
+    host = socket.gethostname()
+    kernel = platform.release()
+    arch = platform.machine()
+
+    score = 100
+    findings = []
+    recommendations = []
+    security_switches = {}
+
+    if os_name == "Darwin":
+        # 1. SIP (System Integrity Protection)
+        try:
+            sip_out = subprocess.check_output(["csrutil", "status"], text=True, stderr=subprocess.DEVNULL).strip()
+            sip_ok = "enabled" in sip_out.lower()
+            security_switches["System Integrity Protection (SIP)"] = {
+                "status": "SECURE" if sip_ok else "DISABLED",
+                "detail": sip_out,
+            }
+            if not sip_ok:
+                score -= 25
+                findings.append("SIP (System Integrity Protection) is disabled — kernel rootkit exposure.")
+                recommendations.append("Reboot to macOS Recovery and enable SIP (`csrutil enable`).")
+        except Exception as e:
+            security_switches["SIP"] = {"status": "UNKNOWN", "detail": str(e)}
+
+        # 2. FileVault Full-Disk Encryption
+        try:
+            fv_out = subprocess.check_output(["fdesetup", "status"], text=True, stderr=subprocess.DEVNULL).strip()
+            fv_ok = "filevault is on" in fv_out.lower()
+            security_switches["FileVault Full-Disk Encryption"] = {
+                "status": "SECURE" if fv_ok else "DISABLED",
+                "detail": fv_out,
+            }
+            if not fv_ok:
+                score -= 20
+                findings.append("FileVault full-disk encryption is inactive — physical extraction risk.")
+                recommendations.append("Enable FileVault in System Settings > Privacy & Security > FileVault.")
+        except Exception as e:
+            security_switches["FileVault"] = {"status": "UNKNOWN", "detail": str(e)}
+
+        # 3. macOS Application Firewall
+        try:
+            fw_out = subprocess.check_output(["/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate"], text=True, stderr=subprocess.DEVNULL).strip()
+            fw_ok = "enabled" in fw_out.lower()
+            security_switches["macOS Application Firewall"] = {
+                "status": "SECURE" if fw_ok else "DISABLED",
+                "detail": fw_out,
+            }
+            if not fw_ok:
+                score -= 15
+                findings.append("Application Firewall is disabled — incoming network packets are uninspected.")
+                recommendations.append("Enable Firewall in System Settings > Network > Firewall.")
+        except Exception as e:
+            security_switches["Firewall"] = {"status": "UNKNOWN", "detail": str(e)}
+
+        # 4. Gatekeeper Assessment
+        try:
+            gk_out = subprocess.check_output(["spctl", "--status"], text=True, stderr=subprocess.DEVNULL).strip()
+            gk_ok = "assessments enabled" in gk_out.lower()
+            security_switches["Gatekeeper App Verification"] = {
+                "status": "SECURE" if gk_ok else "DISABLED",
+                "detail": gk_out,
+            }
+            if not gk_ok:
+                score -= 10
+                findings.append("Gatekeeper app notarization assessment is disabled.")
+                recommendations.append("Enable Gatekeeper (`sudo spctl --master-enable`).")
+        except Exception as e:
+            security_switches["Gatekeeper"] = {"status": "UNKNOWN", "detail": str(e)}
+
+    # 5. Local Listening Sockets Audit
+    open_sockets = list_local_listening_sockets()
+    exposed_sensitive_ports = []
+    sensitive_ports = {21, 22, 23, 25, 80, 445, 1433, 3306, 5432, 6379, 8080, 27017}
+    for s in open_sockets:
+        port = s.get("port")
+        addr = s.get("address", "")
+        if port in sensitive_ports:
+            if "0.0.0.0" in addr or "::" in addr:
+                exposed_sensitive_ports.append(s)
+
+    if exposed_sensitive_ports:
+        score -= min(len(exposed_sensitive_ports) * 5, 20)
+        ports_str = ", ".join(f"{s['port']}/{s['process']}" for s in exposed_sensitive_ports)
+        findings.append(f"Sensitive service ports exposed on 0.0.0.0: {ports_str}")
+        recommendations.append("Bind database and dev services to 127.0.0.1 instead of 0.0.0.0.")
+
+    # 6. Persistence Daemons & LaunchAgents
+    launch_agent_count = 0
+    try:
+        agents = glob.glob(os.path.expanduser("~/Library/LaunchAgents/*.plist"))
+        launch_agent_count = len(agents)
+    except Exception:
+        pass
+
+    score = max(0, min(100, score))
+    if score >= 90:
+        grade = "A+ (Fortified & Hardened)"
+    elif score >= 80:
+        grade = "A (Strong Defense)"
+    elif score >= 70:
+        grade = "B (Moderate Protection)"
+    elif score >= 50:
+        grade = "C (Vulnerabilities Detected)"
+    else:
+        grade = "F (High Risk)"
+
+    return {
+        "hostname": host,
+        "os": os_name,
+        "kernel": kernel,
+        "arch": arch,
+        "score": score,
+        "grade": grade,
+        "security_switches": security_switches,
+        "open_sockets_count": len(open_sockets),
+        "exposed_sensitive_ports": exposed_sensitive_ports,
+        "launch_agents_count": launch_agent_count,
+        "findings": findings,
+        "recommendations": recommendations,
+    }
+
+
 def cyber_security(parameters: dict, player=None, session_memory=None) -> str:
     """Entry handler for cyber_security and OSINT."""
     action = parameters.get("action", "scan_ports").lower().strip()
@@ -516,14 +746,55 @@ def cyber_security(parameters: dict, player=None, session_memory=None) -> str:
             else: lines.append(f"• Port {s['port']} ({s['address']}) → PID {s['pid']} [{s['process']}]")
         return "\n".join(lines)
 
+    elif action in ("clean_temp_files", "clean_temp", "cleanup", "clean_cache", "clear_cache"):
+        res = clean_temp_files(player=player)
+        breakdown = "\n".join(
+            f"  • **{cat}**: {info['files']} files deleted ({info['freed_mb']} MB freed)"
+            for cat, info in res["categories"].items()
+        ) or "  • No stale cache or temp directories required purging."
+        report = (
+            f"🧹 **System Storage & Cache Cleanup Complete:**\n"
+            f"• **Total Reclaimed Space:** `{res['freed_display']}`\n"
+            f"• **Files Removed:** {res['files_deleted']}\n\n"
+            f"**Cleaned Repositories:**\n{breakdown}"
+        )
+        if player and hasattr(player, "show_content"):
+            player.show_content("System Cleaner — Temp & Caches", report)
+        return report
+
+    elif action in ("deep_system_scan", "deep_scan", "system_audit", "cyber_scan", "security_audit", "audit"):
+        res = deep_system_scan(player=player)
+        switches_str = "\n".join(
+            f"• **{k}**: {'🛡️ ' if v['status'] == 'SECURE' else '⚠️ '}`{v['status']}` ({v['detail']})"
+            for k, v in res["security_switches"].items()
+        )
+        findings_str = "\n".join(f"  ❌ {f}" for f in res["findings"]) if res["findings"] else "  ✅ No critical vulnerabilities detected."
+        recs_str = "\n".join(f"  🔧 {r}" for r in res["recommendations"]) if res["recommendations"] else "  ✅ System hardening complies with defense standards."
+
+        report = (
+            f"🛡️ **Deep Cyber Security & Defense Audit for `{res['hostname']}`:**\n"
+            f"• **Security Rating:** **{res['grade']}** (Score: {res['score']}/100)\n"
+            f"• **OS / Kernel:** {res['os']} ({res['kernel']} - {res['arch']})\n"
+            f"• **Active Listening Sockets:** {res['open_sockets_count']} ports\n"
+            f"• **User Persistence Agents:** {res['launch_agents_count']} daemons\n\n"
+            f"**Core Security Controls:**\n{switches_str}\n\n"
+            f"**Security Findings:**\n{findings_str}\n\n"
+            f"**Hardening Recommendations:**\n{recs_str}"
+        )
+        if player and hasattr(player, "show_content"):
+            player.show_content("Cyber Defense Deep Scan", report)
+        return report
+
     return f"Cyber security action '{action}' completed."
 
 
 TOOL = {
     "name": "cyber_security",
     "description": (
-        "Cyber Security, Network Defense & OSINT Intelligence Suite for JARVIS. "
+        "Cyber Security, Network Defense & OSINT Intelligence Suite for AMATYA. "
         "Performs TCP port scanning, SSL/TLS certificate auditing, HTTP security header evaluation, "
+        "deep system security & hardening audit (SIP, FileVault, Firewall, Gatekeeper, attack surface), "
+        "safe cleanup of system temp files & application caches (freeing disk space), "
         "password breach detection (HIBP k-anonymity checking if a password has been leaked in breaches), "
         "OSINT email reconnaissance, phone intelligence, cross-platform username profiling (GitHub, LinkedIn, Reddit, Dev.to), "
         "cryptographic hash identification, and local listening socket monitoring."
@@ -534,13 +805,13 @@ TOOL = {
             "action": {
                 "type": "STRING",
                 "description": (
-                    "scan_ports | ssl | headers | breach_password | osint_email | "
-                    "osint_phone | osint_username | hash | listening"
+                    "scan_ports | ssl | headers | deep_system_scan | clean_temp_files | "
+                    "breach_password | osint_email | osint_phone | osint_username | hash | listening"
                 ),
             },
             "target": {
                 "type": "STRING",
-                "description": "Target hostname, IP, URL, email, phone, username, password, or hash to analyze",
+                "description": "Target hostname, IP, URL, email, phone, username, password, or hash to analyze (optional for deep_system_scan, clean_temp_files, listening)",
             }
         },
         "required": ["action"],

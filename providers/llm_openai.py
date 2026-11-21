@@ -317,6 +317,23 @@ class _ToolCallBuffer:
                         args = {}
             if not isinstance(args, dict):
                 args = {"value": args}
+            else:
+                # Unpack nested structures commonly produced by small models (e.g. Llama 3.2 / Ollama)
+                if "arguments" in args and isinstance(args["arguments"], dict):
+                    args = args["arguments"]
+                if "parameters" in args and isinstance(args["parameters"], dict):
+                    args = args["parameters"]
+                if "properties" in args and isinstance(args["properties"], dict):
+                    unpacked = {}
+                    for k, v in args["properties"].items():
+                        if isinstance(v, dict) and "value" in v:
+                            unpacked[k] = v["value"]
+                        elif not isinstance(v, dict) or ("type" not in v and "description" not in v):
+                            unpacked[k] = v
+                    if unpacked:
+                        args = unpacked
+                    else:
+                        args = args["properties"]
             calls.append(FunctionCall(id=slot["id"] or f"call_{idx}",
                                       name=slot["name"], args=args))
         self._slots.clear()

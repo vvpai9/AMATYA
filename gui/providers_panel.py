@@ -1155,19 +1155,8 @@ class ProvidersOverlay(_HudOverlay):
             pass
 
         self.hide()
-        # Background-request and coding settings take effect on the next call
-        # with no reconnect. Only the conversation engine needs the session
-        # rebuilt — and it does whenever anything it was BUILT from changed.
-        #
-        # Comparing only the mode and which service fills each slot is what
-        # made APPLY look broken: a corrected model name, a new key or another
-        # voice changed none of those, so nothing reconnected and the running
-        # engine went on using the old settings until a restart. And the
-        # "before" has to be taken when the panel opened — the form saves as
-        # it is edited, so reading it here would compare the new settings with
-        # themselves.
-        if self._engine_fingerprint() != self._opened_engine:
-            self.changed.emit()
+        self._opened_engine = self._engine_fingerprint()
+        self.changed.emit()
 
     @staticmethod
     def _engine_fingerprint() -> str:
