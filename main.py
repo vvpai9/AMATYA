@@ -2742,6 +2742,7 @@ class AmatyaLive:
             await engine.close()
 
     async def run(self):
+        global LIVE_MODEL
         self._loop = asyncio.get_event_loop()
         self._reconnect_event = asyncio.Event()
 
@@ -2809,6 +2810,8 @@ class AmatyaLive:
             self._local_control = None
 
         while True:
+            live_model = LIVE_MODEL
+            _resumed_with = self._resume_handle is not None
             try:
                 self._ensure_executor()
                 print("[AMATYA] Connecting...")
@@ -2816,12 +2819,9 @@ class AmatyaLive:
                 # Pick the rung to open the conversation on. A model resting
                 # off a quota limit is skipped; the name is published back to
                 # LIVE_MODEL so plugins follow whatever is actually in use.
-                global LIVE_MODEL
                 LIVE_MODEL = _gemini.live_model()
                 live_model = LIVE_MODEL
                 print(f"[AMATYA] Live model: {live_model}")
-
-                _resumed_with = self._resume_handle is not None
 
                 # Decided BEFORE the config is built, because the tool
                 # declarations depend on what the engine can serve. On a default
@@ -3111,7 +3111,6 @@ class AmatyaLive:
 
                 # Quota exhaustion / 429 — rotate keys if alternatives exist
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                    from core import gemini as _gemini
                     if _gemini.has_alternative_keys():
                         next_k = _gemini.rotate_api_key(reason="live_quota")
                         self.ui.write_log(f"SYS: Gemini quota reached — rotated to key #{_gemini.get_key_index() + 1}.")
@@ -3126,7 +3125,6 @@ class AmatyaLive:
                     for s in ("api key not valid", "api_key_invalid", "invalid api key", "pass a valid api key")
                 )
                 if is_auth_err:
-                    from core import gemini as _gemini
                     if _gemini.has_alternative_keys():
                         next_k = _gemini.rotate_api_key(reason="key_invalid")
                         self.ui.write_log(f"SYS: Gemini key refused — rotated to key #{_gemini.get_key_index() + 1}.")
@@ -3138,7 +3136,7 @@ class AmatyaLive:
                     while not self.ui._win._ready:
                         await asyncio.sleep(1)
                     print("[AMATYA] New API key saved — reconnecting...")
-                    _conn_backoff = 3
+                    self._conn_backoff = 3
                     continue
 
                 # 1007 indicates an invalid payload / tool schema / parameter rejection
