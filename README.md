@@ -241,12 +241,16 @@ pip install -r requirements.txt
 #### Step 1: Prerequisites
 - Install **Python 3.11 or 3.12** from [python.org](https://www.python.org/downloads/) (check *"Add python.exe to PATH"* during installation).
 - Install **Git for Windows** from [git-scm.com](https://git-scm.com/).
+- Install the required **[Microsoft Visual C++ Redistributable (2015–2022)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)** ([Direct download: vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)) or via winget:
+  ```powershell
+  winget install Microsoft.VCRedist.2015+.x64
+  ```
 - Install **Zoxide** for lightning-fast directory navigation via winget:
   ```powershell
   winget install ajeetdsouza.zoxide
   ```
-- Ensure **Visual C++ Redistributable 2015–2022** is installed.
 - Ensure microphone permissions are enabled under: `Settings → Privacy & security → Microphone → Let desktop apps access your microphone`.
+- 📖 **Detailed Documentation:** For more detailed setup guides, architecture breakdowns, and feature walkthroughs, refer to the **[`docs/`](./docs)** folder (including the [User Guide](./docs/user_guide/) and [Getting Started](./docs/user_guide/GETTING_STARTED.md)).
 
 #### Step 2: Clone & Set Up Virtual Environment (PowerShell)
 ```powershell
