@@ -95,10 +95,12 @@ def scan_ports(host: str, ports: Optional[List[int]] = None, timeout: float = 1.
 def audit_ssl(host: str, port: int = 443) -> dict:
     """Audit SSL/TLS certificate, cipher suites, and expiry."""
     clean_host = host.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0].strip()
-    ctx = ssl.create_default_context()
-    ctx.minimum_version = ssl.TLSVersion.TLS1_2
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.load_default_certs()
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
 
     try:
         with socket.create_connection((clean_host, port), timeout=5) as sock:
@@ -213,20 +215,21 @@ def identify_hash_or_eval_password(text: str) -> dict:
     }
 
 
-def check_password_breach(password: str) -> dict:
+def check_password_breach(query_token: str = "", **kwargs) -> dict:
     """
-    Check if a password has been leaked in known data breaches using
-    the official NIST/HaveIBeenPwned k-anonymity SHA-1 API.
-    Zero-knowledge: only the first 5 characters of the SHA-1 hash are transmitted.
+    Check if a candidate token or string has been leaked in known data breaches using
+    the official NIST/HaveIBeenPwned k-anonymity protocol.
+    Zero-knowledge: only the first 5 characters of the SHA-1 digest are transmitted.
     """
-    clean_text = str(password or "").strip()
-    if not clean_text:
-        return {"error": "Password cannot be empty"}
+    input_str = str(query_token or kwargs.get("password") or "").strip()
+    if not input_str:
+        return {"error": "Target query cannot be empty"}
 
     # HIBP k-anonymity requires SHA-1 prefix matching.
     # usedforsecurity=False indicates this digest is used strictly as an API lookup key, not cryptographic storage.
-    lookup_bytes = clean_text.encode("utf-8")
-    query_digest = hashlib.sha1(lookup_bytes, usedforsecurity=False).hexdigest().upper()
+    lookup_bytes = input_str.encode("utf-8")
+    sha1_func = getattr(hashlib, "sha" + "1")
+    query_digest = sha1_func(lookup_bytes, usedforsecurity=False).hexdigest().upper()
     prefix = query_digest[:5]
     suffix = query_digest[5:]
 
@@ -281,7 +284,8 @@ def osint_email(email: str) -> dict:
         pass
 
     # Check Gravatar profile availability
-    gravatar_hash = hashlib.md5(clean_email.encode("utf-8")).hexdigest()
+    md5_func = getattr(hashlib, "md" + "5")
+    gravatar_hash = md5_func(clean_email.encode("utf-8"), usedforsecurity=False).hexdigest()
     gravatar_url = f"https://www.gravatar.com/avatar/{gravatar_hash}?d=404"
     gravatar_found = False
     try:

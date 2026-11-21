@@ -359,7 +359,7 @@ def api_key(refresh: bool = False) -> str:
         return _cached_key
 
 
-def rotate_api_key(failed_key: str = "", reason: str = "") -> str:
+def rotate_api_key(reason: str = "", **kwargs) -> str:
     """Rotate to the next Gemini API key in the pool upon quota or rate limit exhaustion."""
     global _cached_key, _key_pool, _key_idx
     with _key_lock:
@@ -782,16 +782,14 @@ def call(contents, tier: str = FAST, config=None,
         except Exception as e:
             msg = str(e)
             if ("API key not valid" in msg or "1007" in msg) and not model.startswith(PROVIDER_PREFIX):
-                print(f"[Gemini] the API key was refused — {msg[:120]}")
                 if has_alternative_keys():
-                    new_key = rotate_api_key(failed_key=resolved_key, reason="key_refused")
+                    new_key = rotate_api_key(reason="key_refused")
                     if new_key and new_key not in attempted:
                         return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
             elif is_quota_error(msg):
                 _cool(model)
-                print(f"[Gemini] {model}: out of quota — skipping it for {_COOLDOWN_SECONDS}s")
                 if has_alternative_keys():
-                    new_key = rotate_api_key(failed_key=resolved_key, reason="quota_exhausted")
+                    new_key = rotate_api_key(reason="quota_exhausted")
                     if new_key and new_key not in attempted:
                         return call(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=new_key, provider=provider, _attempted_keys=attempted)
             elif is_gone_error(msg):

@@ -44,3 +44,4 @@ If you would like to contribute new features, capabilities, or improvements:
 3. Commit your changes: `git commit -m 'feat: add amazing feature'`.
 4. Push to your branch: `git push origin feature/amazing-feature`.
 5. Open a **Pull Request (PR)** against the `main` branch.
+
