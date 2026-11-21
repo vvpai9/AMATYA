@@ -332,7 +332,11 @@
         d.innerHTML = `<div class="lbl">AMATYA</div>${formatMarkdown(text)}`;
       } else {
         d.className = 'msg msg-u';
-        d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
+        const lbl = document.createElement('div');
+        lbl.className = 'lbl';
+        lbl.textContent = 'You';
+        d.appendChild(lbl);
+        d.appendChild(document.createTextNode(text));
       }
       feed.appendChild(d);
       feed.scrollTop = feed.scrollHeight;
@@ -345,7 +349,13 @@
     }
 
     function esc(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (typeof s !== 'string') return '';
+      return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     // ── File helpers ──────────────────────────────────────────────────────────
@@ -374,20 +384,50 @@
     function _uploadFile(file) {
       const id = 'fc_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
-      // Create file card in feed
+      // Create file card in feed using safe DOM methods
       const card = document.createElement('div');
       card.className = 'msg-file';
       card.id = id;
-      card.innerHTML = `
-        <div class="fc-icon">${_fileIcon(file.name)}</div>
-        <div class="fc-meta">
-          <div class="fc-lbl">Sending</div>
-          <div class="fc-name">${esc(file.name)}</div>
-          <div class="fc-size">${_fmtSize(file.size)}</div>
-          <div class="fc-bar-wrap"><div class="fc-bar" id="${id}_bar"></div></div>
-        </div>
-        <div class="fc-status" id="${id}_st">0%</div>
-      `;
+
+      const iconDiv = document.createElement('div');
+      iconDiv.className = 'fc-icon';
+      iconDiv.textContent = _fileIcon(file.name);
+      card.appendChild(iconDiv);
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'fc-meta';
+
+      const lblDiv = document.createElement('div');
+      lblDiv.className = 'fc-lbl';
+      lblDiv.textContent = 'Sending';
+      metaDiv.appendChild(lblDiv);
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'fc-name';
+      nameDiv.textContent = file.name;
+      metaDiv.appendChild(nameDiv);
+
+      const sizeDiv = document.createElement('div');
+      sizeDiv.className = 'fc-size';
+      sizeDiv.textContent = _fmtSize(file.size);
+      metaDiv.appendChild(sizeDiv);
+
+      const barWrap = document.createElement('div');
+      barWrap.className = 'fc-bar-wrap';
+      const barDiv = document.createElement('div');
+      barDiv.className = 'fc-bar';
+      barDiv.id = `${id}_bar`;
+      barWrap.appendChild(barDiv);
+      metaDiv.appendChild(barWrap);
+
+      card.appendChild(metaDiv);
+
+      const stDiv = document.createElement('div');
+      stDiv.className = 'fc-status';
+      stDiv.id = `${id}_st`;
+      stDiv.textContent = '0%';
+      card.appendChild(stDiv);
+
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
 
@@ -416,8 +456,14 @@
           if (bar)  { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
           if (st)   { st.textContent = '✓'; st.className = 'fc-status done'; }
           if (lbl)  lbl.textContent = 'Sent';
-          if (meta) meta.insertAdjacentHTML('beforeend',
-            `<a class="fc-dl" href="${dlUrl}" download="${esc(savedName)}">⬇ Download back</a>`);
+          if (meta) {
+            const dlLink = document.createElement('a');
+            dlLink.className = 'fc-dl';
+            dlLink.href = dlUrl;
+            dlLink.download = savedName;
+            dlLink.textContent = '⬇ Download back';
+            meta.appendChild(dlLink);
+          }
           toast('File sent!');
         } else {
           let errMsg = 'Upload failed';
@@ -445,16 +491,44 @@
       const dlUrl = `/uploads/${encodeURIComponent(m.name)}?token=${encodeURIComponent(_authToken)}`;
       const card  = document.createElement('div');
       card.className = 'msg-file';
-      card.innerHTML = `
-        <div class="fc-icon">${_fileIcon(m.name)}</div>
-        <div class="fc-meta">
-          <div class="fc-lbl">Received</div>
-          <div class="fc-name">${esc(m.name)}</div>
-          <div class="fc-size">${_fmtSize(m.size)}</div>
-          <a class="fc-dl" href="${dlUrl}" download="${esc(m.name)}">⬇ Download</a>
-        </div>
-        <div class="fc-status done">✓</div>
-      `;
+
+      const iconDiv = document.createElement('div');
+      iconDiv.className = 'fc-icon';
+      iconDiv.textContent = _fileIcon(m.name);
+      card.appendChild(iconDiv);
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'fc-meta';
+
+      const lblDiv = document.createElement('div');
+      lblDiv.className = 'fc-lbl';
+      lblDiv.textContent = 'Received';
+      metaDiv.appendChild(lblDiv);
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'fc-name';
+      nameDiv.textContent = m.name;
+      metaDiv.appendChild(nameDiv);
+
+      const sizeDiv = document.createElement('div');
+      sizeDiv.className = 'fc-size';
+      sizeDiv.textContent = _fmtSize(m.size);
+      metaDiv.appendChild(sizeDiv);
+
+      const dlLink = document.createElement('a');
+      dlLink.className = 'fc-dl';
+      dlLink.href = dlUrl;
+      dlLink.download = m.name;
+      dlLink.textContent = '⬇ Download';
+      metaDiv.appendChild(dlLink);
+
+      card.appendChild(metaDiv);
+
+      const stDiv = document.createElement('div');
+      stDiv.className = 'fc-status done';
+      stDiv.textContent = '✓';
+      card.appendChild(stDiv);
+
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       toast('File received on computer!');
@@ -508,7 +582,7 @@
     let _audioNd  = null;
 
     function _micIdle() {
-      micBtn.innerHTML = '🎤';
+      micBtn.textContent = '🎤';
       micBtn.title     = 'Voice — tap to speak';
       micBtn.classList.remove('recording');
     }
@@ -545,10 +619,12 @@
         '<ol style="padding-left:18px;color:#8899aa;margin:0;display:flex;flex-direction:column;gap:4px">' +
         '<li>Open a new tab → go to <span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px">chrome://flags</span></li>' +
         '<li>Search: <strong style="color:#dde3ed">Insecure origins treated as secure</strong></li>' +
-        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer">' + esc(origin) + '</span></li>' +
+        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer"></span></li>' +
         '<li>Set to <strong style="color:#22c55e">Enabled</strong> → tap <strong style="color:#dde3ed">Relaunch</strong></li>' +
         '<li>Return here and tap 🎤</li>' +
         '</ol>';
+      const flagsSpan = card.querySelector('#flags-url');
+      if (flagsSpan) flagsSpan.textContent = origin;
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
       // tap to copy
@@ -624,7 +700,7 @@
           _audioNd = sp;
         }
 
-        micBtn.innerHTML = '⏹';
+        micBtn.textContent = '⏹';
         micBtn.title     = 'Tap to stop';
         micBtn.classList.add('recording');
         sys('Voice live — speak now');
